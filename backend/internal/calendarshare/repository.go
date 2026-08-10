@@ -153,7 +153,7 @@ func (r *Repository) ListRedactedEvents(ctx context.Context, ownerTeamID uuid.UU
 	defer cancel()
 
 	q := `
-		SELECT id, type, title, date,
+		SELECT id, type, title, date, end_date,
 			COALESCE(TO_CHAR(start_time, 'HH24:MI'), '') AS start_time,
 			COALESCE(TO_CHAR(end_time, 'HH24:MI'), '') AS end_time,
 			location
@@ -163,7 +163,11 @@ func (r *Repository) ListRedactedEvents(ctx context.Context, ownerTeamID uuid.UU
 	args := []any{ownerTeamID}
 	if from != nil {
 		args = append(args, *from)
-		q += fmt.Sprintf(" AND date >= $%d", len(args))
+		// COALESCE(end_date, date) >= from: a multi-day event that started
+		// before `from` but is still ongoing at `from` must still be
+		// included, mirroring events.Repository.ListEvents' identical
+		// upcoming-scope reasoning.
+		q += fmt.Sprintf(" AND COALESCE(end_date, date) >= $%d", len(args))
 	}
 	if to != nil {
 		args = append(args, *to)
@@ -182,7 +186,7 @@ func (r *Repository) ListRedactedEvents(ctx context.Context, ownerTeamID uuid.UU
 	for rows.Next() {
 		var e RedactedEventRow
 		var startTime, endTime string
-		if err := rows.Scan(&e.Id, &e.Type, &e.Title, &e.Date, &startTime, &endTime, &e.Location); err != nil {
+		if err := rows.Scan(&e.Id, &e.Type, &e.Title, &e.Date, &e.EndDate, &startTime, &endTime, &e.Location); err != nil {
 			return nil, fmt.Errorf("calendarshare.Repository.ListRedactedEvents: scan: %w", err)
 		}
 		if startTime != "" {

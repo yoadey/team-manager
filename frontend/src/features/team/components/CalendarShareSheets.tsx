@@ -228,7 +228,9 @@ function SharedCalendarSourceRow({
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {events.map((e) => (
                 <Box key={e.id} sx={{ display: 'flex', gap: '10px', fontSize: '13px' }}>
-                  <Box sx={{ color: NEUTRAL.secondary, flex: '0 0 auto' }}>{fmtEventDate(e.date)}</Box>
+                  <Box sx={{ color: NEUTRAL.secondary, flex: '0 0 auto' }}>
+                    {e.multiDayEndDate ? `${fmtEventDate(e.date)} – ${fmtEventDate(e.multiDayEndDate)}` : fmtEventDate(e.date)}
+                  </Box>
                   <Box sx={{ flex: 1, fontWeight: 600 }}>{e.title}</Box>
                   {e.startTime ? <Box sx={{ color: NEUTRAL.secondary }}>{e.startTime}</Box> : null}
                   {e.location ? <Box sx={{ color: NEUTRAL.secondary }}>{e.location}</Box> : null}

@@ -109,6 +109,21 @@ describe('EventFormSheet', () => {
     expect(screen.getByText('events.fieldDate')).toBeTruthy();
   });
 
+  it('renders the multi-day end-date field when not recurring', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+    expect(screen.getByText('events.fieldMultiDayEndDate')).toBeTruthy();
+  });
+
+  it('hides the multi-day end-date field once recurring is toggled on', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+    fireEvent.click(screen.getByRole('switch', { name: 'events.recurWeekly' }));
+    expect(screen.queryByText('events.fieldMultiDayEndDate')).toBeFalsy();
+  });
+
   it('renders time fields', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
@@ -285,6 +300,27 @@ describe('EventFormSheet', () => {
     const btn = screen.getByText('events.meetTimeMandatory').closest('button')!;
     fireEvent.click(btn);
     expect(btn.getAttribute('aria-checked')).toBe('true');
+  });
+
+  // Regression test: toggling recurring on used to leave a previously-typed
+  // multiDayEndDate value in place even though its field is unmounted (not
+  // unregistered) once recurring is shown instead -- eventFormSchema then
+  // rejected the (hidden, unfixable-by-the-user) recurring+multiDayEndDate
+  // combination on every submit attempt, with no visible error.
+  it('clears multiDayEndDate when recurring is toggled on', () => {
+    const app = makeApp({ title: 'Camp', date: '2026-07-01' });
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+
+    fireEvent.change(screen.getByLabelText('events.fieldMultiDayEndDate'), { target: { value: '2026-07-03' } });
+    // Toggle recurring on (unmounts the field) then off again (remounts it)
+    // to inspect whether the underlying form value was actually reset, not
+    // just hidden.
+    const toggle = screen.getByText('events.recurWeekly').closest('button')!;
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+
+    expect((screen.getByLabelText('events.fieldMultiDayEndDate') as HTMLInputElement).value).toBe('');
   });
 
   it('clicking submit calls saveEvent', async () => {

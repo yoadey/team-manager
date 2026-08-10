@@ -245,6 +245,64 @@ describe('AppProvider / actions (app phase)', () => {
   });
 
 
+  it('duplicateEvent opens a create form pre-filled from the source event, with seriesId stripped and date reset', async () => {
+    await renderAndBootstrap();
+    const event = {
+      id: 'ev1',
+      seriesId: 'series1',
+      type: 'training',
+      title: 'Großes Training',
+      date: '2020-06-15',
+      multiDayEndDate: null,
+      meetTime: '19:00',
+      startTime: '19:30',
+      endTime: '21:00',
+      location: 'Halle',
+      note: '',
+      meetTimeMandatory: true,
+      responseMode: 'opt_out',
+      nominatedRoleIds: ['r1'],
+      cancelLeadMinutes: null,
+    } as never;
+    await act(async () => {
+      capturedActions.duplicateEvent(event);
+    });
+    expect(screen.getByTestId('sheet').textContent).toBe('eventForm');
+    expect(screen.getByTestId('sheetEventId').textContent).toBe('');
+    const form = JSON.parse(screen.getByTestId('form').textContent!);
+    expect(form.title).toBe('Großes Training');
+    expect(form.seriesId).toBeNull();
+    expect(form.recurring).toBe(false);
+    expect(form.date).not.toBe('2020-06-15');
+  });
+
+  it('duplicateEvent preserves a multi-day event span length, anchored to the new date', async () => {
+    await renderAndBootstrap();
+    const event = {
+      id: 'ev1',
+      seriesId: null,
+      type: 'training',
+      title: 'Trainingslager',
+      date: '2020-06-15',
+      multiDayEndDate: '2020-06-17',
+      meetTime: null,
+      startTime: null,
+      endTime: null,
+      location: '',
+      note: '',
+      meetTimeMandatory: false,
+      responseMode: 'opt_in',
+      nominatedRoleIds: [],
+      cancelLeadMinutes: null,
+    } as never;
+    await act(async () => {
+      capturedActions.duplicateEvent(event, '2026-01-10');
+    });
+    const form = JSON.parse(screen.getByTestId('form').textContent!);
+    expect(form.date).toBe('2026-01-10');
+    expect(form.multiDayEndDate).toBe('2026-01-12');
+  });
+
   it('closeSheet resets sheet to null', async () => {
     await renderAndBootstrap();
     await act(async () => {

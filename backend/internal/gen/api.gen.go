@@ -569,19 +569,22 @@ type CreateEventRequest struct {
 	Date              openapi_types.Date `json:"date"`
 
 	// EndDate Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
-	EndDate           *openapi_types.Date   `json:"endDate,omitempty"`
-	EndTime           *string               `json:"endTime,omitempty"`
-	Location          *string               `json:"location,omitempty"`
-	MeetTime          *string               `json:"meetTime,omitempty"`
-	MeetTimeMandatory *bool                 `json:"meetTimeMandatory,omitempty"`
-	NominatedRoleIds  *[]openapi_types.UUID `json:"nominatedRoleIds,omitempty"`
-	Note              *string               `json:"note,omitempty"`
-	Recurring         *bool                 `json:"recurring,omitempty"`
-	RepeatWeeks       *int                  `json:"repeatWeeks,omitempty"`
-	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
-	StartTime         *string               `json:"startTime,omitempty"`
-	Title             string                `json:"title"`
-	Type              EventType             `json:"type"`
+	EndDate           *openapi_types.Date `json:"endDate,omitempty"`
+	EndTime           *string             `json:"endTime,omitempty"`
+	Location          *string             `json:"location,omitempty"`
+	MeetTime          *string             `json:"meetTime,omitempty"`
+	MeetTimeMandatory *bool               `json:"meetTimeMandatory,omitempty"`
+
+	// MultiDayEndDate Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true.
+	MultiDayEndDate  *openapi_types.Date   `json:"multiDayEndDate,omitempty"`
+	NominatedRoleIds *[]openapi_types.UUID `json:"nominatedRoleIds,omitempty"`
+	Note             *string               `json:"note,omitempty"`
+	Recurring        *bool                 `json:"recurring,omitempty"`
+	RepeatWeeks      *int                  `json:"repeatWeeks,omitempty"`
+	ResponseMode     *ResponseMode         `json:"responseMode,omitempty"`
+	StartTime        *string               `json:"startTime,omitempty"`
+	Title            string                `json:"title"`
+	Type             EventType             `json:"type"`
 }
 
 // CreateNewsRequest defines model for CreateNewsRequest.
@@ -1019,6 +1022,9 @@ type SharedCalendarEvent struct {
 	Id       openapi_types.UUID `json:"id"`
 	Location *string            `json:"location,omitempty"`
 
+	// MultiDayEndDate Optional last day of a multi-day span (see TeamEvent's field of the same name); when set, the event occurs on every calendar day from date through multiDayEndDate inclusive.
+	MultiDayEndDate *openapi_types.Date `json:"multiDayEndDate,omitempty"`
+
 	// StartTime HH:mm
 	StartTime *string   `json:"startTime,omitempty"`
 	Title     string    `json:"title"`
@@ -1067,17 +1073,20 @@ type TeamEvent struct {
 	Location *string            `json:"location,omitempty"`
 
 	// MeetTime HH:mm
-	MeetTime          *string               `json:"meetTime,omitempty"`
-	MeetTimeMandatory *bool                 `json:"meetTimeMandatory,omitempty"`
-	MyAuto            *bool                 `json:"myAuto,omitempty"`
-	MyReason          *string               `json:"myReason,omitempty"`
-	MyStatus          *AttendanceStatus     `json:"myStatus,omitempty"`
-	NominatedRoleIds  *[]openapi_types.UUID `json:"nominatedRoleIds,omitempty"`
-	Note              *string               `json:"note,omitempty"`
-	Recurring         bool                  `json:"recurring"`
-	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
-	Result            *string               `json:"result,omitempty"`
-	SeriesId          *openapi_types.UUID   `json:"seriesId,omitempty"`
+	MeetTime          *string `json:"meetTime,omitempty"`
+	MeetTimeMandatory *bool   `json:"meetTimeMandatory,omitempty"`
+
+	// MultiDayEndDate Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Never set together with recurring: true.
+	MultiDayEndDate  *openapi_types.Date   `json:"multiDayEndDate,omitempty"`
+	MyAuto           *bool                 `json:"myAuto,omitempty"`
+	MyReason         *string               `json:"myReason,omitempty"`
+	MyStatus         *AttendanceStatus     `json:"myStatus,omitempty"`
+	NominatedRoleIds *[]openapi_types.UUID `json:"nominatedRoleIds,omitempty"`
+	Note             *string               `json:"note,omitempty"`
+	Recurring        bool                  `json:"recurring"`
+	ResponseMode     *ResponseMode         `json:"responseMode,omitempty"`
+	Result           *string               `json:"result,omitempty"`
+	SeriesId         *openapi_types.UUID   `json:"seriesId,omitempty"`
 
 	// StartTime HH:mm
 	StartTime *string            `json:"startTime,omitempty"`
@@ -1152,18 +1161,24 @@ type UpdateContributionRequest struct {
 // UpdateEventRequest defines model for UpdateEventRequest.
 type UpdateEventRequest struct {
 	// CancelLeadMinutes Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response.
-	CancelLeadMinutes *int                  `json:"cancelLeadMinutes,omitempty"`
-	Date              *openapi_types.Date   `json:"date,omitempty"`
-	EndTime           *string               `json:"endTime,omitempty"`
-	Location          *string               `json:"location,omitempty"`
-	MeetTime          *string               `json:"meetTime,omitempty"`
-	MeetTimeMandatory *bool                 `json:"meetTimeMandatory,omitempty"`
-	NominatedRoleIds  *[]openapi_types.UUID `json:"nominatedRoleIds,omitempty"`
-	Note              *string               `json:"note,omitempty"`
-	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
-	StartTime         *string               `json:"startTime,omitempty"`
-	Title             *string               `json:"title,omitempty"`
-	Type              *EventType            `json:"type,omitempty"`
+	CancelLeadMinutes *int `json:"cancelLeadMinutes,omitempty"`
+
+	// ClearMultiDayEndDate When true, clears the event's multiDayEndDate back to unset (single-day). Mutually exclusive with multiDayEndDate.
+	ClearMultiDayEndDate *bool               `json:"clearMultiDayEndDate,omitempty"`
+	Date                 *openapi_types.Date `json:"date,omitempty"`
+	EndTime              *string             `json:"endTime,omitempty"`
+	Location             *string             `json:"location,omitempty"`
+	MeetTime             *string             `json:"meetTime,omitempty"`
+	MeetTimeMandatory    *bool               `json:"meetTimeMandatory,omitempty"`
+
+	// MultiDayEndDate Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true. Setting a new value always replaces the event's current span, if any -- to turn a multi-day event back into a single-day one, use clearMultiDayEndDate instead (mutually exclusive with this field, since a date field itself cannot carry both a value and an explicit "clear" signal).
+	MultiDayEndDate  *openapi_types.Date   `json:"multiDayEndDate,omitempty"`
+	NominatedRoleIds *[]openapi_types.UUID `json:"nominatedRoleIds,omitempty"`
+	Note             *string               `json:"note,omitempty"`
+	ResponseMode     *ResponseMode         `json:"responseMode,omitempty"`
+	StartTime        *string               `json:"startTime,omitempty"`
+	Title            *string               `json:"title,omitempty"`
+	Type             *EventType            `json:"type,omitempty"`
 }
 
 // UpdateMemberRequest defines model for UpdateMemberRequest.

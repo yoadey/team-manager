@@ -11,6 +11,7 @@ function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
     type: 'training',
     title: 'Training',
     date: '2026-01-05',
+    multiDayEndDate: null,
     location: '',
     note: '',
     meetTime: null,

@@ -100,9 +100,20 @@ export function useCalExportActions({ api, S, setState, activeTeam, teamId, toas
       // timezone, unlike combineDateAndTimeLocal which would silently
       // reinterpret them in whatever timezone the browser happens to run in.
       const start = zonedTimeToUtc(e.date, hhmm(e.startTime) || hhmm(e.meetTime) || '18:00', 'Europe/Berlin');
-      const end = e.endTime
-        ? zonedTimeToUtc(e.date, hhmm(e.endTime), 'Europe/Berlin')
-        : new Date(start.getTime() + 2 * 3600 * 1000);
+      // A multi-day event's DTEND is anchored to its last day
+      // (multiDayEndDate), not its first (date) -- otherwise a 3-day camp
+      // would export as a single ~2h block on day one, with no calendar
+      // entry at all for the remaining days it actually covers (mirrors
+      // backend/internal/calendarfeed/ics.go's Render).
+      const endDate = e.multiDayEndDate || e.date;
+      let end: Date;
+      if (e.endTime) {
+        end = zonedTimeToUtc(endDate, hhmm(e.endTime), 'Europe/Berlin');
+      } else if (e.multiDayEndDate) {
+        end = zonedTimeToUtc(endDate, '23:59', 'Europe/Berlin');
+      } else {
+        end = new Date(start.getTime() + 2 * 3600 * 1000);
+      }
       const descParts: string[] = [];
       if (e.meetTime) descParts.push(t('events.meetTime', { time: hhmm(e.meetTime) }));
       if (e.note) descParts.push(e.note);

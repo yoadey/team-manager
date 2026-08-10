@@ -7,6 +7,7 @@ import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Av, Sym } from '@/components/ui';
 import { useEventsQuery, useEventDetailQuery } from '@/features/events';
+import { isEventPast } from '@/features/events/rsvpCutoff';
 import { useMembersQuery } from '@/features/members';
 import { useNotificationsQuery } from '@/features/notifications';
 import { RouteScreen } from '@/pages';
@@ -595,7 +596,7 @@ export function Shell() {
 
   const today = todayLocalDate();
   const pending = (events ?? []).filter(
-    (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
+    (e) => !isEventPast(e, today) && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
 
   const pm = pageMeta(app, detailData?.event, members?.length);

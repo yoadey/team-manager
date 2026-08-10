@@ -12,6 +12,19 @@ const validDate = (value: string) => {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 };
 
+// Days between two valid YYYY-MM-DD strings (b - a). Callers must validate
+// both with validDate() first -- this does no format checking itself.
+const daysBetween = (a: string, b: string) => {
+  const toUtcDays = (s: string) => Date.parse(s + 'T00:00:00Z') / 86_400_000;
+  return toUtcDays(b) - toUtcDays(a);
+};
+
+// Mirrors the backend's maxMultiDaySpanDays (events.Service, 1095 days /
+// ~3 years) -- an inline check here catches the common "typo'd the year"
+// mistake with a field-specific error instead of a raw, untranslated
+// server 400 surfacing through the generic save-error toast.
+const MAX_MULTI_DAY_SPAN_DAYS = 1095;
+
 const minutes = (value: string) => {
   if (!TIME_RE.test(value)) return null;
   const [h, m] = value.split(':').map(Number);
@@ -26,6 +39,7 @@ const minutes = (value: string) => {
 // to `undefined`) straight through from .superRefine() typechecks.
 interface EventFormRefineInput {
   date: string;
+  multiDayEndDate?: string | undefined;
   startT?: string | undefined;
   endT?: string | undefined;
   meetT?: string | undefined;
@@ -42,6 +56,44 @@ function validateDateField(data: EventFormRefineInput, ctx: z.RefinementCtx) {
       path: ['date'],
       message: t('validation.eventDateInvalid'),
     });
+  }
+}
+
+// Multi-day span is mutually exclusive with recurring (see design.md's
+// "Mutually exclusive with recurring" decision) -- server-side rejects the
+// combination too, but validating it here gives immediate inline feedback.
+function validateMultiDayEndDate(data: EventFormRefineInput, ctx: z.RefinementCtx) {
+  if (!data.multiDayEndDate) return;
+  if (!validDate(data.multiDayEndDate)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['multiDayEndDate'],
+      message: t('validation.eventMultiDayEndDateInvalid'),
+    });
+    return;
+  }
+  if (data.recurring) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['multiDayEndDate'],
+      message: t('validation.eventMultiDayEndDateOnRecurring'),
+    });
+    return;
+  }
+  if (data.date && validDate(data.date)) {
+    if (data.multiDayEndDate < data.date) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['multiDayEndDate'],
+        message: t('validation.eventMultiDayEndDateBeforeStart'),
+      });
+    } else if (daysBetween(data.date, data.multiDayEndDate) > MAX_MULTI_DAY_SPAN_DAYS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['multiDayEndDate'],
+        message: t('validation.eventMultiDayEndDateSpanTooLong', { max: MAX_MULTI_DAY_SPAN_DAYS }),
+      });
+    }
   }
 }
 
@@ -119,6 +171,7 @@ export const eventFormSchema = z
       .string()
       .trim()
       .min(1, { message: t('validation.eventDateMissing') }),
+    multiDayEndDate: z.string().trim().optional().or(z.literal('')),
     meetT: z.string().trim().optional().or(z.literal('')),
     startT: z.string().trim().optional().or(z.literal('')),
     endT: z.string().trim().optional().or(z.literal('')),
@@ -141,6 +194,7 @@ export const eventFormSchema = z
   })
   .superRefine((data, ctx) => {
     validateDateField(data, ctx);
+    validateMultiDayEndDate(data, ctx);
     validateTimeFields(data, ctx);
     validateRecurring(data, ctx);
   });

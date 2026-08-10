@@ -11,7 +11,7 @@ import type { SheetProps } from '@/sheets/types';
 import { reportActionError } from '@/utils/errors';
 import { useEventDetailQuery } from '../hooks/useEventQueries';
 import { RsvpCountdown } from './RsvpCountdown';
-import { effectiveRsvpCutoff, isRsvpCutoffPassed } from '../rsvpCutoff';
+import { effectiveRsvpCutoff, isRsvpCutoffPassed, isEventPast } from '../rsvpCutoff';
 import { t } from '@/i18n';
 
 type AppApi = SheetProps['app'];
@@ -170,7 +170,7 @@ interface MyResponseSectionProps {
 
 function MyResponseSection({ app, event, tk, me, canEdit }: MyResponseSectionProps) {
   const today = todayLocalDate();
-  const isPast = event.date < today;
+  const isPast = isEventPast(event, today);
   const cancelled = event.status === 'cancelled';
   if (isPast || cancelled) return null;
 
@@ -546,12 +546,14 @@ function EventEditActions({
   event,
   canEdit,
   onEdit,
+  onDuplicate,
   onCancel,
   onDelete,
 }: {
   event: TeamEvent;
   canEdit: boolean;
   onEdit: () => void;
+  onDuplicate: () => void;
   onCancel: () => void;
   onDelete: () => void;
 }) {
@@ -579,6 +581,27 @@ function EventEditActions({
       >
         <Sym name="edit" size={19} color={NEUTRAL.onSurfaceVariant} />
         {t('events.edit')}
+      </ButtonBase>
+      <ButtonBase
+        onClick={onDuplicate}
+        sx={{
+          flex: '1 1 130px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          p: '12px',
+          borderRadius: '13px',
+          border: `1px solid ${NEUTRAL.inputBorder}`,
+          background: NEUTRAL.card,
+          color: NEUTRAL.onSurfaceVariant,
+          fontWeight: 600,
+          fontSize: '14px',
+          cursor: 'pointer',
+        }}
+      >
+        <Sym name="content_copy" size={19} color={NEUTRAL.onSurfaceVariant} />
+        {t('events.duplicate')}
       </ButtonBase>
       {!cancelled ? (
         <ButtonBase
@@ -760,7 +783,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
 
   const tm = typeMeta(e.type);
   const today = todayLocalDate();
-  const isPast = e.date < today;
+  const isPast = isEventPast(e, today);
   const canEdit = app.can('events', 'write');
   const rsvpCutoff = effectiveRsvpCutoff(e);
   const me = state.user!.id;
@@ -777,7 +800,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         ) : null}
       </Box>
       <Box sx={{ fontSize: '13px', color: NEUTRAL.secondary, fontWeight: 500, m: '0 2px 12px' }}>
-        {fmtDateLong(e.date)}
+        {e.multiDayEndDate ? `${fmtDateLong(e.date)} – ${fmtDateLong(e.multiDayEndDate)}` : fmtDateLong(e.date)}
       </Box>
       <CancelledBanner event={e} canEdit={canEdit} onReactivate={() => app.askEventAction('reactivate', e)} />
       <EventInfoCard event={e} />
@@ -845,6 +868,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         event={e}
         canEdit={canEdit}
         onEdit={() => app.openEventForm(e)}
+        onDuplicate={() => app.duplicateEvent(e)}
         onCancel={() => app.askEventAction('cancel', e)}
         onDelete={() => app.askEventAction('delete', e)}
       />

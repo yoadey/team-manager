@@ -13,6 +13,7 @@ function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
     type: 'training',
     title: 'Weekly Training',
     date: '2026-01-05',
+    multiDayEndDate: null,
     location: '',
     note: '',
     meetTime: '17:30',
@@ -124,6 +125,45 @@ describe('useCalExportActions', () => {
     });
 
     expect(capturedIcsText).toContain('Wettkampf / Auftritt');
+  });
+
+  it('anchors DTEND to the last day of a multi-day event, with its own end time', async () => {
+    events = [
+      makeEvent({
+        date: '2026-08-14',
+        multiDayEndDate: '2026-08-16',
+        startTime: '09:00',
+        endTime: '16:00',
+      }),
+    ];
+    const { result, rerender } = renderActions();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    rerender();
+    act(() => {
+      result.current.downloadIcs();
+    });
+
+    // 09:00 Europe/Berlin in August (CEST, UTC+2) is 07:00 UTC on the first day.
+    expect(capturedIcsText).toContain('DTSTART:20260814T070000Z');
+    // 16:00 CEST on the LAST day (Aug 16), not the first.
+    expect(capturedIcsText).toContain('DTEND:20260816T140000Z');
+  });
+
+  it('covers a multi-day event with no explicit end time through the end of its last day', async () => {
+    events = [makeEvent({ date: '2026-08-14', multiDayEndDate: '2026-08-16', endTime: null })];
+    const { result, rerender } = renderActions();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    rerender();
+    act(() => {
+      result.current.downloadIcs();
+    });
+
+    // 23:59 CEST on the last day (Aug 16) is 21:59 UTC.
+    expect(capturedIcsText).toContain('DTEND:20260816T215900Z');
   });
 });
 

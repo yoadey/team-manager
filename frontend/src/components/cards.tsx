@@ -7,7 +7,7 @@ import { buildTokens, fmtDate, hhmm, NEUTRAL, statusMeta, typeMeta } from '@/sty
 import { parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 import { getIntlLocale, getLocale, subscribeLocale, t } from '@/i18n';
 import type { TeamEvent } from '@/features/events';
-import { isRsvpCutoffPassed } from '@/features/events/rsvpCutoff';
+import { isRsvpCutoffPassed, isEventPast } from '@/features/events/rsvpCutoff';
 import type { NewsItem } from '@/features/news';
 import type { AttendanceStatus } from '@/types';
 import { Av, Chip, Sym, metaItem } from './ui';
@@ -38,7 +38,7 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
   const today = todayLocalDate();
   const tm = typeMeta(e.type);
   const sm = statusMeta(e.myStatus);
-  const isPast = e.date < today;
+  const isPast = isEventPast(e, today);
   const cancelled = e.status === 'cancelled';
   const notNominated = e.myStatus === 'not_nominated';
   // RSVP straight from the overview only where it's meaningful: upcoming,

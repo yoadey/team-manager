@@ -552,6 +552,8 @@ export const realApi = {
         type: string;
         title: string;
         date: string;
+        /** Optional last day of a multi-day span; YYYY-MM-DD. Mutually exclusive with recurring. */
+        multiDayEndDate?: string | undefined;
         location?: string;
         note?: string;
         meetT?: string | null;
@@ -574,6 +576,7 @@ export const realApi = {
           type: payload.type as 'training' | 'auftritt' | 'event',
           title: payload.title,
           date: payload.date,
+          ...opt('multiDayEndDate', payload.multiDayEndDate || undefined),
           ...opt('location', payload.location ?? undefined),
           ...opt('note', payload.note ?? undefined),
           ...opt('meetTime', payload.meetT ?? undefined),
@@ -611,6 +614,8 @@ export const realApi = {
         type?: string;
         title?: string;
         date?: string;
+        /** Optional last day of a multi-day span; YYYY-MM-DD, or '' to clear it back to a single-day event (translated to clearMultiDayEndDate below, since the wire field itself can't carry both a value and a "clear" signal). */
+        multiDayEndDate?: string | undefined;
         location?: string;
         note?: string;
         meetT?: string | null;
@@ -631,6 +636,11 @@ export const realApi = {
           ...opt('type', patch.type as 'training' | 'auftritt' | 'event' | undefined),
           ...opt('title', patch.title),
           ...opt('date', patch.date),
+          ...(patch.multiDayEndDate
+            ? { multiDayEndDate: patch.multiDayEndDate }
+            : patch.multiDayEndDate === ''
+              ? { clearMultiDayEndDate: true }
+              : {}),
           ...opt('location', patch.location),
           ...opt('note', patch.note),
           ...opt('meetTime', patch.meetT ?? undefined),

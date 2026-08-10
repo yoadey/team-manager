@@ -99,10 +99,25 @@ func Render(teamName string, evts []events.EventRow, birthdays []Birthday) []byt
 
 		start := events.EventStartInstant(e.Date, e.StartTime, e.MeetTime)
 
+		// A multi-day event's DTEND is anchored to its last day (EndDate),
+		// not its first (Date) -- otherwise a 3-day camp would render as a
+		// single ~2h block on day one, with no calendar entry at all for the
+		// remaining days it actually covers.
+		endDate := e.Date
+		if e.EndDate != nil {
+			endDate = *e.EndDate
+		}
+
 		var end time.Time
-		if e.EndTime != nil {
-			end = events.ZonedTimeToUTC(e.Date, *e.EndTime)
-		} else {
+		switch {
+		case e.EndTime != nil:
+			end = events.ZonedTimeToUTC(endDate, *e.EndTime)
+		case e.EndDate != nil:
+			// No explicit end-of-day time on a multi-day span -- cover
+			// through the end of the last day rather than the single-day
+			// 2h-default, which would truncate the span to almost nothing.
+			end = events.ZonedTimeToUTC(endDate, "23:59")
+		default:
 			end = start.Add(2 * time.Hour)
 		}
 

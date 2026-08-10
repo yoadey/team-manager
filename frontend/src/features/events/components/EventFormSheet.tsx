@@ -553,9 +553,20 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       <Field label={t('events.fieldTitle')} required error={!!errors.title} errorText={errors.title?.message}>
         <TextInput placeholder={t('events.fieldTitlePlaceholder')} maxLength={255} {...register('title')} />
       </Field>
-      <Field label={t('events.fieldDate')} required error={!!errors.date} errorText={errors.date?.message}>
-        <TextInput type="date" {...register('date')} />
-      </Field>
+      <Box sx={{ display: 'flex', gap: '10px' }}>
+        <Field label={t('events.fieldDate')} required error={!!errors.date} errorText={errors.date?.message}>
+          <TextInput type="date" {...register('date')} />
+        </Field>
+        {!recurring ? (
+          <Field
+            label={t('events.fieldMultiDayEndDate')}
+            error={!!errors.multiDayEndDate}
+            errorText={errors.multiDayEndDate?.message}
+          >
+            <TextInput type="date" min={dateVal} {...register('multiDayEndDate')} />
+          </Field>
+        ) : null}
+      </Box>
       <Box sx={{ display: 'flex', gap: '10px' }}>
         <Field label={t('events.fieldMeetTime')} error={!!errors.meetT} errorText={errors.meetT?.message}>
           <TextInput type="time" {...register('meetT')} />
@@ -629,7 +640,16 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         tk={tk}
         register={register}
         errors={errors}
-        onToggle={() => setValue('recurring', !recurring, { shouldValidate: true })}
+        onToggle={() => {
+          const next = !recurring;
+          setValue('recurring', next, { shouldValidate: true });
+          // The multi-day end-date field is unmounted (not unregistered) while
+          // recurring is on, so react-hook-form keeps its stale value -- left
+          // as-is, that value would still fail eventFormSchema's "not both
+          // recurring and multiDayEndDate" check on submit, with no visible
+          // error since the field itself is no longer rendered to show it.
+          if (next) setValue('multiDayEndDate', '', { shouldValidate: true });
+        }}
         onSelectRepeatMode={(mode) => setValue('repeatMode', mode, { shouldValidate: true })}
       />
       {showSeriesButtons ? (

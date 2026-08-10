@@ -164,6 +164,41 @@ func TestRepository_ListRedactedEvents_ExcludesCancelledAndRespectsDateRange(t *
 	assert.Len(t, all, 2)
 }
 
+func TestRepository_ListRedactedEvents_MultiDay(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := calendarshare.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Multi-Day Schedule Team')`, teamID)
+	require.NoError(t, err)
+
+	camp := uuid.New()
+	_, err = pool.Exec(ctx, `
+		INSERT INTO events (id, team_id, type, title, date, end_date, location, note, status)
+		VALUES ($1, $2, 'training', 'Trainingslager', '2026-06-10', '2026-06-12', 'Halle', '', 'active')
+	`, camp, teamID)
+	require.NoError(t, err)
+
+	// Projects end_date into RedactedEventRow.EndDate.
+	rows, err := repo.ListRedactedEvents(ctx, teamID, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.NotNil(t, rows[0].EndDate)
+	assert.Equal(t, "2026-06-12", rows[0].EndDate.Format("2006-01-02"))
+
+	// An ongoing multi-day event (started before `from` but not yet
+	// finished) must still be included, mirroring events.Repository.
+	// ListEvents' identical upcoming-scope COALESCE(end_date, date) logic.
+	from := mustParseDate(t, "2026-06-11")
+	to := mustParseDate(t, "2026-06-30")
+	ongoing, err := repo.ListRedactedEvents(ctx, teamID, &from, &to)
+	require.NoError(t, err)
+	require.Len(t, ongoing, 1, "an ongoing multi-day event must not be excluded once its start date has passed")
+}
+
 func mustParseDate(t *testing.T, s string) time.Time {
 	t.Helper()
 	tm, err := time.Parse("2006-01-02", s)

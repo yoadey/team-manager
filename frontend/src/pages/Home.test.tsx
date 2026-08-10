@@ -108,6 +108,35 @@ describe('Home', () => {
     expect(screen.getByText('Keine anstehenden Termine')).toBeTruthy();
   });
 
+  // Regression test: the "next events" widget used to filter on `date` alone,
+  // so an ongoing multi-day event (started in the past, per multiDayEndDate
+  // not yet finished) dropped out of the list once its start date passed.
+  it('keeps an ongoing multi-day event in the next-events list', () => {
+    mockUseApp.mockReturnValue(
+      makeApp({
+        events: [
+          {
+            id: 'camp1',
+            title: 'Trainingslager',
+            date: '2000-01-01',
+            multiDayEndDate: '2099-06-17',
+            type: 'training',
+            status: 'active',
+            myStatus: 'yes',
+            summary: { yes: 8, no: 2, maybe: 0 },
+            location: null,
+            note: null,
+            startTime: null,
+            endTime: null,
+            meetTime: null,
+          },
+        ],
+      }),
+    );
+    render(<Home />);
+    expect(screen.getByText('Trainingslager')).toBeTruthy();
+  });
+
   it('shows empty state when no news', () => {
     render(<Home />);
     expect(screen.getByText('Noch keine News')).toBeTruthy();

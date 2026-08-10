@@ -110,6 +110,52 @@ describe('useEventFormActions', () => {
     expect(stateRef.sheet!.formInitial).toMatchObject({ cancelLeadHours: 1, cancelLeadMinutes: 30 });
   });
 
+  it('duplicateEvent opens a create-mode form pre-filled from the source event, stripping seriesId and resetting the date', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.duplicateEvent(
+        {
+          id: 'ev1',
+          seriesId: 'series1',
+          type: 'training',
+          title: 'Weekly Training',
+          date: '2020-01-01',
+          multiDayEndDate: null,
+          location: 'Halle',
+        } as never,
+        '2026-05-01',
+      );
+    });
+    expect(stateRef.sheet!.mode).toBe('create');
+    expect(stateRef.sheet!.eventId).toBeUndefined();
+    expect(stateRef.sheet!.formInitial).toMatchObject({
+      title: 'Weekly Training',
+      location: 'Halle',
+      seriesId: null,
+      recurring: false,
+      date: '2026-05-01',
+      multiDayEndDate: '',
+    });
+  });
+
+  it('duplicateEvent preserves a multi-day span length, anchored to the new date', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.duplicateEvent(
+        {
+          id: 'ev1',
+          seriesId: null,
+          type: 'training',
+          title: 'Camp',
+          date: '2020-01-01',
+          multiDayEndDate: '2020-01-03',
+        } as never,
+        '2026-05-01',
+      );
+    });
+    expect(stateRef.sheet!.formInitial).toMatchObject({ date: '2026-05-01', multiDayEndDate: '2026-05-03' });
+  });
+
   it('saveEvent forwards cancelLeadMinutes as the combined hours+minutes total', async () => {
     const api = { events: { create: vi.fn().mockResolvedValue({ id: 'ev1' }) } };
     const formValues = {
@@ -172,6 +218,71 @@ describe('useEventFormActions', () => {
     const payload = api.events.create.mock.calls[0]![1] as Record<string, unknown>;
     expect(payload).toMatchObject({ endDate: '2026-03-01', recurring: true });
     expect(payload).not.toHaveProperty('repeatWeeks');
+  });
+
+  it('saveEvent forwards multiDayEndDate for a non-recurring event', async () => {
+    const api = { events: { create: vi.fn().mockResolvedValue({ id: 'ev1' }) } };
+    const formValues = {
+      type: 'training',
+      title: 'Camp',
+      date: '2026-01-01',
+      multiDayEndDate: '2026-01-03',
+      recurring: false,
+    } as never;
+    stateRef = makeState({ sheet: { type: 'eventForm', mode: 'create', formInitial: formValues } as never });
+    const { result } = renderHook(
+      () =>
+        useEventFormActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          loadNotifications: vi.fn().mockResolvedValue(undefined) as never,
+          openEventDetail: vi.fn() as never,
+          toastMsg: vi.fn() as never,
+          logout: vi.fn() as never,
+        }),
+      { wrapper: createQueryWrapper() },
+    );
+    await act(async () => {
+      await result.current.saveEvent(formValues);
+    });
+    expect(api.events.create).toHaveBeenCalledWith(
+      'team1',
+      expect.objectContaining({ multiDayEndDate: '2026-01-03' }),
+    );
+  });
+
+  it('saveEvent clears multiDayEndDate for a recurring event even if the field still holds a value', async () => {
+    const api = { events: { create: vi.fn().mockResolvedValue({ id: 'ev1' }) } };
+    const formValues = {
+      type: 'training',
+      title: 'Weekly',
+      date: '2026-01-01',
+      multiDayEndDate: '2026-01-03',
+      recurring: true,
+      repeatMode: 'weeks',
+      repeatWeeks: 8,
+    } as never;
+    stateRef = makeState({ sheet: { type: 'eventForm', mode: 'create', formInitial: formValues } as never });
+    const { result } = renderHook(
+      () =>
+        useEventFormActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          loadNotifications: vi.fn().mockResolvedValue(undefined) as never,
+          openEventDetail: vi.fn() as never,
+          toastMsg: vi.fn() as never,
+          logout: vi.fn() as never,
+        }),
+      { wrapper: createQueryWrapper() },
+    );
+    await act(async () => {
+      await result.current.saveEvent(formValues);
+    });
+    expect(api.events.create).toHaveBeenCalledWith('team1', expect.objectContaining({ multiDayEndDate: '' }));
   });
 
   it('saveEvent creates the event and reports savingEvent while the mutation is in flight', async () => {

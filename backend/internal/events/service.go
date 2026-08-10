@@ -38,6 +38,13 @@ var (
 	// attendance after the event's cancelLeadMinutes-derived cutoff
 	// (EventStartInstant - cancelLeadMinutes) has passed.
 	ErrCancelLeadTimePassed = errors.New("events.Service.SetAttendance: cancellation lead time has passed")
+	// ErrMultiDayEndDateOnRecurringEvent is returned when a create request
+	// sets both recurring: true and multiDayEndDate -- see design.md's
+	// "Mutually exclusive with recurring" decision.
+	ErrMultiDayEndDateOnRecurringEvent = errors.New("multiDayEndDate: cannot be set on a recurring event")
+	// ErrMultiDaySpanTooLong is returned when multiDayEndDate is set but the
+	// resulting span exceeds maxMultiDaySpanDays.
+	ErrMultiDaySpanTooLong = fmt.Errorf("multiDayEndDate: span must not exceed %d days", maxMultiDaySpanDays)
 )
 
 // maxRepeatWeeks caps how many events a single recurring series may create.
@@ -46,6 +53,15 @@ var (
 // it, CreateSeries would loop an attacker-controlled number of times inside
 // one DB transaction.
 const maxRepeatWeeks = 104
+
+// maxMultiDaySpanDays caps how far apart date/multiDayEndDate may be,
+// mirroring absences' identical maxAbsenceSpanDays cap
+// (internal/absences/handler.go) and its DB-level backstop
+// (events_multiday_span_within_limit, migration 00025): without a bound, an
+// arbitrarily large span would make every calendar render -- which expands
+// the event across every day it covers (frontend's groupEventsByDate) --
+// do unbounded work for a single event.
+const maxMultiDaySpanDays = 1095 // ~3 years
 
 // eventRepo is the interface the Service relies on.
 type eventRepo interface {
@@ -211,6 +227,17 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 	}
 
 	recurring := body.Recurring != nil && *body.Recurring
+	if body.MultiDayEndDate != nil {
+		if recurring {
+			return nil, ErrMultiDayEndDateOnRecurringEvent
+		}
+		if body.MultiDayEndDate.Before(body.Date.Time) {
+			return nil, ErrMultiDayEndDateBeforeDate
+		}
+		if body.MultiDayEndDate.Sub(body.Date.Time) > maxMultiDaySpanDays*24*time.Hour {
+			return nil, ErrMultiDaySpanTooLong
+		}
+	}
 	repeatWeeks := 1
 	if body.RepeatWeeks != nil {
 		repeatWeeks = *body.RepeatWeeks
@@ -237,10 +264,16 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		return nil, ErrRepeatWeeksTooLarge
 	}
 
+	var multiDayEndDate *time.Time
+	if body.MultiDayEndDate != nil {
+		d := body.MultiDayEndDate.Time
+		multiDayEndDate = &d
+	}
 	params := CreateEventParams{
 		Type:              string(body.Type),
 		Title:             body.Title,
 		Date:              body.Date.Time,
+		EndDate:           multiDayEndDate,
 		Location:          body.Location,
 		Note:              body.Note,
 		MeetTime:          body.MeetTime,
@@ -334,6 +367,13 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 	if body.Date != nil {
 		d := body.Date.Time
 		params.Date = &d
+	}
+	if body.MultiDayEndDate != nil {
+		d := body.MultiDayEndDate.Time
+		params.EndDate = &d
+	}
+	if body.ClearMultiDayEndDate != nil && *body.ClearMultiDayEndDate {
+		params.ClearEndDate = true
 	}
 	if body.ResponseMode != nil {
 		rm := string(*body.ResponseMode)
@@ -794,6 +834,10 @@ func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 	if row.SeriesId != nil {
 		sid := *row.SeriesId
 		ev.SeriesId = &sid
+	}
+
+	if row.EndDate != nil {
+		ev.MultiDayEndDate = &openapi_types.Date{Time: *row.EndDate}
 	}
 
 	if row.ResponseMode != nil {

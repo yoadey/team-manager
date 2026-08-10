@@ -203,6 +203,7 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     myStatus: mine.status,
     myAuto: mine.auto,
     myReason: mine.reason,
+    ...opt('multiDayEndDate', e.multiDayEndDate ?? undefined),
     ...opt('nominatedRoleIds', e.nominatedRoleIds),
     ...opt('result', e.result),
     ...opt('seriesId', e.seriesId ?? undefined),
@@ -213,6 +214,30 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     ...opt('endTime', e.endTime ?? undefined),
     ...opt('cancelLeadMinutes', e.cancelLeadMinutes ?? undefined),
   };
+}
+
+// Applies an UpdateEventRequest patch to a single event row, mirroring
+// backend/internal/events/repository.go's buildEventUpdateSets: date and
+// multiDayEndDate/clearMultiDayEndDate are excluded for scope=series (they
+// distinguish/define individual occurrences, same reasoning as the real
+// backend's series-wide update).
+function applyEventPatch(ev: EventDto, body: S['UpdateEventRequest'], scope: 'single' | 'series'): void {
+  if (scope !== 'series') {
+    if (body.date !== undefined) ev.date = body.date;
+    if (body.multiDayEndDate !== undefined) ev.multiDayEndDate = body.multiDayEndDate || null;
+    if (body.clearMultiDayEndDate) ev.multiDayEndDate = null;
+  }
+  if (body.type !== undefined) ev.type = body.type;
+  if (body.title !== undefined) ev.title = body.title;
+  if (body.location !== undefined) ev.location = body.location;
+  if (body.note !== undefined) ev.note = body.note;
+  if (body.meetTimeMandatory !== undefined) ev.meetTimeMandatory = body.meetTimeMandatory;
+  if (body.responseMode !== undefined) ev.responseMode = body.responseMode;
+  if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
+  if (body.startTime !== undefined) ev.startTime = body.startTime || null;
+  if (body.endTime !== undefined) ev.endTime = body.endTime || null;
+  if (body.cancelLeadMinutes !== undefined) ev.cancelLeadMinutes = body.cancelLeadMinutes;
+  if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
 }
 
 function toWireAttendanceRow(e: EventDto, m: (typeof db.memberships)[number]): S['AttendanceRow'] {
@@ -897,7 +922,10 @@ export const handlers = [
     const to = url.searchParams.get('to');
     const body: S['SharedCalendarEvent'][] = db.events
       .filter((e) => e.teamId === params.ownerTeamId && e.status === 'active')
-      .filter((e) => (from ? e.date >= from : true))
+      // A multi-day event that started before `from` but is still ongoing
+      // at `from` must still be included -- mirrors the real backend's
+      // COALESCE(end_date, date) >= from reasoning.
+      .filter((e) => (from ? (e.multiDayEndDate || e.date) >= from : true))
       .filter((e) => (to ? e.date <= to : true))
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((e) => ({
@@ -905,6 +933,7 @@ export const handlers = [
         type: e.type,
         title: e.title,
         date: e.date,
+        ...opt('multiDayEndDate', e.multiDayEndDate ?? undefined),
         ...opt('startTime', e.startTime ?? undefined),
         ...opt('endTime', e.endTime ?? undefined),
         ...opt('location', e.location || undefined),
@@ -922,8 +951,12 @@ export const handlers = [
     // upcoming), matching backend/internal/events/repository.go's
     // `WHERE date >= $2` for scope=upcoming (and `date < $2` for scope=past).
     let list = db.events.filter((e) => e.teamId === params.teamId);
-    if (scope === 'upcoming') list = list.filter((e) => e.date >= today);
-    if (scope === 'past') list = list.filter((e) => e.date < today);
+    // COALESCE(multiDayEndDate, date): an ongoing multi-day event stays
+    // "upcoming" until its last day has passed, mirroring
+    // backend/internal/events/repository.go's ListEvents.
+    const effectiveEnd = (e: EventDto) => e.multiDayEndDate ?? e.date;
+    if (scope === 'upcoming') list = list.filter((e) => effectiveEnd(e) >= today);
+    if (scope === 'past') list = list.filter((e) => effectiveEnd(e) < today);
     list = [...list].sort((a, b) => (scope === 'past' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
     return HttpResponse.json({ items: list.map(toWireEvent), nextCursor: null });
   }),
@@ -939,6 +972,10 @@ export const handlers = [
       type: body.type,
       title: body.title,
       date,
+      // Never on a recurring series occurrence -- multiDayEndDate is
+      // mutually exclusive with recurring (see design.md), and mk() is also
+      // used for weekly series occurrences below.
+      multiDayEndDate: body.recurring ? null : (body.multiDayEndDate ?? null),
       location: body.location || '',
       note: body.note || '',
       meetTime: body.meetTime ?? null,
@@ -1012,20 +1049,7 @@ export const handlers = [
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
     const body = (await request.json()) as S['UpdateEventRequest'];
     const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
-    targets.forEach((ev) => {
-      if (scope !== 'series' && body.date !== undefined) ev.date = body.date;
-      if (body.type !== undefined) ev.type = body.type;
-      if (body.title !== undefined) ev.title = body.title;
-      if (body.location !== undefined) ev.location = body.location;
-      if (body.note !== undefined) ev.note = body.note;
-      if (body.meetTimeMandatory !== undefined) ev.meetTimeMandatory = body.meetTimeMandatory;
-      if (body.responseMode !== undefined) ev.responseMode = body.responseMode;
-      if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
-      if (body.startTime !== undefined) ev.startTime = body.startTime || null;
-      if (body.endTime !== undefined) ev.endTime = body.endTime || null;
-      if (body.cancelLeadMinutes !== undefined) ev.cancelLeadMinutes = body.cancelLeadMinutes;
-      if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
-    });
+    targets.forEach((ev) => applyEventPatch(ev, body, scope));
     pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWireEvent(e));
   }),

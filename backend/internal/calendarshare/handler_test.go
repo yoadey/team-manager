@@ -221,6 +221,29 @@ func TestHandler_ListSharedCalendarEvents_Success(t *testing.T) {
 	assert.NotContains(t, w.Body.String(), "note")
 }
 
+func TestHandler_ListSharedCalendarEvents_MapsMultiDayEndDate(t *testing.T) {
+	t.Parallel()
+	eventID := uuid.New()
+	end := time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)
+	svc := &mockShareService{
+		listEventsFn: func(context.Context, uuid.UUID, uuid.UUID, *time.Time, *time.Time) ([]calendarshare.RedactedEventRow, error) {
+			return []calendarshare.RedactedEventRow{{
+				Id: eventID, Type: "training", Title: "Trainingslager",
+				Date: time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC), EndDate: &end,
+			}}, nil
+		},
+	}
+	h := calendarshare.NewHandler(svc, slog.Default())
+
+	req := gen.ListSharedCalendarEventsRequestObject{TeamId: viewerTeamID, OwnerTeamId: ownerTeamID}
+	resp, err := h.ListSharedCalendarEvents(context.Background(), req)
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitListSharedCalendarEventsResponse(w))
+	assert.Contains(t, w.Body.String(), `"multiDayEndDate":"2026-06-12"`)
+}
+
 func TestHandler_ListSharedCalendarEvents_NoGrantMapsTo404(t *testing.T) {
 	t.Parallel()
 	svc := &mockShareService{

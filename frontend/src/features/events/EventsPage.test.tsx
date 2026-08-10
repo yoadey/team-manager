@@ -95,6 +95,36 @@ describe('EventsPage', () => {
     expect(screen.getByText('Saisonauftakt')).toBeTruthy();
   });
 
+  // Regression test: the upcoming/past split used to compare `date` alone
+  // against today, so a multi-day event that started in the past but hasn't
+  // finished (per multiDayEndDate) fell out of the "Upcoming" tab.
+  it('keeps an ongoing multi-day event in the Upcoming tab even though its start date is in the past', () => {
+    mockUseApp.mockReturnValue(
+      makeApp({
+        eventScope: 'upcoming',
+        events: [
+          {
+            id: 'camp1',
+            title: 'Trainingslager',
+            date: '2000-01-01',
+            multiDayEndDate: '2099-06-17',
+            type: 'training',
+            status: 'active',
+            myStatus: 'yes',
+            summary: { yes: 8, no: 2, maybe: 0 },
+            location: 'Halle',
+            note: '',
+            startTime: null,
+            endTime: null,
+            meetTime: null,
+          },
+        ],
+      }),
+    );
+    render(<EventsPage />);
+    expect(screen.getByText('Trainingslager')).toBeTruthy();
+  });
+
   it('renders past events empty state when eventScope is past', () => {
     mockUseApp.mockReturnValue(makeApp({ eventScope: 'past', events: [] }));
     render(<EventsPage />);
