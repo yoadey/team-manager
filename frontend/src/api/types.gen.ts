@@ -1528,9 +1528,11 @@ export interface components {
             date?: string;
             /**
              * Format: date
-             * @description Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true.
+             * @description Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true. Setting a new value always replaces the event's current span, if any -- to turn a multi-day event back into a single-day one, use clearMultiDayEndDate instead (mutually exclusive with this field, since a date field itself cannot carry both a value and an explicit "clear" signal).
              */
             multiDayEndDate?: string;
+            /** @description When true, clears the event's multiDayEndDate back to unset (single-day). Mutually exclusive with multiDayEndDate. */
+            clearMultiDayEndDate?: boolean;
             location?: string;
             note?: string;
             meetTime?: string;

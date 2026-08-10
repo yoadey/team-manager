@@ -1158,14 +1158,17 @@ type UpdateContributionRequest struct {
 // UpdateEventRequest defines model for UpdateEventRequest.
 type UpdateEventRequest struct {
 	// CancelLeadMinutes Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response.
-	CancelLeadMinutes *int                `json:"cancelLeadMinutes,omitempty"`
-	Date              *openapi_types.Date `json:"date,omitempty"`
-	EndTime           *string             `json:"endTime,omitempty"`
-	Location          *string             `json:"location,omitempty"`
-	MeetTime          *string             `json:"meetTime,omitempty"`
-	MeetTimeMandatory *bool               `json:"meetTimeMandatory,omitempty"`
+	CancelLeadMinutes *int `json:"cancelLeadMinutes,omitempty"`
 
-	// MultiDayEndDate Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true.
+	// ClearMultiDayEndDate When true, clears the event's multiDayEndDate back to unset (single-day). Mutually exclusive with multiDayEndDate.
+	ClearMultiDayEndDate *bool               `json:"clearMultiDayEndDate,omitempty"`
+	Date                 *openapi_types.Date `json:"date,omitempty"`
+	EndTime              *string             `json:"endTime,omitempty"`
+	Location             *string             `json:"location,omitempty"`
+	MeetTime             *string             `json:"meetTime,omitempty"`
+	MeetTimeMandatory    *bool               `json:"meetTimeMandatory,omitempty"`
+
+	// MultiDayEndDate Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true. Setting a new value always replaces the event's current span, if any -- to turn a multi-day event back into a single-day one, use clearMultiDayEndDate instead (mutually exclusive with this field, since a date field itself cannot carry both a value and an explicit "clear" signal).
 	MultiDayEndDate  *openapi_types.Date   `json:"multiDayEndDate,omitempty"`
 	NominatedRoleIds *[]openapi_types.UUID `json:"nominatedRoleIds,omitempty"`
 	Note             *string               `json:"note,omitempty"`

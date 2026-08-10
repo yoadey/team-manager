@@ -8,7 +8,7 @@ type EventPayload = {
   type: string;
   title: string;
   date: string;
-  /** Optional last day of a multi-day span; YYYY-MM-DD. Mutually exclusive with recurring. */
+  /** Optional last day of a multi-day span; YYYY-MM-DD, or '' to mean "no span" (create: omitted; update: translated to clearMultiDayEndDate). */
   multiDayEndDate?: string | undefined;
   location?: string;
   note?: string;

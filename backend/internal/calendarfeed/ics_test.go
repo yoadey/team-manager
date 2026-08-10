@@ -72,6 +72,48 @@ func TestRender_DefaultsToEighteenHundredAndTwoHourDuration(t *testing.T) {
 	assert.Contains(t, out, "DTEND:20260112T190000Z")   // +2h
 }
 
+func TestRender_MultiDayEvent_DTENDAnchoredToLastDayEndTime(t *testing.T) {
+	t.Parallel()
+
+	end := time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)
+	e := events.EventRow{
+		Id:        uuid.New(),
+		Type:      "training",
+		Title:     "Trainingslager",
+		Date:      time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC),
+		EndDate:   &end,
+		StartTime: ptr("09:00"),
+		EndTime:   ptr("16:00"),
+		Status:    "active",
+	}
+
+	out := string(calendarfeed.Render("Test Team", []events.EventRow{e}, nil))
+
+	// 09:00 Europe/Berlin in August (CEST, UTC+2) is 07:00 UTC on the first day.
+	assert.Contains(t, out, "DTSTART:20260814T070000Z")
+	// 16:00 CEST on the LAST day (Aug 16), not the first.
+	assert.Contains(t, out, "DTEND:20260816T140000Z")
+}
+
+func TestRender_MultiDayEvent_NoEndTime_CoversThroughEndOfLastDay(t *testing.T) {
+	t.Parallel()
+
+	end := time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)
+	e := events.EventRow{
+		Id:      uuid.New(),
+		Type:    "event",
+		Title:   "Vereinsfahrt",
+		Date:    time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC),
+		EndDate: &end,
+		Status:  "active",
+	}
+
+	out := string(calendarfeed.Render("Test Team", []events.EventRow{e}, nil))
+
+	// 23:59 CEST on the last day (Aug 16) is 21:59 UTC.
+	assert.Contains(t, out, "DTEND:20260816T215900Z")
+}
+
 func TestRender_EscapesSpecialCharacters(t *testing.T) {
 	t.Parallel()
 

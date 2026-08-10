@@ -29,6 +29,17 @@ event (`recurring: true`) MUST NOT set `multiDayEndDate`.
 - **THEN** it is considered to occur only on `date`, matching existing
   single-day behavior
 
+#### Scenario: Multi-day span exceeds the maximum
+- **WHEN** a create or update request would leave `multiDayEndDate` more
+  than 1095 days after `date`
+- **THEN** the request is rejected with a client error
+
+#### Scenario: Organizer clears a multi-day span back to single-day
+- **WHEN** an update request sets `clearMultiDayEndDate: true` on an event
+  that currently has `multiDayEndDate` set
+- **THEN** the event's `multiDayEndDate` is cleared and it is henceforth
+  considered a single-day event occurring only on `date`
+
 ### Requirement: Ongoing multi-day events count as upcoming, not past
 The upcoming/past listing scope MUST key off an event's last occurring day
 (`multiDayEndDate` when set, otherwise `date`), not its start day alone.

@@ -272,6 +272,7 @@ const UpdateEventRequest = z
     title: z.string().min(1).max(255),
     date: z.string(),
     multiDayEndDate: z.string(),
+    clearMultiDayEndDate: z.boolean(),
     location: z.string().max(255),
     note: z.string().max(10000),
     meetTime: z.string(),

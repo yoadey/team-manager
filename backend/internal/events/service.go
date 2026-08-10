@@ -42,6 +42,9 @@ var (
 	// sets both recurring: true and multiDayEndDate -- see design.md's
 	// "Mutually exclusive with recurring" decision.
 	ErrMultiDayEndDateOnRecurringEvent = errors.New("multiDayEndDate: cannot be set on a recurring event")
+	// ErrMultiDaySpanTooLong is returned when multiDayEndDate is set but the
+	// resulting span exceeds maxMultiDaySpanDays.
+	ErrMultiDaySpanTooLong = fmt.Errorf("multiDayEndDate: span must not exceed %d days", maxMultiDaySpanDays)
 )
 
 // maxRepeatWeeks caps how many events a single recurring series may create.
@@ -50,6 +53,15 @@ var (
 // it, CreateSeries would loop an attacker-controlled number of times inside
 // one DB transaction.
 const maxRepeatWeeks = 104
+
+// maxMultiDaySpanDays caps how far apart date/multiDayEndDate may be,
+// mirroring absences' identical maxAbsenceSpanDays cap
+// (internal/absences/handler.go) and its DB-level backstop
+// (events_multiday_span_within_limit, migration 00025): without a bound, an
+// arbitrarily large span would make every calendar render -- which expands
+// the event across every day it covers (frontend's groupEventsByDate) --
+// do unbounded work for a single event.
+const maxMultiDaySpanDays = 1095 // ~3 years
 
 // eventRepo is the interface the Service relies on.
 type eventRepo interface {
@@ -222,6 +234,9 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		if body.MultiDayEndDate.Before(body.Date.Time) {
 			return nil, ErrMultiDayEndDateBeforeDate
 		}
+		if body.MultiDayEndDate.Sub(body.Date.Time) > maxMultiDaySpanDays*24*time.Hour {
+			return nil, ErrMultiDaySpanTooLong
+		}
 	}
 	repeatWeeks := 1
 	if body.RepeatWeeks != nil {
@@ -356,6 +371,9 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 	if body.MultiDayEndDate != nil {
 		d := body.MultiDayEndDate.Time
 		params.EndDate = &d
+	}
+	if body.ClearMultiDayEndDate != nil && *body.ClearMultiDayEndDate {
+		params.ClearEndDate = true
 	}
 	if body.ResponseMode != nil {
 		rm := string(*body.ResponseMode)

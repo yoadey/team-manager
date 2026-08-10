@@ -44,6 +44,12 @@ var ErrEndTimeBeforeStartTime = errors.New("endTime: must be after startTime")
 // eventsEndAfterStartTimeConstraint's reasoning above.
 const eventsEndDateAfterDateConstraint = "events_end_date_after_date"
 
+// eventsMultiDaySpanWithinLimitConstraint is the CHECK constraint added by
+// migration 00025, capping end_date - date at maxMultiDaySpanDays -- the
+// partial-update backstop for the same cap Service.CreateEvent enforces
+// early (see ErrMultiDaySpanTooLong).
+const eventsMultiDaySpanWithinLimitConstraint = "events_multiday_span_within_limit"
+
 // ErrMultiDayEndDateBeforeDate is returned when a create or partial update
 // would leave end_date < date. Service.CreateEvent catches the common case
 // early (both fields present in the same request); a partial UpdateEvent
@@ -563,6 +569,8 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 				return nil, ErrEndTimeBeforeStartTime
 			case eventsEndDateAfterDateConstraint:
 				return nil, ErrMultiDayEndDateBeforeDate
+			case eventsMultiDaySpanWithinLimitConstraint:
+				return nil, ErrMultiDaySpanTooLong
 			}
 		}
 		return nil, fmt.Errorf("events.Repository.UpdateEvent: %w", err)
@@ -624,6 +632,7 @@ func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params 
 	seriesParams := *params
 	seriesParams.Date = nil
 	seriesParams.EndDate = nil
+	seriesParams.ClearEndDate = false
 	setSQL, args, nextIdx, ok := buildEventUpdateSets(&seriesParams, 1)
 	if !ok {
 		// Nothing but Date was set (the common "change just this occurrence's
@@ -661,7 +670,9 @@ func buildEventUpdateSets(params *UpdateEventParams, startIdx int) (setSQL strin
 	if params.Date != nil {
 		b.Add("date", *params.Date)
 	}
-	if params.EndDate != nil {
+	if params.ClearEndDate {
+		b.Add("end_date", nil)
+	} else if params.EndDate != nil {
 		b.Add("end_date", *params.EndDate)
 	}
 	if params.Location != nil {

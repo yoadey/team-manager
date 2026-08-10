@@ -58,6 +58,21 @@
       wired to `duplicateEvent`
 - [x] 4.3 `frontend/src/i18n/{de,en}.ts`: "Duplicate"/"Kopieren" strings
 
+## 4a. Backend — span cap, clearing, and calendar feed follow-ups
+
+- [x] 4a.1 `maxMultiDaySpanDays` (1095) cap, mirroring absences'
+      `maxAbsenceSpanDays`: early rejection in `Service.CreateEvent`
+      (`ErrMultiDaySpanTooLong`) plus a DB CHECK
+      (`events_multiday_span_within_limit`) as the partial-update backstop
+- [x] 4a.2 `clearMultiDayEndDate` (boolean, `UpdateEventRequest`), mutually
+      exclusive with `multiDayEndDate`: `UpdateEventParams.ClearEndDate`,
+      `buildEventUpdateSets` sets `end_date = NULL`, frontend `update()`
+      translates an empty `multiDayEndDate` into this flag so blanking the
+      field in the edit form actually persists
+- [x] 4a.3 `internal/calendarfeed/ics.go` + `useCalExportActions.ts`:
+      DTEND anchored to `multiDayEndDate` (the event's last day), not
+      `date`, for both the server-side feed and the client-side .ics export
+
 ## 5. Verification
 
 - [x] 5.1 openapi-drift green (regenerated clients committed)

@@ -2076,3 +2076,29 @@ func TestEventRepository_UpdateEvent_MultiDay_RejectedOnSeriesEvent(t *testing.T
 	}, "single")
 	require.ErrorIs(t, err, events.ErrMultiDayEndDateOnSeriesEvent)
 }
+
+func TestEventRepository_UpdateEvent_MultiDay_ClearEndDate(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "55555555-6666-7777-8888-999999999999"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Clear Multi-Day Team')`, teamID)
+	require.NoError(t, err)
+
+	start := time.Now().UTC().Truncate(24 * time.Hour)
+	end := start.AddDate(0, 0, 2)
+	params := makeCreateParams("Camp", start)
+	params.EndDate = &end
+	created, err := repo.CreateEvent(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.NotNil(t, created.EndDate)
+
+	updated, err := repo.UpdateEvent(ctx, created.Id.String(), teamID, &events.UpdateEventParams{
+		ClearEndDate: true,
+	}, "single")
+	require.NoError(t, err)
+	assert.Nil(t, updated.EndDate)
+}

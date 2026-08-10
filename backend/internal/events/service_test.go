@@ -432,6 +432,31 @@ func TestEventService_UpdateEvent_ClearsNominatedRoleIdsWithExplicitEmptyArray(t
 	assert.Empty(t, capturedRoleIDs)
 }
 
+func TestEventService_UpdateEvent_ClearMultiDayEndDate_SetsClearEndDate(t *testing.T) {
+	t.Parallel()
+
+	var capturedParams *events.UpdateEventParams
+	repo := &mockSvcRepo{
+		updateEventFn: func(_ context.Context, _, _ string, params *events.UpdateEventParams, _ string) (*events.EventRow, error) {
+			capturedParams = params
+			row := svcMakeEventRow("Camp")
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+	}
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+
+	clearFlag := true
+	body := &gen.UpdateEventJSONRequestBody{ClearMultiDayEndDate: &clearFlag}
+	_, err := svc.UpdateEvent(context.Background(), testTeamID, testUserID, uuid.New().String(), "single", body)
+	require.NoError(t, err)
+
+	require.NotNil(t, capturedParams)
+	assert.True(t, capturedParams.ClearEndDate)
+	assert.Nil(t, capturedParams.EndDate)
+}
+
 func TestEventService_CreateEvent_Recurring_RejectsExcessiveRepeatWeeks(t *testing.T) {
 	t.Parallel()
 

@@ -216,6 +216,30 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
   };
 }
 
+// Applies an UpdateEventRequest patch to a single event row, mirroring
+// backend/internal/events/repository.go's buildEventUpdateSets: date and
+// multiDayEndDate/clearMultiDayEndDate are excluded for scope=series (they
+// distinguish/define individual occurrences, same reasoning as the real
+// backend's series-wide update).
+function applyEventPatch(ev: EventDto, body: S['UpdateEventRequest'], scope: 'single' | 'series'): void {
+  if (scope !== 'series') {
+    if (body.date !== undefined) ev.date = body.date;
+    if (body.multiDayEndDate !== undefined) ev.multiDayEndDate = body.multiDayEndDate || null;
+    if (body.clearMultiDayEndDate) ev.multiDayEndDate = null;
+  }
+  if (body.type !== undefined) ev.type = body.type;
+  if (body.title !== undefined) ev.title = body.title;
+  if (body.location !== undefined) ev.location = body.location;
+  if (body.note !== undefined) ev.note = body.note;
+  if (body.meetTimeMandatory !== undefined) ev.meetTimeMandatory = body.meetTimeMandatory;
+  if (body.responseMode !== undefined) ev.responseMode = body.responseMode;
+  if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
+  if (body.startTime !== undefined) ev.startTime = body.startTime || null;
+  if (body.endTime !== undefined) ev.endTime = body.endTime || null;
+  if (body.cancelLeadMinutes !== undefined) ev.cancelLeadMinutes = body.cancelLeadMinutes;
+  if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
+}
+
 function toWireAttendanceRow(e: EventDto, m: (typeof db.memberships)[number]): S['AttendanceRow'] {
   const u = requireUser(m.userId);
   const roles = rolesOf(m);
@@ -1021,21 +1045,7 @@ export const handlers = [
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
     const body = (await request.json()) as S['UpdateEventRequest'];
     const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
-    targets.forEach((ev) => {
-      if (scope !== 'series' && body.date !== undefined) ev.date = body.date;
-      if (scope !== 'series' && body.multiDayEndDate !== undefined) ev.multiDayEndDate = body.multiDayEndDate || null;
-      if (body.type !== undefined) ev.type = body.type;
-      if (body.title !== undefined) ev.title = body.title;
-      if (body.location !== undefined) ev.location = body.location;
-      if (body.note !== undefined) ev.note = body.note;
-      if (body.meetTimeMandatory !== undefined) ev.meetTimeMandatory = body.meetTimeMandatory;
-      if (body.responseMode !== undefined) ev.responseMode = body.responseMode;
-      if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
-      if (body.startTime !== undefined) ev.startTime = body.startTime || null;
-      if (body.endTime !== undefined) ev.endTime = body.endTime || null;
-      if (body.cancelLeadMinutes !== undefined) ev.cancelLeadMinutes = body.cancelLeadMinutes;
-      if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
-    });
+    targets.forEach((ev) => applyEventPatch(ev, body, scope));
     pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWireEvent(e));
   }),

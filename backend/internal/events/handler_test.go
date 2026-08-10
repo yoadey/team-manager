@@ -209,6 +209,19 @@ func TestEventHandler_UpdateEvent_RejectsTooManyNominatedRoleIds(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEventHandler_UpdateEvent_RejectsMultiDayEndDateAndClearTogether(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{}, slog.Default())
+
+	clearFlag := true
+	body := &gen.UpdateEventJSONRequestBody{
+		MultiDayEndDate:      &openapi_types.Date{Time: time.Now()},
+		ClearMultiDayEndDate: &clearFlag,
+	}
+	_, err := h.UpdateEvent(ctxWithUser(), gen.UpdateEventRequestObject{TeamId: uuid.New(), EventId: uuid.New(), Body: body})
+	require.Error(t, err)
+}
+
 // The generated *ParamsScope enum types all have a .Valid() method, but
 // unlike Type/Status/ResponseMode elsewhere in this handler, an unrecognized
 // ?scope= value used to be silently absorbed instead of rejected: ListEvents

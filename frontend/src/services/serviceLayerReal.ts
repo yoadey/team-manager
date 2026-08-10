@@ -614,7 +614,7 @@ export const realApi = {
         type?: string;
         title?: string;
         date?: string;
-        /** Optional last day of a multi-day span; YYYY-MM-DD, or '' to leave unchanged (see PATCH not supporting clearing it -- design.md). */
+        /** Optional last day of a multi-day span; YYYY-MM-DD, or '' to clear it back to a single-day event (translated to clearMultiDayEndDate below, since the wire field itself can't carry both a value and a "clear" signal). */
         multiDayEndDate?: string | undefined;
         location?: string;
         note?: string;
@@ -636,7 +636,11 @@ export const realApi = {
           ...opt('type', patch.type as 'training' | 'auftritt' | 'event' | undefined),
           ...opt('title', patch.title),
           ...opt('date', patch.date),
-          ...opt('multiDayEndDate', patch.multiDayEndDate || undefined),
+          ...(patch.multiDayEndDate
+            ? { multiDayEndDate: patch.multiDayEndDate }
+            : patch.multiDayEndDate === ''
+              ? { clearMultiDayEndDate: true }
+              : {}),
           ...opt('location', patch.location),
           ...opt('note', patch.note),
           ...opt('meetTime', patch.meetT ?? undefined),

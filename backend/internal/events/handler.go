@@ -110,23 +110,32 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 
 	ev, err := h.svc.CreateEvent(ctx, request.TeamId.String(), user.Id.String(), request.Body)
 	if err != nil {
-		if errors.Is(err, ErrInvalidNominatedRoleIDs) {
-			return nil, apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
-		}
-		if errors.Is(err, ErrRepeatWeeksTooLarge) {
-			return nil, apierror.BadRequest(err.Error())
-		}
-		if errors.Is(err, ErrRecurrenceEndDateBeforeDate) {
-			return nil, apierror.BadRequest(err.Error())
-		}
-		if errors.Is(err, ErrMultiDayEndDateBeforeDate) || errors.Is(err, ErrMultiDayEndDateOnRecurringEvent) {
-			return nil, apierror.BadRequest(err.Error())
+		if apiErr := mapCreateEventError(err); apiErr != nil {
+			return nil, apiErr
 		}
 		h.logger.ErrorContext(ctx, "CreateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to create event")
 	}
 	metrics.TeamEvents.WithLabelValues("event", "create").Inc()
 	return gen.CreateEvent201JSONResponse(*ev), nil
+}
+
+// mapCreateEventError maps a Service.CreateEvent business-rule error to its
+// 400 apierror, or nil if err isn't one of the recognized cases (the caller
+// then treats it as an unexpected 500).
+func mapCreateEventError(err error) error {
+	switch {
+	case errors.Is(err, ErrInvalidNominatedRoleIDs):
+		return apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
+	case errors.Is(err, ErrRepeatWeeksTooLarge),
+		errors.Is(err, ErrRecurrenceEndDateBeforeDate),
+		errors.Is(err, ErrMultiDayEndDateBeforeDate),
+		errors.Is(err, ErrMultiDayEndDateOnRecurringEvent),
+		errors.Is(err, ErrMultiDaySpanTooLong):
+		return apierror.BadRequest(err.Error())
+	default:
+		return nil
+	}
 }
 
 // ─── GetEvent ───────────────────────────────────────────────────────────────
@@ -179,6 +188,9 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
+	if request.Body.MultiDayEndDate != nil && request.Body.ClearMultiDayEndDate != nil && *request.Body.ClearMultiDayEndDate {
+		return nil, apierror.BadRequest("multiDayEndDate and clearMultiDayEndDate must not both be set")
+	}
 
 	scope := "single"
 	if request.Params.Scope != nil {
@@ -199,7 +211,7 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 		if errors.Is(err, ErrEndTimeBeforeStartTime) {
 			return nil, apierror.BadRequest(ErrEndTimeBeforeStartTime.Error())
 		}
-		if errors.Is(err, ErrMultiDayEndDateBeforeDate) || errors.Is(err, ErrMultiDayEndDateOnSeriesEvent) {
+		if errors.Is(err, ErrMultiDayEndDateBeforeDate) || errors.Is(err, ErrMultiDayEndDateOnSeriesEvent) || errors.Is(err, ErrMultiDaySpanTooLong) {
 			return nil, apierror.BadRequest(err.Error())
 		}
 		h.logger.ErrorContext(ctx, "UpdateEvent failed", "err", err)

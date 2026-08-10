@@ -190,9 +190,12 @@ type UpdateEventParams struct {
 	Date  *time.Time
 	// EndDate is the optional last day of a multi-day span (see
 	// EventRow.EndDate). nil means "not provided in this patch," matching
-	// every other optional field in this struct -- like them, there is no
-	// way to explicitly clear an already-set EndDate back to NULL via PATCH.
+	// every other optional field in this struct. Mutually exclusive with
+	// ClearEndDate (validated in handler.go) -- to explicitly clear an
+	// already-set EndDate back to NULL, set ClearEndDate instead, since a
+	// plain *time.Time can't distinguish "not provided" from "clear".
 	EndDate           *time.Time
+	ClearEndDate      bool
 	Location          *string
 	Note              *string
 	MeetTime          *string

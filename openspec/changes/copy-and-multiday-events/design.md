@@ -51,7 +51,28 @@ touches, DST-safely.
 - **DB**: nullable `end_date DATE` on `events` only (not `event_series`,
   consistent with the recurring exclusion above), with
   `CHECK (end_date IS NULL OR end_date >= date)`, mirroring absences'
-  `to_date >= from_date` guard exactly.
+  `to_date >= from_date` guard exactly. A second CHECK,
+  `events_multiday_span_within_limit (end_date - date <= 1095)`, mirrors
+  absences' identical `absences_span_within_limit` cap -- without it, an
+  unbounded span would make every calendar render (which expands the event
+  across every day it covers) do unbounded work for a single event.
+  `Service.CreateEvent` enforces the same cap early for an immediate 400;
+  the CHECK is the backstop for a partial update that only touches one of
+  `date`/`multiDayEndDate`.
+- **Clearing a multi-day span back to single-day**: `UpdateEventRequest`
+  gets a separate `clearMultiDayEndDate: boolean`, mutually exclusive with
+  `multiDayEndDate`. A plain optional date field can't itself distinguish
+  "not provided" from "explicitly clear" without a schema-wide nullable/
+  triple-state convention this codebase doesn't otherwise use, so a
+  dedicated boolean flag (matching how e.g. `meetTimeMandatory` is already
+  a plain boolean) is the minimal-diff way to make "make this a single-day
+  event again" an actual, working action instead of a silently-ignored one.
+- **Calendar feed / .ics export**: both the server-side feed
+  (`internal/calendarfeed/ics.go`) and the client-side one-off export
+  (`useCalExportActions.ts`) anchor `DTEND` to the event's last day
+  (`multiDayEndDate`), not its first -- otherwise a multi-day event would
+  export as a single ~2h block on day one only, with the remaining days it
+  covers invisible in a subscribed calendar app.
 - **Copy is client-side only, no new endpoint**: `Duplicate` builds an
   `EventFormValues` from the fetched source event (reusing
   `useEventFormActions.ts`'s existing `buildBasePayload`), strips
