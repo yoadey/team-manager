@@ -263,6 +263,7 @@ Integration tests use `testutil.NewTestDB(t)` which spins up a `postgres:17` tes
 - **Frontend**: lint-staged via Husky (ESLint + Prettier); CI runs lint → typecheck → test → build
 - **Backend**: `golangci-lint`; CI runs lint → test → build + `govulncheck`
 - **Commits** enforce quality via pre-commit hooks
+- **Code review must always be performed independently.** Before a change is considered done, review it with a fresh subagent (e.g. Claude Code's Agent tool, or the `code-review` skill) that has no prior context on the change — hand it the diff and relevant files, not your own analysis or conclusions, so it forms its own judgment rather than confirming what the implementer already believes. Never let the agent that wrote the change also be the one that signs off on its own review.
 
 ## Connecting the Real Backend
 
