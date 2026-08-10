@@ -1261,6 +1261,84 @@ describe('AppProvider / session-restore resilience', () => {
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
     expect(screen.getByTestId('activeTeamId').textContent).toBe(nonDefaultTeamId);
   });
+
+  // Regression guard: a stored team id can go stale (the user was removed
+  // from that team, or it's a leftover from localStorage never being
+  // cleared) -- session-restore must fall back to the first team rather than
+  // erroring or leaving activeTeamId pointed at a team the user isn't in.
+  it('falls back to the first team when the stored team id is no longer one the user belongs to', async () => {
+    const {
+      api,
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
+    localStorage.setItem('tv_active_team_id', 'not-a-real-team-id');
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
+        </div>
+      );
+    }
+
+    renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+
+    const teams = await api.teams.listForCurrentUser();
+    expect(screen.getByTestId('activeTeamId').textContent).toBe(teams[0]!.id);
+  });
+
+  // Regression test: logout used to leave the previous account's
+  // last-selected team in localStorage, so a second account signing in on
+  // the same browser (shared/kiosk device) could be silently defaulted into
+  // the first account's team instead of their own, whenever that team id
+  // happened to also be one of theirs.
+  it('clears the stored team selection on logout', async () => {
+    const {
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return <div data-testid="phase">{state.phase}</div>;
+    }
+
+    renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+    expect(localStorage.getItem('tv_active_team_id')).not.toBeNull();
+
+    act(() => {
+      actions!.logout();
+    });
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    expect(localStorage.getItem('tv_active_team_id')).toBeNull();
+  });
 });
 
 // Self-registration's email verification link (/verify-email/<token>) is

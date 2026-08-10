@@ -604,6 +604,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       captureException(err, { context: 'logout' });
     });
     setSentryUser(null);
+    // Clear the persisted team selection on logout -- otherwise a second
+    // account signing in on the same browser (shared/kiosk device) could be
+    // silently defaulted into the previous account's last-picked team
+    // instead of their own, whenever that team id happens to also be one of
+    // theirs.
+    localStorage.removeItem(ACTIVE_TEAM_STORAGE_KEY);
     setState({
       phase: 'login',
       user: null,
