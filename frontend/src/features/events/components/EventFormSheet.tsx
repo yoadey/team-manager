@@ -640,7 +640,16 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         tk={tk}
         register={register}
         errors={errors}
-        onToggle={() => setValue('recurring', !recurring, { shouldValidate: true })}
+        onToggle={() => {
+          const next = !recurring;
+          setValue('recurring', next, { shouldValidate: true });
+          // The multi-day end-date field is unmounted (not unregistered) while
+          // recurring is on, so react-hook-form keeps its stale value -- left
+          // as-is, that value would still fail eventFormSchema's "not both
+          // recurring and multiDayEndDate" check on submit, with no visible
+          // error since the field itself is no longer rendered to show it.
+          if (next) setValue('multiDayEndDate', '', { shouldValidate: true });
+        }}
         onSelectRepeatMode={(mode) => setValue('repeatMode', mode, { shouldValidate: true })}
       />
       {showSeriesButtons ? (

@@ -67,6 +67,12 @@ touches, DST-safely.
   dedicated boolean flag (matching how e.g. `meetTimeMandatory` is already
   a plain boolean) is the minimal-diff way to make "make this a single-day
   event again" an actual, working action instead of a silently-ignored one.
+- **Upcoming/past index**: `ListEvents`' scope filter on
+  `COALESCE(end_date, date)` isn't served by the existing
+  `idx_events_team_date_id (team_id, date, id)` index as a sargable range
+  condition, since the expression isn't a bare column -- a matching
+  expression index (`idx_events_team_coalesce_enddate_id`, migration 00026)
+  restores the seek instead of a per-team full scan.
 - **Calendar feed / .ics export**: both the server-side feed
   (`internal/calendarfeed/ics.go`) and the client-side one-off export
   (`useCalExportActions.ts`) anchor `DTEND` to the event's last day

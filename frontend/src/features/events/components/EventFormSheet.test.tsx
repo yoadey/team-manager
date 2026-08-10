@@ -302,6 +302,27 @@ describe('EventFormSheet', () => {
     expect(btn.getAttribute('aria-checked')).toBe('true');
   });
 
+  // Regression test: toggling recurring on used to leave a previously-typed
+  // multiDayEndDate value in place even though its field is unmounted (not
+  // unregistered) once recurring is shown instead -- eventFormSchema then
+  // rejected the (hidden, unfixable-by-the-user) recurring+multiDayEndDate
+  // combination on every submit attempt, with no visible error.
+  it('clears multiDayEndDate when recurring is toggled on', () => {
+    const app = makeApp({ title: 'Camp', date: '2026-07-01' });
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+
+    fireEvent.change(screen.getByLabelText('events.fieldMultiDayEndDate'), { target: { value: '2026-07-03' } });
+    // Toggle recurring on (unmounts the field) then off again (remounts it)
+    // to inspect whether the underlying form value was actually reset, not
+    // just hidden.
+    const toggle = screen.getByText('events.recurWeekly').closest('button')!;
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+
+    expect((screen.getByLabelText('events.fieldMultiDayEndDate') as HTMLInputElement).value).toBe('');
+  });
+
   it('clicking submit calls saveEvent', async () => {
     const app = makeApp({ title: 'Test Event', date: '2026-07-01' });
     mockUseApp.mockReturnValue(app as never);

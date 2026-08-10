@@ -73,6 +73,20 @@
       DTEND anchored to `multiDayEndDate` (the event's last day), not
       `date`, for both the server-side feed and the client-side .ics export
 
+## 4b. Follow-up correctness/perf fixes
+
+- [x] 4b.1 `EventFormSheet.tsx`: toggling recurring on clears the (now
+      unmounted, not unregistered) `multiDayEndDate` field's value, so a
+      previously-typed value can no longer fail eventFormSchema's mutual-
+      exclusion check invisibly and block submission with no visible error
+- [x] 4b.2 Migration 00025's two new CHECK constraints use `NOT VALID` +
+      a follow-up `VALIDATE CONSTRAINT` (matches this repo's migration-
+      safety lint requirement for `ADD CONSTRAINT ... CHECK` on an
+      existing table)
+- [x] 4b.3 Migration 00026: `idx_events_team_coalesce_enddate_id` on
+      `(team_id, (COALESCE(end_date, date)), id)`, restoring a sargable
+      index for `ListEvents`' upcoming/past scope filter
+
 ## 5. Verification
 
 - [x] 5.1 openapi-drift green (regenerated clients committed)
