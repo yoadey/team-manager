@@ -40,6 +40,26 @@ betroffen sein soll — ein gelöschter Termin ist unwiderruflich weg, ein
 **abgesagter** Termin bleibt dagegen sichtbar (Rückmeldungen sind dann
 nicht mehr nötig) und kann später wieder aktiviert werden.
 
+## Mehrtägige Termine
+
+Beim Anlegen oder Bearbeiten eines nicht-wiederkehrenden Termins könnt ihr
+zusätzlich zum Datum ein **Enddatum** angeben, z. B. für ein
+Trainingslager oder eine mehrtägige Fahrt. Der Termin erscheint dann im
+Kalender an jedem Tag des Zeitraums (mit Kennzeichnung „Tag 2/3" usw.) und
+gilt so lange als „anstehend", bis der letzte Tag vorbei ist. Ein
+mehrtägiger Termin kann nicht gleichzeitig Teil einer wöchentlichen Serie
+sein; um ihn wieder zu einem eintägigen Termin zu machen, das Enddatum-Feld
+beim Bearbeiten einfach leeren.
+
+## Termin duplizieren
+
+Über den Button *Duplizieren* in der Detailansicht eines Termins (nur mit
+Schreibrecht) öffnet sich das Anlegen-Formular, vorausgefüllt mit allen
+Angaben des Termins (Titel, Ort, Zeiten, Notiz, mehrtägiger Zeitraum) —
+Serienzugehörigkeit wird dabei nicht übernommen, der neue Termin ist immer
+eigenständig. Datum (und ggf. Enddatum) sind vor dem Speichern noch
+anzupassen.
+
 ## Geplante Abwesenheiten
 
 Über *Abwesend → Eigene Abwesenheit eintragen* könnt ihr einen Zeitraum
