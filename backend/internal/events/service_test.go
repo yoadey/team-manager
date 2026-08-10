@@ -1346,3 +1346,87 @@ func TestEventService_AddComment_PopulatesAuthorMembershipId(t *testing.T) {
 	require.NotNil(t, c.AuthorMembershipId, "EventComment.AuthorMembershipId must be populated so the frontend can build the author's photo URL")
 	assert.Equal(t, membershipID, *c.AuthorMembershipId)
 }
+
+func TestEventService_CreateEvent_RejectsMultiDayEndDateOnRecurring(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 1)
+
+	repo := &mockSvcRepo{
+		createSeriesFn: func(_ context.Context, _ string, _ *events.CreateEventParams) ([]events.EventRow, error) {
+			t.Fatal("CreateSeries must not be called when multiDayEndDate is set on a recurring create")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	recurring := true
+	body := &gen.CreateEventRequest{
+		Type:            gen.Training,
+		Title:           "Invalid Multi-Day Series",
+		Date:            openapi_types.Date{Time: start},
+		Recurring:       &recurring,
+		MultiDayEndDate: &openapi_types.Date{Time: end},
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.ErrorIs(t, err, events.ErrMultiDayEndDateOnRecurringEvent)
+}
+
+func TestEventService_CreateEvent_RejectsMultiDayEndDateBeforeDate(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, -1)
+
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, _ string, _ *events.CreateEventParams) (*events.EventRow, error) {
+			t.Fatal("CreateEvent must not be called when multiDayEndDate is before date")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	body := &gen.CreateEventRequest{
+		Type:            gen.Training,
+		Title:           "Invalid Multi-Day Span",
+		Date:            openapi_types.Date{Time: start},
+		MultiDayEndDate: &openapi_types.Date{Time: end},
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.ErrorIs(t, err, events.ErrMultiDayEndDateBeforeDate)
+}
+
+func TestEventService_CreateEvent_MultiDay_PassesEndDateToRepository(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 2)
+
+	var gotEndDate *time.Time
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, _ string, params *events.CreateEventParams) (*events.EventRow, error) {
+			gotEndDate = params.EndDate
+			return &events.EventRow{Id: uuid.New(), Type: "training", Title: "Camp", Date: start, EndDate: params.EndDate, Status: "active"}, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	body := &gen.CreateEventRequest{
+		Type:            gen.Training,
+		Title:           "Camp",
+		Date:            openapi_types.Date{Time: start},
+		MultiDayEndDate: &openapi_types.Date{Time: end},
+	}
+
+	ev, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.NoError(t, err)
+	require.NotNil(t, gotEndDate)
+	assert.Equal(t, end.Format("2006-01-02"), gotEndDate.Format("2006-01-02"))
+	require.NotNil(t, ev.MultiDayEndDate)
+	assert.Equal(t, end.Format("2006-01-02"), ev.MultiDayEndDate.Format("2006-01-02"))
+}

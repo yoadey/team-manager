@@ -203,6 +203,7 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     myStatus: mine.status,
     myAuto: mine.auto,
     myReason: mine.reason,
+    ...opt('multiDayEndDate', e.multiDayEndDate ?? undefined),
     ...opt('nominatedRoleIds', e.nominatedRoleIds),
     ...opt('result', e.result),
     ...opt('seriesId', e.seriesId ?? undefined),
@@ -922,8 +923,12 @@ export const handlers = [
     // upcoming), matching backend/internal/events/repository.go's
     // `WHERE date >= $2` for scope=upcoming (and `date < $2` for scope=past).
     let list = db.events.filter((e) => e.teamId === params.teamId);
-    if (scope === 'upcoming') list = list.filter((e) => e.date >= today);
-    if (scope === 'past') list = list.filter((e) => e.date < today);
+    // COALESCE(multiDayEndDate, date): an ongoing multi-day event stays
+    // "upcoming" until its last day has passed, mirroring
+    // backend/internal/events/repository.go's ListEvents.
+    const effectiveEnd = (e: EventDto) => e.multiDayEndDate ?? e.date;
+    if (scope === 'upcoming') list = list.filter((e) => effectiveEnd(e) >= today);
+    if (scope === 'past') list = list.filter((e) => effectiveEnd(e) < today);
     list = [...list].sort((a, b) => (scope === 'past' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
     return HttpResponse.json({ items: list.map(toWireEvent), nextCursor: null });
   }),
@@ -939,6 +944,10 @@ export const handlers = [
       type: body.type,
       title: body.title,
       date,
+      // Never on a recurring series occurrence -- multiDayEndDate is
+      // mutually exclusive with recurring (see design.md), and mk() is also
+      // used for weekly series occurrences below.
+      multiDayEndDate: body.recurring ? null : (body.multiDayEndDate ?? null),
       location: body.location || '',
       note: body.note || '',
       meetTime: body.meetTime ?? null,
@@ -1014,6 +1023,7 @@ export const handlers = [
     const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
     targets.forEach((ev) => {
       if (scope !== 'series' && body.date !== undefined) ev.date = body.date;
+      if (scope !== 'series' && body.multiDayEndDate !== undefined) ev.multiDayEndDate = body.multiDayEndDate || null;
       if (body.type !== undefined) ev.type = body.type;
       if (body.title !== undefined) ev.title = body.title;
       if (body.location !== undefined) ev.location = body.location;

@@ -33,6 +33,7 @@ function buildBasePayload(f: EventFormValues) {
     type: f.type,
     title: f.title.trim(),
     date: f.date,
+    multiDayEndDate: f.recurring ? '' : f.multiDayEndDate || '',
     location: f.location || '',
     note: f.note || '',
     meetTimeMandatory: !!f.meetTimeMandatory,
@@ -79,6 +80,7 @@ export function useEventFormActions({
             type: event.type,
             title: event.title,
             date: event.date,
+            multiDayEndDate: event.multiDayEndDate || '',
             meetT: hhmm(event.meetTime),
             startT: hhmm(event.startTime),
             endT: hhmm(event.endTime),
@@ -98,6 +100,7 @@ export function useEventFormActions({
             type: 'training',
             title: '',
             date: initialDate || todayStr(),
+            multiDayEndDate: '',
             meetT: '19:15',
             startT: '19:30',
             endT: '21:30',
@@ -118,6 +121,59 @@ export function useEventFormActions({
           type: 'eventForm',
           mode: event ? 'edit' : 'create',
           eventId: event?.id,
+          back: st.sheet && st.sheet.type === 'eventDetail' ? st.sheet : null,
+          formInitial: f,
+        },
+      }));
+    },
+    [setState, S],
+  );
+
+  // Opens the create form pre-filled from an existing event, but as a new,
+  // standalone, non-recurring event: seriesId/date reset so saving never
+  // touches the source event or its series (see design.md's "Copy is
+  // client-side only" decision). A multi-day source event's span length is
+  // preserved, anchored to the new default date instead of the source's own
+  // dates.
+  const duplicateEvent = useCallback(
+    (event: TeamEvent, initialDate?: string) => {
+      const newDate = initialDate || todayStr();
+      let newEndDate = '';
+      if (event.multiDayEndDate) {
+        const spanDays = Math.round(
+          (new Date(event.multiDayEndDate + 'T00:00:00Z').getTime() - new Date(event.date + 'T00:00:00Z').getTime()) /
+            86_400_000,
+        );
+        const shifted = new Date(newDate + 'T00:00:00Z');
+        shifted.setUTCDate(shifted.getUTCDate() + spanDays);
+        newEndDate = shifted.toISOString().slice(0, 10);
+      }
+      const f: EventFormValues = {
+        seriesId: null,
+        type: event.type,
+        title: event.title,
+        date: newDate,
+        multiDayEndDate: newEndDate,
+        meetT: hhmm(event.meetTime),
+        startT: hhmm(event.startTime),
+        endT: hhmm(event.endTime),
+        location: event.location || '',
+        note: event.note || '',
+        meetTimeMandatory: !!event.meetTimeMandatory,
+        responseMode: event.responseMode || 'opt_in',
+        nominatedRoleIds: event.nominatedRoleIds || S().roles.map((r) => r.id),
+        recurring: false,
+        repeatWeeks: 8,
+        repeatMode: 'weeks',
+        repeatEndDate: '',
+        cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
+        cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
+      };
+      setState((st) => ({
+        sheet: {
+          type: 'eventForm',
+          mode: 'create',
+          eventId: undefined,
           back: st.sheet && st.sheet.type === 'eventDetail' ? st.sheet : null,
           formInitial: f,
         },
@@ -164,5 +220,5 @@ export function useEventFormActions({
     [S, setState, teamId, saveEventAsync, openEventDetail, loadNotifications, toastMsg, logout],
   );
 
-  return { openEventForm, saveEvent, savingEvent };
+  return { openEventForm, duplicateEvent, saveEvent, savingEvent };
 }

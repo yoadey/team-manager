@@ -1,0 +1,68 @@
+## 1. Spec
+
+- [x] 1.1 Add optional `multiDayEndDate` (date) to `TeamEvent`,
+      `CreateEventRequest`, and `UpdateEventRequest` in `openapi.yaml`,
+      documented as mutually exclusive with `recurring`
+- [x] 1.2 Run `cd backend && make generate` + repo-root `make generate-ts`;
+      commit generated output
+
+## 2. Migration + backend
+
+- [x] 2.1 Migration: add nullable `end_date DATE` to `events`, with
+      `CHECK (end_date IS NULL OR end_date >= date)`
+- [x] 2.2 `internal/events/model.go`: add `EndDate *time.Time` to
+      `EventRow`, `CreateEventParams`, `UpdateEventParams`
+- [x] 2.3 `internal/events/repository.go`: add `end_date` to
+      `selectEventFields`/`scanEventRow`, `CreateEvent`, `UpdateEvent`
+      (rejecting `multiDayEndDate` on an event belonging to a series, and
+      excluding it from `updateSeriesEvents` same as `date`); `ListEvents`
+      filters past/upcoming on `COALESCE(end_date, date)`
+- [x] 2.4 `internal/events/service.go`/`handler.go`: reject
+      `multiDayEndDate` set together with `recurring: true` on create, and
+      `multiDayEndDate < date` on create (mirroring absences' from/to
+      validation); the DB CHECK constraint is the backstop for partial
+      updates
+- [x] 2.5 `internal/events/service.go`: `toGenEvent` maps `EndDate` to/from
+      `multiDayEndDate`
+- [x] 2.6 `repository_test.go`/`service_test.go`/`handler_test.go`: cover
+      create/update/get/list round-tripping `multiDayEndDate`, the
+      recurring+multiDayEndDate rejection, and `multiDayEndDate < date`
+      rejection
+
+## 3. Frontend — multi-day events
+
+- [x] 3.1 `eventFormSchema.ts`: optional `multiDayEndDate` field,
+      `>= date` validation, cleared/disabled when `recurring` is on
+- [x] 3.2 `EventFormSheet.tsx`: end-date input next to the existing date
+      field (mirroring `AbsenceFormSheet.tsx`'s from/to fields), disabled
+      while `RecurringSection` is active
+- [x] 3.3 `useEventFormActions.ts`: `buildBasePayload` includes
+      `multiDayEndDate`; `openEventForm` populates it from an existing event
+- [x] 3.4 `EventCalendar.tsx`: `groupEventsByDate` expands `date` →
+      `multiDayEndDate ?? date` inclusive across local calendar days
+      (mirroring `groupAbsencesByDate`); chip shows a day-N-of-M indicator
+      on spanning days
+- [x] 3.5 `frontend/src/i18n/{de,en}.ts`: end-date field label/validation
+      strings, multi-day chip indicator string
+- [x] 3.6 `frontend/src/mocks/`: MSW handlers/db persist and validate
+      `multiDayEndDate` the same way the real backend does
+
+## 4. Frontend — duplicate event
+
+- [x] 4.1 `useEventFormActions.ts`: new `duplicateEvent(event, initialDate?)` —
+      builds `EventFormValues` from `event`, strips `seriesId`, forces
+      `recurring: false`, resets `date`/`multiDayEndDate` to today (shifting
+      a multi-day span by the same length), opens the form in create mode
+- [x] 4.2 `EventDetailSheet.tsx`: `EventEditActions` gets a `Duplicate`
+      button (requires the same `write`-on-`events` permission as `Edit`),
+      wired to `duplicateEvent`
+- [x] 4.3 `frontend/src/i18n/{de,en}.ts`: "Duplicate"/"Kopieren" strings
+
+## 5. Verification
+
+- [x] 5.1 openapi-drift green (regenerated clients committed)
+- [x] 5.2 Backend: `make test-unit`, `make test-integration`, `make lint`,
+      migration-rollback (up→down→up) + migration-safety (nullable ADD
+      COLUMN, no unsafe DDL) green
+- [x] 5.3 Frontend: `npm run lint`, `npm run typecheck`, `npm test`,
+      `npm run build` + bundle budget green

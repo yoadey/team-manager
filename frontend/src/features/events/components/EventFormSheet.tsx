@@ -553,9 +553,20 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       <Field label={t('events.fieldTitle')} required error={!!errors.title} errorText={errors.title?.message}>
         <TextInput placeholder={t('events.fieldTitlePlaceholder')} maxLength={255} {...register('title')} />
       </Field>
-      <Field label={t('events.fieldDate')} required error={!!errors.date} errorText={errors.date?.message}>
-        <TextInput type="date" {...register('date')} />
-      </Field>
+      <Box sx={{ display: 'flex', gap: '10px' }}>
+        <Field label={t('events.fieldDate')} required error={!!errors.date} errorText={errors.date?.message}>
+          <TextInput type="date" {...register('date')} />
+        </Field>
+        {!recurring ? (
+          <Field
+            label={t('events.fieldMultiDayEndDate')}
+            error={!!errors.multiDayEndDate}
+            errorText={errors.multiDayEndDate?.message}
+          >
+            <TextInput type="date" min={dateVal} {...register('multiDayEndDate')} />
+          </Field>
+        ) : null}
+      </Box>
       <Box sx={{ display: 'flex', gap: '10px' }}>
         <Field label={t('events.fieldMeetTime')} error={!!errors.meetT} errorText={errors.meetT?.message}>
           <TextInput type="time" {...register('meetT')} />

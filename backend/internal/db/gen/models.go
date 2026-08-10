@@ -102,6 +102,7 @@ type Event struct {
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	CancelLeadMinutes pgtype.Int4
+	EndDate           pgtype.Date
 }
 
 type EventComment struct {

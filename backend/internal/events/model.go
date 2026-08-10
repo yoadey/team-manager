@@ -10,12 +10,16 @@ import (
 
 // EventRow mirrors the events DB table.
 type EventRow struct {
-	Id                uuid.UUID
-	TeamId            uuid.UUID
-	SeriesId          *uuid.UUID
-	Type              string
-	Title             string
-	Date              time.Time
+	Id       uuid.UUID
+	TeamId   uuid.UUID
+	SeriesId *uuid.UUID
+	Type     string
+	Title    string
+	Date     time.Time
+	// EndDate is the optional last day of a multi-day span: when set, the
+	// event occurs on every calendar day from Date through EndDate
+	// inclusive. Only ever set on non-recurring events (SeriesId nil).
+	EndDate           *time.Time
 	Location          *string
 	Note              *string
 	Result            *string
@@ -153,9 +157,12 @@ type EventSummaryData struct {
 
 // CreateEventParams holds the fields used to create a new event or series.
 type CreateEventParams struct {
-	Type              string
-	Title             string
-	Date              time.Time
+	Type  string
+	Title string
+	Date  time.Time
+	// EndDate is the optional last day of a multi-day span (see
+	// EventRow.EndDate). Only valid when Recurring is false.
+	EndDate           *time.Time
 	Location          *string
 	Note              *string
 	MeetTime          *string
@@ -178,9 +185,14 @@ type CreateEventParams struct {
 
 // UpdateEventParams holds the fields used to update an event.
 type UpdateEventParams struct {
-	Type              *string
-	Title             *string
-	Date              *time.Time
+	Type  *string
+	Title *string
+	Date  *time.Time
+	// EndDate is the optional last day of a multi-day span (see
+	// EventRow.EndDate). nil means "not provided in this patch," matching
+	// every other optional field in this struct -- like them, there is no
+	// way to explicitly clear an already-set EndDate back to NULL via PATCH.
+	EndDate           *time.Time
 	Location          *string
 	Note              *string
 	MeetTime          *string

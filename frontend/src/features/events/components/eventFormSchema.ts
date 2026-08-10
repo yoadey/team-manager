@@ -26,6 +26,7 @@ const minutes = (value: string) => {
 // to `undefined`) straight through from .superRefine() typechecks.
 interface EventFormRefineInput {
   date: string;
+  multiDayEndDate?: string | undefined;
   startT?: string | undefined;
   endT?: string | undefined;
   meetT?: string | undefined;
@@ -41,6 +42,36 @@ function validateDateField(data: EventFormRefineInput, ctx: z.RefinementCtx) {
       code: z.ZodIssueCode.custom,
       path: ['date'],
       message: t('validation.eventDateInvalid'),
+    });
+  }
+}
+
+// Multi-day span is mutually exclusive with recurring (see design.md's
+// "Mutually exclusive with recurring" decision) -- server-side rejects the
+// combination too, but validating it here gives immediate inline feedback.
+function validateMultiDayEndDate(data: EventFormRefineInput, ctx: z.RefinementCtx) {
+  if (!data.multiDayEndDate) return;
+  if (!validDate(data.multiDayEndDate)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['multiDayEndDate'],
+      message: t('validation.eventMultiDayEndDateInvalid'),
+    });
+    return;
+  }
+  if (data.recurring) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['multiDayEndDate'],
+      message: t('validation.eventMultiDayEndDateOnRecurring'),
+    });
+    return;
+  }
+  if (data.date && validDate(data.date) && data.multiDayEndDate < data.date) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['multiDayEndDate'],
+      message: t('validation.eventMultiDayEndDateBeforeStart'),
     });
   }
 }
@@ -119,6 +150,7 @@ export const eventFormSchema = z
       .string()
       .trim()
       .min(1, { message: t('validation.eventDateMissing') }),
+    multiDayEndDate: z.string().trim().optional().or(z.literal('')),
     meetT: z.string().trim().optional().or(z.literal('')),
     startT: z.string().trim().optional().or(z.literal('')),
     endT: z.string().trim().optional().or(z.literal('')),
@@ -141,6 +173,7 @@ export const eventFormSchema = z
   })
   .superRefine((data, ctx) => {
     validateDateField(data, ctx);
+    validateMultiDayEndDate(data, ctx);
     validateTimeFields(data, ctx);
     validateRecurring(data, ctx);
   });

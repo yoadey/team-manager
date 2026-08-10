@@ -546,6 +546,36 @@ describe('events', () => {
     );
   });
 
+  it('create forwards multiDayEndDate', async () => {
+    client.POST.mockResolvedValueOnce(ok({ id: 'e1' }));
+    await realApi.events.create('t1', {
+      type: 'training',
+      title: 'Camp',
+      date: '2026-01-01',
+      multiDayEndDate: '2026-01-03',
+    });
+    expect(client.POST).toHaveBeenCalledWith(
+      '/teams/{teamId}/events',
+      expect.objectContaining({ body: expect.objectContaining({ multiDayEndDate: '2026-01-03' }) }),
+    );
+  });
+
+  it('create omits multiDayEndDate when empty', async () => {
+    client.POST.mockResolvedValueOnce(ok({ id: 'e1' }));
+    await realApi.events.create('t1', { type: 'training', title: 'T', date: '2026-01-01', multiDayEndDate: '' });
+    const body = client.POST.mock.calls[0]![1].body as Record<string, unknown>;
+    expect(body).not.toHaveProperty('multiDayEndDate');
+  });
+
+  it('update forwards multiDayEndDate', async () => {
+    client.PATCH.mockResolvedValueOnce(ok({ id: 'e1' }));
+    await realApi.events.update('e1', { title: 'X', multiDayEndDate: '2026-01-03' }, 'single', 't1');
+    expect(client.PATCH).toHaveBeenCalledWith(
+      '/teams/{teamId}/events/{eventId}',
+      expect.objectContaining({ body: expect.objectContaining({ multiDayEndDate: '2026-01-03' }) }),
+    );
+  });
+
   it('update sends meetT/startT/endT under the meetTime/startTime/endTime keys the backend expects', async () => {
     client.PATCH.mockResolvedValueOnce(ok({ id: 'e1' }));
     await realApi.events.update('e1', { title: 'X', meetT: '20:00', startT: '20:15', endT: '22:00' }, 'single', 't1');

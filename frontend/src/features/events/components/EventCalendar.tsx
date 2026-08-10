@@ -18,10 +18,37 @@ import { synthesizeBirthdayEvents, groupBirthdaysByDate, type BirthdayEntry } fr
 // visually distinct from both real events and absences at a glance.
 const BIRTHDAY_COLOR = { bg: '#FCE4EC', on: '#7A1750' };
 
-function groupEventsByDate(events: TeamEvent[] | undefined): Record<string, TeamEvent[]> {
-  const byDate: Record<string, TeamEvent[]> = {};
+/** One calendar day's occurrence of an event, plus its position within a multi-day span (both 1 for a single-day event). */
+interface EventOccurrence {
+  event: TeamEvent;
+  dayIndex: number;
+  totalDays: number;
+}
+
+// Expands each event across every calendar day from `date` through
+// `multiDayEndDate` inclusive (single-day events being the degenerate
+// one-day case) -- mirrors groupAbsencesByDate's identical from/to
+// expansion below, including its DST-safe local-day increment.
+function groupEventsByDate(events: TeamEvent[] | undefined): Record<string, EventOccurrence[]> {
+  const byDate: Record<string, EventOccurrence[]> = {};
   (events ?? []).forEach((e) => {
-    (byDate[e.date] = byDate[e.date] || []).push(e);
+    if (!e.multiDayEndDate) {
+      (byDate[e.date] = byDate[e.date] || []).push({ event: e, dayIndex: 1, totalDays: 1 });
+      return;
+    }
+    // Collect every spanned day first (DST-safe local-day increment) so
+    // totalDays reflects the actual number of calendar days walked, not a
+    // fixed-ms-duration division that DST would throw off.
+    const spanDates: string[] = [];
+    let d = parseDateOnlyLocal(e.date);
+    const end = parseDateOnlyLocal(e.multiDayEndDate);
+    while (d <= end) {
+      spanDates.push(formatDateOnly(d));
+      d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+    }
+    spanDates.forEach((ds, idx) => {
+      (byDate[ds] = byDate[ds] || []).push({ event: e, dayIndex: idx + 1, totalDays: spanDates.length });
+    });
   });
   return byDate;
 }
@@ -44,8 +71,15 @@ function groupAbsencesByDate(absences: Absence[] | undefined, show: boolean): Re
   return byDate;
 }
 
-function EventChip({ event, mobile, onOpen }: { event: TeamEvent; mobile: boolean; onOpen: () => void }) {
+function EventChip({ occurrence, mobile, onOpen }: { occurrence: EventOccurrence; mobile: boolean; onOpen: () => void }) {
+  const { event, dayIndex, totalDays } = occurrence;
   const tm = typeMeta(event.type);
+  const isMultiDay = totalDays > 1;
+  const label = isMultiDay
+    ? event.title + ' ' + t('events.multiDayChipIndicator', { day: dayIndex, total: totalDays })
+    : mobile
+      ? event.title
+      : hhmm(event.startTime) + ' ' + event.title;
   return (
     <ButtonBase
       onClick={onOpen}
@@ -67,7 +101,7 @@ function EventChip({ event, mobile, onOpen }: { event: TeamEvent; mobile: boolea
         textOverflow: 'ellipsis',
       }}
     >
-      {mobile ? event.title : hhmm(event.startTime) + ' ' + event.title}
+      {label}
     </ButtonBase>
   );
 }
@@ -135,7 +169,7 @@ interface CalendarDayCellProps {
   mobile: boolean;
   primary: string;
   primaryContainer: string;
-  events: TeamEvent[];
+  events: EventOccurrence[];
   absences: Absence[];
   birthdays: BirthdayEntry[];
   onOpenEvent: (id: string) => void;
@@ -220,8 +254,13 @@ function CalendarDayCell({
       >
         {date.getDate()}
       </Box>
-      {visibleEvents.map((e) => (
-        <EventChip key={e.id} event={e} mobile={mobile} onOpen={() => onOpenEvent(e.id)} />
+      {visibleEvents.map((occ) => (
+        <EventChip
+          key={occ.event.id + '-' + occ.dayIndex}
+          occurrence={occ}
+          mobile={mobile}
+          onOpen={() => onOpenEvent(occ.event.id)}
+        />
       ))}
       {events.length > eventLimit ? (
         <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>{'+' + (events.length - eventLimit)}</Box>

@@ -14,6 +14,8 @@ export interface EventFormValues extends Record<string, unknown> {
   type: EventType;
   title: string;
   date: string;
+  /** Optional last day of a multi-day span (YYYY-MM-DD); empty for a single-day event. Only meaningful when !recurring. */
+  multiDayEndDate: string;
   meetT: string;
   startT: string;
   endT: string;
@@ -59,6 +61,8 @@ export interface EventDto {
   title: string;
   /** Calendar date in local team/user context, formatted as YYYY-MM-DD. */
   date: string;
+  /** Optional last day of a multi-day span (YYYY-MM-DD, inclusive); null for a single-day event. */
+  multiDayEndDate: string | null;
   location: string;
   note: string;
   result?: string;

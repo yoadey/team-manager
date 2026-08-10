@@ -1467,6 +1467,11 @@ export interface components {
             title: string;
             /** Format: date */
             date: string;
+            /**
+             * Format: date
+             * @description Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Never set together with recurring: true.
+             */
+            multiDayEndDate?: string;
             location?: string;
             note?: string;
             result?: string;
@@ -1493,6 +1498,11 @@ export interface components {
             title: string;
             /** Format: date */
             date: string;
+            /**
+             * Format: date
+             * @description Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true.
+             */
+            multiDayEndDate?: string;
             location?: string;
             note?: string;
             meetTime?: string;
@@ -1516,6 +1526,11 @@ export interface components {
             title?: string;
             /** Format: date */
             date?: string;
+            /**
+             * Format: date
+             * @description Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true.
+             */
+            multiDayEndDate?: string;
             location?: string;
             note?: string;
             meetTime?: string;

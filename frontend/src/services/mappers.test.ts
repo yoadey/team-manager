@@ -30,6 +30,7 @@ describe('mapEventDtoToTeamEvent', () => {
       type: 'training',
       title: 'Training',
       date: '2024-06-15',
+      multiDayEndDate: null,
       location: 'Halle',
       note: '',
       meetTime: '19:15',

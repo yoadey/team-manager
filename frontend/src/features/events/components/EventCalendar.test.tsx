@@ -60,6 +60,7 @@ function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
     type: 'training',
     title: 'Training',
     date: '2026-03-10',
+    multiDayEndDate: null,
     location: '',
     note: '',
     meetTime: null,
@@ -146,6 +147,24 @@ describe('EventCalendar', () => {
     expect(chip).toBeTruthy();
     fireEvent.click(chip!);
     expect(app.openEventDetail).toHaveBeenCalledWith('ev42');
+  });
+
+  it('renders a multi-day event on every day it spans, each with a day-N-of-M indicator', () => {
+    makeApp({
+      events: [
+        makeEvent({ id: 'camp1', date: '2026-03-10', multiDayEndDate: '2026-03-12', title: 'Trainingslager' }),
+      ],
+    });
+    render(<EventCalendar />);
+    expect(screen.getByText((c) => c.includes('Trainingslager') && c.includes('1/3'))).toBeTruthy();
+    expect(screen.getByText((c) => c.includes('Trainingslager') && c.includes('2/3'))).toBeTruthy();
+    expect(screen.getByText((c) => c.includes('Trainingslager') && c.includes('3/3'))).toBeTruthy();
+  });
+
+  it('does not show a day-N-of-M indicator for a single-day event', () => {
+    makeApp({ events: [makeEvent({ date: '2026-03-10', title: 'Training' })] });
+    render(<EventCalendar />);
+    expect(screen.queryByText((c) => c.includes('1/1'))).toBeFalsy();
   });
 
   it('clicking the next-month button advances calMonth by one month', () => {

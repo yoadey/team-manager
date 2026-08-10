@@ -373,6 +373,7 @@ export interface AppContextValue {
   ) => Promise<void>;
   openEventDetail: (eventId: string) => void;
   openEventForm: (event: TeamEvent | null, initialDate?: string) => void;
+  duplicateEvent: (event: TeamEvent, initialDate?: string) => void;
   saveEvent: (f: EventFormValues, scope?: 'single' | 'series') => Promise<void>;
   // members
   openMemberDetail: (membershipId: string) => Promise<void>;
@@ -1270,6 +1271,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     togglePollOption,
     removePoll,
     openEventForm,
+    duplicateEvent,
     saveEvent,
     savingEvent,
     savingComment,
@@ -1483,6 +1485,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       runEventAction,
       openEventDetail,
       openEventForm,
+      duplicateEvent,
       saveEvent,
       openMemberDetail,
       openMemberForm,
@@ -1592,6 +1595,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       runEventAction,
       openEventDetail,
       openEventForm,
+      duplicateEvent,
       saveEvent,
       openMemberDetail,
       openMemberForm,

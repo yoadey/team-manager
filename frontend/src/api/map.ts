@@ -249,6 +249,7 @@ export function mapTeamEvent(e: S['TeamEvent']): TeamEvent {
     type: e.type,
     title: e.title,
     date: e.date,
+    multiDayEndDate: e.multiDayEndDate ?? null,
     location: e.location ?? '',
     note: e.note ?? '',
     meetTime: e.meetTime ?? null,

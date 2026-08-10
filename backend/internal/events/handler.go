@@ -119,6 +119,9 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 		if errors.Is(err, ErrRecurrenceEndDateBeforeDate) {
 			return nil, apierror.BadRequest(err.Error())
 		}
+		if errors.Is(err, ErrMultiDayEndDateBeforeDate) || errors.Is(err, ErrMultiDayEndDateOnRecurringEvent) {
+			return nil, apierror.BadRequest(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to create event")
 	}
@@ -195,6 +198,9 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 		}
 		if errors.Is(err, ErrEndTimeBeforeStartTime) {
 			return nil, apierror.BadRequest(ErrEndTimeBeforeStartTime.Error())
+		}
+		if errors.Is(err, ErrMultiDayEndDateBeforeDate) || errors.Is(err, ErrMultiDayEndDateOnSeriesEvent) {
+			return nil, apierror.BadRequest(err.Error())
 		}
 		h.logger.ErrorContext(ctx, "UpdateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to update event")

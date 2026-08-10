@@ -8,6 +8,8 @@ type EventPayload = {
   type: string;
   title: string;
   date: string;
+  /** Optional last day of a multi-day span; YYYY-MM-DD. Mutually exclusive with recurring. */
+  multiDayEndDate?: string | undefined;
   location?: string;
   note?: string;
   meetTimeMandatory?: boolean;

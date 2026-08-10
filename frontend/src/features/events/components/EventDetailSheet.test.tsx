@@ -138,6 +138,7 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     setMyStatus: vi.fn(),
     setStatusFor: vi.fn(),
     openEventForm: vi.fn(),
+    duplicateEvent: vi.fn(),
     askEventAction: vi.fn(),
     openComment: vi.fn(),
     toggleNomination: vi.fn(),
@@ -285,6 +286,7 @@ describe('EventDetailSheet', () => {
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
     );
     expect(screen.getByText('events.edit')).toBeTruthy();
+    expect(screen.getByText('events.duplicate')).toBeTruthy();
     expect(screen.getByText('events.delete')).toBeTruthy();
   });
 
@@ -297,6 +299,19 @@ describe('EventDetailSheet', () => {
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
     );
     expect(screen.queryByText('events.edit')).toBeNull();
+    expect(screen.queryByText('events.duplicate')).toBeNull();
+  });
+
+  it('clicking duplicate calls app.duplicateEvent with the event', () => {
+    const app = makeApp();
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent();
+    render(
+      <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+    );
+    fireEvent.click(screen.getByText('events.duplicate'));
+    expect(app.duplicateEvent).toHaveBeenCalledWith(event);
   });
 
   it('renders cancel button when event is active and user can edit', () => {

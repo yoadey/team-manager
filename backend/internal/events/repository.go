@@ -39,6 +39,28 @@ const eventsEndAfterStartTimeConstraint = "events_end_after_start_time"
 // statement itself -- see absences' identical ErrInvalidDateRange pattern.
 var ErrEndTimeBeforeStartTime = errors.New("endTime: must be after startTime")
 
+// eventsEndDateAfterDateConstraint is the CHECK constraint added by
+// migration 00025, guarding end_date >= date -- mirrors
+// eventsEndAfterStartTimeConstraint's reasoning above.
+const eventsEndDateAfterDateConstraint = "events_end_date_after_date"
+
+// ErrMultiDayEndDateBeforeDate is returned when a create or partial update
+// would leave end_date < date. Service.CreateEvent catches the common case
+// early (both fields present in the same request); a partial UpdateEvent
+// that only changes one of date/multiDayEndDate can only be caught here,
+// once the merge happens inside the UPDATE statement itself and violates the
+// events_end_date_after_date CHECK constraint -- see
+// ErrEndTimeBeforeStartTime's identical reasoning.
+var ErrMultiDayEndDateBeforeDate = errors.New("multiDayEndDate: must not be before date")
+
+// ErrMultiDayEndDateOnSeriesEvent is returned when a caller sets
+// multiDayEndDate on an event that belongs to a recurring series --
+// multi-day spans are only meaningful for standalone events (see design.md's
+// "Mutually exclusive with recurring" decision), and series occurrences are
+// generated one per calendar day, so allowing one occurrence to span several
+// would silently overlap with the next occurrence's own date.
+var ErrMultiDayEndDateOnSeriesEvent = errors.New("multiDayEndDate: cannot be set on an event that belongs to a recurring series")
+
 // Repository handles all event-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -76,7 +98,7 @@ func uuidSlice(ids []uuid.UUID) []uuid.UUID {
 }
 
 const selectEventFields = `
-	id, team_id, series_id, type, title, date,
+	id, team_id, series_id, type, title, date, end_date,
 	location, note, result,
 	COALESCE(TO_CHAR(meet_time, 'HH24:MI'), '') AS meet_time,
 	COALESCE(TO_CHAR(start_time, 'HH24:MI'), '') AS start_time,
@@ -91,7 +113,7 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 	e := &EventRow{}
 	var meetTime, startTime, endTime string
 	err := row.Scan(
-		&e.Id, &e.TeamId, &e.SeriesId, &e.Type, &e.Title, &e.Date,
+		&e.Id, &e.TeamId, &e.SeriesId, &e.Type, &e.Title, &e.Date, &e.EndDate,
 		&e.Location, &e.Note, &e.Result,
 		&meetTime, &startTime, &endTime,
 		&e.MeetTimeMandatory, &e.ResponseMode,
@@ -168,7 +190,10 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.Li
 			pred = "AND (date, id) < ($4, $5)"
 			args = append(args, cur.Date, cur.ID)
 		}
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date < $2 %s ORDER BY date DESC, id DESC LIMIT $3`, selectEventFields, pred)
+		// COALESCE(end_date, date): a multi-day event that has started but not
+		// yet finished (end_date >= today) stays out of "past" even though its
+		// start date has already gone by -- it's still ongoing.
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND COALESCE(end_date, date) < $2 %s ORDER BY date DESC, id DESC LIMIT $3`, selectEventFields, pred)
 	case gen.Upcoming:
 		args = []any{teamID, today, limit}
 		pred := ""
@@ -176,7 +201,7 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.Li
 			pred = "AND (date, id) > ($4, $5)"
 			args = append(args, cur.Date, cur.ID)
 		}
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date >= $2 %s ORDER BY date ASC, id ASC LIMIT $3`, selectEventFields, pred)
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND COALESCE(end_date, date) >= $2 %s ORDER BY date ASC, id ASC LIMIT $3`, selectEventFields, pred)
 	case gen.All:
 		args = []any{teamID, limit}
 		pred := ""
@@ -321,20 +346,20 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 
 	q := fmt.Sprintf(`
 		INSERT INTO events (
-			team_id, type, title, date, location, note,
+			team_id, type, title, date, end_date, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
 			response_mode, nominated_role_ids, status, cancel_lead_minutes
 		) VALUES (
-			$1, $2, $3, $4, $5, $6,
-			$7::time, $8::time, $9::time, $10,
-			$11, $12, 'active', $13
+			$1, $2, $3, $4, $5, $6, $7,
+			$8::time, $9::time, $10::time, $11,
+			$12, $13, 'active', $14
 		)
 		RETURNING %s
 	`, selectEventFields)
 
 	row := tx.QueryRow(
 		ctx, q,
-		teamID, params.Type, params.Title, params.Date,
+		teamID, params.Type, params.Title, params.Date, params.EndDate,
 		params.Location, params.Note,
 		nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
 		boolVal(params.MeetTimeMandatory),
@@ -519,17 +544,9 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 		}
 	}
 
-	if scope == "series" {
-		// Get series_id for this event, verified to belong to teamID.
-		var seriesID *uuid.UUID
-		err := tx.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID).Scan(&seriesID)
-		if err != nil {
-			return nil, fmt.Errorf("events.Repository.UpdateEvent: get series_id: %w", err)
-		}
-		if seriesID != nil {
-			if err := updateSeriesEvents(ctx, tx, seriesID.String(), params); err != nil {
-				return nil, err
-			}
+	if scope == "series" || params.EndDate != nil {
+		if err := applySeriesScopedUpdate(ctx, tx, eventID, teamID, scope, params); err != nil {
+			return nil, err
 		}
 	}
 
@@ -540,8 +557,13 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 			return nil, pgx.ErrNoRows
 		}
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation && pgErr.ConstraintName == eventsEndAfterStartTimeConstraint {
-			return nil, ErrEndTimeBeforeStartTime
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+			switch pgErr.ConstraintName {
+			case eventsEndAfterStartTimeConstraint:
+				return nil, ErrEndTimeBeforeStartTime
+			case eventsEndDateAfterDateConstraint:
+				return nil, ErrMultiDayEndDateBeforeDate
+			}
 		}
 		return nil, fmt.Errorf("events.Repository.UpdateEvent: %w", err)
 	}
@@ -550,6 +572,31 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 		return nil, fmt.Errorf("events.Repository.UpdateEvent: commit: %w", err)
 	}
 	return e, nil
+}
+
+// applySeriesScopedUpdate looks up eventID's series_id (verified to belong
+// to teamID) and, if it belongs to a series, either rejects a multi-day
+// EndDate on it (ErrMultiDayEndDateOnSeriesEvent) or -- for scope="series"
+// -- applies the series-wide fields via updateSeriesEvents. A standalone
+// (non-series) event, or a scope="single" request with no EndDate, is a
+// no-op here; UpdateEvent's subsequent writeOrReadSingleEvent call always
+// applies the full params to the specific event regardless.
+func applySeriesScopedUpdate(ctx context.Context, tx pgx.Tx, eventID, teamID, scope string, params *UpdateEventParams) error {
+	var seriesID *uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID).Scan(&seriesID)
+	if err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: get series_id: %w", err)
+	}
+	if seriesID == nil {
+		return nil
+	}
+	if params.EndDate != nil {
+		return ErrMultiDayEndDateOnSeriesEvent
+	}
+	if scope == "series" {
+		return updateSeriesEvents(ctx, tx, seriesID.String(), params)
+	}
+	return nil
 }
 
 // writeOrReadSingleEvent applies params to the single event eventID (scoped
@@ -576,6 +623,7 @@ func writeOrReadSingleEvent(ctx context.Context, tx pgx.Tx, eventID, teamID stri
 func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params *UpdateEventParams) error {
 	seriesParams := *params
 	seriesParams.Date = nil
+	seriesParams.EndDate = nil
 	setSQL, args, nextIdx, ok := buildEventUpdateSets(&seriesParams, 1)
 	if !ok {
 		// Nothing but Date was set (the common "change just this occurrence's
@@ -612,6 +660,9 @@ func buildEventUpdateSets(params *UpdateEventParams, startIdx int) (setSQL strin
 	}
 	if params.Date != nil {
 		b.Add("date", *params.Date)
+	}
+	if params.EndDate != nil {
+		b.Add("end_date", *params.EndDate)
 	}
 	if params.Location != nil {
 		b.Add("location", *params.Location)

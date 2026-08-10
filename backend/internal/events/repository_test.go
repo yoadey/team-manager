@@ -1962,3 +1962,117 @@ func TestEventRepository_SetNomination_AllowsCallerWithEventsWrite(t *testing.T)
 	require.NotNil(t, targetRow)
 	assert.NotEqual(t, "not_nominated", targetRow.Status, "not_nominated row must be removed")
 }
+
+// ─── multi-day events ───────────────────────────────────────────────────────
+
+func TestEventRepository_CreateEvent_MultiDay_RoundTrips(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "11111111-2222-3333-4444-555555555555"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Multi-Day Team')`, teamID)
+	require.NoError(t, err)
+
+	start := time.Now().UTC().Truncate(24 * time.Hour)
+	end := start.AddDate(0, 0, 2)
+	params := makeCreateParams("Training Camp", start)
+	params.EndDate = &end
+
+	created, err := repo.CreateEvent(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.NotNil(t, created.EndDate)
+	assert.Equal(t, end.Format("2006-01-02"), created.EndDate.Format("2006-01-02"))
+
+	fetched, err := repo.GetEvent(ctx, created.Id.String(), teamID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.EndDate)
+	assert.Equal(t, end.Format("2006-01-02"), fetched.EndDate.Format("2006-01-02"))
+}
+
+func TestEventRepository_CreateEvent_MultiDay_OngoingCountsAsUpcomingNotPast(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "22222222-3333-4444-5555-666666666666"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Ongoing Multi-Day Team')`, teamID)
+	require.NoError(t, err)
+
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	start := today.AddDate(0, 0, -1) // started yesterday
+	end := today.AddDate(0, 0, 1)    // finishes tomorrow
+	params := makeCreateParams("Tournament Weekend", start)
+	params.EndDate = &end
+
+	_, err = repo.CreateEvent(ctx, teamID, &params)
+	require.NoError(t, err)
+
+	upcoming, err := repo.ListEvents(ctx, teamID, gen.Upcoming, 50, nil)
+	require.NoError(t, err)
+	assert.Len(t, upcoming, 1, "an ongoing multi-day event must count as upcoming")
+
+	past, err := repo.ListEvents(ctx, teamID, gen.Past, 50, nil)
+	require.NoError(t, err)
+	assert.Len(t, past, 0, "an ongoing multi-day event must not count as past")
+}
+
+func TestEventRepository_UpdateEvent_MultiDay_PartialUpdate_RejectsEndDateBeforeDate(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "33333333-4444-5555-6666-777777777777"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Multi-Day Partial Update Team')`, teamID)
+	require.NoError(t, err)
+
+	start := time.Now().UTC().Truncate(24 * time.Hour)
+	end := start.AddDate(0, 0, 3)
+	params := makeCreateParams("Camp", start)
+	params.EndDate = &end
+	created, err := repo.CreateEvent(ctx, teamID, &params)
+	require.NoError(t, err)
+
+	// Partial update: move the start date past the stored end_date.
+	newDate := end.AddDate(0, 0, 1)
+	_, err = repo.UpdateEvent(ctx, created.Id.String(), teamID, &events.UpdateEventParams{
+		Date: &newDate,
+	}, "single")
+	require.ErrorIs(t, err, events.ErrMultiDayEndDateBeforeDate)
+}
+
+func TestEventRepository_UpdateEvent_MultiDay_RejectedOnSeriesEvent(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "44444444-5555-6666-7777-888888888888"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Series Multi-Day Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	seriesParams := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 2,
+	}
+	eventRows, err := repo.CreateSeries(ctx, teamID, &seriesParams)
+	require.NoError(t, err)
+	require.Len(t, eventRows, 2)
+
+	end := startDate.AddDate(0, 0, 1)
+	_, err = repo.UpdateEvent(ctx, eventRows[0].Id.String(), teamID, &events.UpdateEventParams{
+		EndDate: &end,
+	}, "single")
+	require.ErrorIs(t, err, events.ErrMultiDayEndDateOnSeriesEvent)
+}

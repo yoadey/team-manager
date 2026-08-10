@@ -109,6 +109,21 @@ describe('EventFormSheet', () => {
     expect(screen.getByText('events.fieldDate')).toBeTruthy();
   });
 
+  it('renders the multi-day end-date field when not recurring', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+    expect(screen.getByText('events.fieldMultiDayEndDate')).toBeTruthy();
+  });
+
+  it('hides the multi-day end-date field once recurring is toggled on', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+    fireEvent.click(screen.getByRole('switch', { name: 'events.recurWeekly' }));
+    expect(screen.queryByText('events.fieldMultiDayEndDate')).toBeFalsy();
+  });
+
   it('renders time fields', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);

@@ -38,6 +38,10 @@ var (
 	// attendance after the event's cancelLeadMinutes-derived cutoff
 	// (EventStartInstant - cancelLeadMinutes) has passed.
 	ErrCancelLeadTimePassed = errors.New("events.Service.SetAttendance: cancellation lead time has passed")
+	// ErrMultiDayEndDateOnRecurringEvent is returned when a create request
+	// sets both recurring: true and multiDayEndDate -- see design.md's
+	// "Mutually exclusive with recurring" decision.
+	ErrMultiDayEndDateOnRecurringEvent = errors.New("multiDayEndDate: cannot be set on a recurring event")
 )
 
 // maxRepeatWeeks caps how many events a single recurring series may create.
@@ -211,6 +215,14 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 	}
 
 	recurring := body.Recurring != nil && *body.Recurring
+	if body.MultiDayEndDate != nil {
+		if recurring {
+			return nil, ErrMultiDayEndDateOnRecurringEvent
+		}
+		if body.MultiDayEndDate.Before(body.Date.Time) {
+			return nil, ErrMultiDayEndDateBeforeDate
+		}
+	}
 	repeatWeeks := 1
 	if body.RepeatWeeks != nil {
 		repeatWeeks = *body.RepeatWeeks
@@ -237,10 +249,16 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		return nil, ErrRepeatWeeksTooLarge
 	}
 
+	var multiDayEndDate *time.Time
+	if body.MultiDayEndDate != nil {
+		d := body.MultiDayEndDate.Time
+		multiDayEndDate = &d
+	}
 	params := CreateEventParams{
 		Type:              string(body.Type),
 		Title:             body.Title,
 		Date:              body.Date.Time,
+		EndDate:           multiDayEndDate,
 		Location:          body.Location,
 		Note:              body.Note,
 		MeetTime:          body.MeetTime,
@@ -334,6 +352,10 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 	if body.Date != nil {
 		d := body.Date.Time
 		params.Date = &d
+	}
+	if body.MultiDayEndDate != nil {
+		d := body.MultiDayEndDate.Time
+		params.EndDate = &d
 	}
 	if body.ResponseMode != nil {
 		rm := string(*body.ResponseMode)
@@ -794,6 +816,10 @@ func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 	if row.SeriesId != nil {
 		sid := *row.SeriesId
 		ev.SeriesId = &sid
+	}
+
+	if row.EndDate != nil {
+		ev.MultiDayEndDate = &openapi_types.Date{Time: *row.EndDate}
 	}
 
 	if row.ResponseMode != nil {
