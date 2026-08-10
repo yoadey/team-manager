@@ -525,12 +525,26 @@ func TestTeamRepository_UpdateTeam_ClearingReasonVisibilityRoles_DoesNotBlockOnA
 	<-lockHeld
 
 	emptyRoleIDs := []string{}
-	start := time.Now()
-	_, err = repo.UpdateTeam(ctx, teamID, teams.TeamPatch{ReasonVisibilityRoleIDs: emptyRoleIDs})
-	elapsed := time.Since(start)
-	require.NoError(t, err)
-	assert.Less(t, elapsed, 500*time.Millisecond,
-		"UpdateTeam clearing ReasonVisibilityRoleIDs should not block on the team's advisory lock; took %v", elapsed)
+	updateDone := make(chan struct{})
+	var updateErr error
+	go func() {
+		defer close(updateDone)
+		_, updateErr = repo.UpdateTeam(ctx, teamID, teams.TeamPatch{ReasonVisibilityRoleIDs: emptyRoleIDs})
+	}()
+
+	// Proving UpdateTeam finished strictly before the lock-holder's 2s sleep
+	// elapsed (rather than asserting an absolute wall-clock bound) keeps this
+	// deterministic under CI load/-race slowdowns: it only fails if UpdateTeam
+	// actually waited for the advisory lock, not if the machine is merely slow.
+	select {
+	case <-updateDone:
+		// Expected: UpdateTeam did not block on the held advisory lock.
+	case <-lockReleased:
+		<-updateDone // let UpdateTeam finish before touching pool/vars from cleanup
+		t.Fatal("UpdateTeam clearing ReasonVisibilityRoleIDs blocked until the advisory lock was released")
+	}
+
+	require.NoError(t, updateErr)
 
 	<-lockReleased
 }

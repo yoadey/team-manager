@@ -486,13 +486,28 @@ func TestEventRepository_CreateEvent_NoNominatedRoles_DoesNotBlockOnAdvisoryLock
 	params := makeCreateParams("No Roles Event", time.Now().UTC())
 	// params.NominatedRoleIds left nil -- nothing to validate.
 
-	start := time.Now()
-	ev, err := repo.CreateEvent(ctx, teamID, &params)
-	elapsed := time.Since(start)
-	require.NoError(t, err)
+	createDone := make(chan struct{})
+	var ev *events.EventRow
+	var createErr error
+	go func() {
+		defer close(createDone)
+		ev, createErr = repo.CreateEvent(ctx, teamID, &params)
+	}()
+
+	// Proving CreateEvent finished strictly before the lock-holder's 2s sleep
+	// elapsed (rather than asserting an absolute wall-clock bound) keeps this
+	// deterministic under CI load/-race slowdowns: it only fails if CreateEvent
+	// actually waited for the advisory lock, not if the machine is merely slow.
+	select {
+	case <-createDone:
+		// Expected: CreateEvent did not block on the held advisory lock.
+	case <-lockReleased:
+		<-createDone // let CreateEvent finish before touching pool/vars from cleanup
+		t.Fatal("CreateEvent with no nominated roles blocked until the advisory lock was released")
+	}
+
+	require.NoError(t, createErr)
 	require.NotNil(t, ev)
-	assert.Less(t, elapsed, 500*time.Millisecond,
-		"CreateEvent with no nominated roles should not block on the team's advisory lock; took %v", elapsed)
 
 	<-lockReleased
 }
