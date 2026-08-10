@@ -217,6 +217,17 @@ function loadColorScheme(): AppState['colorScheme'] {
   return 'system';
 }
 
+/** localStorage key persisting the last-selected team across page reloads/sessions. */
+const ACTIVE_TEAM_STORAGE_KEY = 'tv_active_team_id';
+
+function loadStoredTeamId(): string | null {
+  return localStorage.getItem(ACTIVE_TEAM_STORAGE_KEY);
+}
+
+function storeTeamId(id: string): void {
+  localStorage.setItem(ACTIVE_TEAM_STORAGE_KEY, id);
+}
+
 const initialLocation = parseLocation(window.location.pathname, window.location.search);
 
 const initialState: AppState = {
@@ -593,6 +604,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       captureException(err, { context: 'logout' });
     });
     setSentryUser(null);
+    // Clear the persisted team selection on logout -- otherwise a second
+    // account signing in on the same browser (shared/kiosk device) could be
+    // silently defaulted into the previous account's last-picked team
+    // instead of their own, whenever that team id happens to also be one of
+    // theirs.
+    localStorage.removeItem(ACTIVE_TEAM_STORAGE_KEY);
     setState({
       phase: 'login',
       user: null,
@@ -901,8 +918,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
       // teams[0]! is safe: the `!teams.length` branch above already returned,
-      // so teams has at least one element here.
-      const activeTeamId = joinedTeamId && teams.some((tm) => tm.id === joinedTeamId) ? joinedTeamId : teams[0]!.id;
+      // so teams has at least one element here. A freshly joined invite team
+      // takes priority over the last-selected team (the invite is why the
+      // user is here); otherwise fall back to the last team the user had
+      // selected, if it's still one they belong to.
+      const storedTeamId = loadStoredTeamId();
+      const activeTeamId =
+        joinedTeamId && teams.some((tm) => tm.id === joinedTeamId)
+          ? joinedTeamId
+          : storedTeamId && teams.some((tm) => tm.id === storedTeamId)
+            ? storedTeamId
+            : teams[0]!.id;
+      storeTeamId(activeTeamId);
       if (opts?.restoreLocation) {
         // Session restore (a page reload, or a bookmarked/shared deep link
         // like /finances or /events?view=absences) must not silently bounce
@@ -1135,6 +1162,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         closeSheet();
         return;
       }
+      storeTeamId(id);
       setState({ activeTeamId: id, sheet: null, route: 'home', eventScope: 'upcoming', eventsView: 'list' });
       await afterLoginLoad(id);
     },
