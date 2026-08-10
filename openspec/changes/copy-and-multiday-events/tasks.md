@@ -98,6 +98,21 @@
       pending count, upcoming stat), `layouts/AppShell.tsx` (nav pending
       badge)
 
+## 4d. Cross-team calendar sharing + client-side span cap
+
+- [x] 4d.1 `calendarshare`: `RedactedEventRow.EndDate`, `SELECT`s
+      `end_date`, `SharedCalendarEvent.multiDayEndDate` (openapi.yaml +
+      regenerated clients), `ListRedactedEvents`' `from` bound uses
+      `COALESCE(end_date, date) >= from` so an ongoing multi-day event
+      isn't dropped once its start date passes
+- [x] 4d.2 `CalendarShareSheets.tsx` renders a shared multi-day event's
+      date range instead of only its first day
+- [x] 4d.3 `eventFormSchema.ts`: inline 1095-day span-cap validation,
+      mirroring the backend's `maxMultiDaySpanDays`
+- [x] 4d.4 `EventCalendar.tsx`: factored `groupEventsByDate`'s and
+      `groupAbsencesByDate`'s identical day-range-expansion loop into a
+      shared `expandDateRange` helper
+
 ## 5. Verification
 
 - [x] 5.1 openapi-drift green (regenerated clients committed)

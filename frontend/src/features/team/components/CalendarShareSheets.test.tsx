@@ -143,4 +143,31 @@ describe('SharedCalendarsSheet', () => {
     // Redacted projection: nothing attendance/comment/note-shaped ever renders.
     expect(screen.queryByText(/Teilnahme|Kommentar|Notiz/i)).toBeNull();
   });
+
+  it('renders a date range for a multi-day shared event', () => {
+    mockUseSharedCalendarSourcesQuery.mockReturnValue({
+      data: [{ ownerTeamId: 'o1', ownerTeamName: 'Nachbarteam' }],
+      isLoading: false,
+    } as never);
+    mockUseSharedCalendarEventsQuery.mockReturnValue({
+      data: [
+        {
+          id: 'e1',
+          type: 'training',
+          title: 'Trainingslager',
+          date: '2026-06-10',
+          multiDayEndDate: '2026-06-12',
+          startTime: null,
+          endTime: null,
+          location: null,
+        },
+      ],
+      isLoading: false,
+    } as never);
+    const app = makeApp();
+    render(<SharedCalendarsSheet app={app as never} sheet={SHEET} />);
+    fireEvent.click(screen.getByText('Nachbarteam'));
+
+    expect(screen.getByText(/–/)).toBeTruthy();
+  });
 });

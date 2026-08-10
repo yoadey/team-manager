@@ -252,6 +252,7 @@ export const de = {
     eventMultiDayEndDateInvalid: 'Enddatum des mehrtägigen Termins ist ungültig.',
     eventMultiDayEndDateOnRecurring: 'Mehrtägige Termine können nicht wiederkehrend sein.',
     eventMultiDayEndDateBeforeStart: 'Enddatum darf nicht vor dem Startdatum liegen.',
+    eventMultiDayEndDateSpanTooLong: 'Zeitraum darf höchstens {max} Tage umfassen.',
     pollQuestionMissing: 'Frage der Umfrage fehlt.',
     pollOptionsMissing: 'Mindestens zwei Antwortoptionen angeben.',
     pollOptionsDuplicate: 'Antwortoptionen dürfen nicht doppelt sein.',

@@ -1811,6 +1811,11 @@ export interface components {
             title: string;
             /** Format: date */
             date: string;
+            /**
+             * Format: date
+             * @description Optional last day of a multi-day span (see TeamEvent's field of the same name); when set, the event occurs on every calendar day from date through multiDayEndDate inclusive.
+             */
+            multiDayEndDate?: string;
             /** @description HH:mm */
             startTime?: string;
             /** @description HH:mm */

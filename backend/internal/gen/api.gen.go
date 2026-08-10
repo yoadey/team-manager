@@ -1022,6 +1022,9 @@ type SharedCalendarEvent struct {
 	Id       openapi_types.UUID `json:"id"`
 	Location *string            `json:"location,omitempty"`
 
+	// MultiDayEndDate Optional last day of a multi-day span (see TeamEvent's field of the same name); when set, the event occurs on every calendar day from date through multiDayEndDate inclusive.
+	MultiDayEndDate *openapi_types.Date `json:"multiDayEndDate,omitempty"`
+
 	// StartTime HH:mm
 	StartTime *string   `json:"startTime,omitempty"`
 	Title     string    `json:"title"`

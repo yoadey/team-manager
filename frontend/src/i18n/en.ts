@@ -251,6 +251,7 @@ export const en: Messages = {
     eventMultiDayEndDateInvalid: 'Multi-day end date is invalid.',
     eventMultiDayEndDateOnRecurring: 'A multi-day event cannot be recurring.',
     eventMultiDayEndDateBeforeStart: 'End date must not be before the start date.',
+    eventMultiDayEndDateSpanTooLong: 'Span must not exceed {max} days.',
     pollQuestionMissing: 'Poll question is required.',
     pollOptionsMissing: 'Please provide at least two answer options.',
     pollOptionsDuplicate: 'Answer options must not be duplicated.',

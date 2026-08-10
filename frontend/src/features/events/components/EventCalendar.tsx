@@ -25,10 +25,26 @@ interface EventOccurrence {
   totalDays: number;
 }
 
+/**
+ * Every calendar day from `from` through `to` inclusive, as YYYY-MM-DD
+ * strings, incrementing by local calendar day (not a fixed 24h in ms --
+ * across a DST transition the local day is 23 or 25 hours, so +86400000
+ * either lands on the same date twice or skips a day entirely).
+ */
+function expandDateRange(from: string, to: string): string[] {
+  const dates: string[] = [];
+  let d = parseDateOnlyLocal(from);
+  const end = parseDateOnlyLocal(to);
+  while (d <= end) {
+    dates.push(formatDateOnly(d));
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+  }
+  return dates;
+}
+
 // Expands each event across every calendar day from `date` through
 // `multiDayEndDate` inclusive (single-day events being the degenerate
-// one-day case) -- mirrors groupAbsencesByDate's identical from/to
-// expansion below, including its DST-safe local-day increment.
+// one-day case).
 function groupEventsByDate(events: TeamEvent[] | undefined): Record<string, EventOccurrence[]> {
   const byDate: Record<string, EventOccurrence[]> = {};
   (events ?? []).forEach((e) => {
@@ -36,16 +52,7 @@ function groupEventsByDate(events: TeamEvent[] | undefined): Record<string, Even
       (byDate[e.date] = byDate[e.date] || []).push({ event: e, dayIndex: 1, totalDays: 1 });
       return;
     }
-    // Collect every spanned day first (DST-safe local-day increment) so
-    // totalDays reflects the actual number of calendar days walked, not a
-    // fixed-ms-duration division that DST would throw off.
-    const spanDates: string[] = [];
-    let d = parseDateOnlyLocal(e.date);
-    const end = parseDateOnlyLocal(e.multiDayEndDate);
-    while (d <= end) {
-      spanDates.push(formatDateOnly(d));
-      d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-    }
+    const spanDates = expandDateRange(e.date, e.multiDayEndDate);
     spanDates.forEach((ds, idx) => {
       (byDate[ds] = byDate[ds] || []).push({ event: e, dayIndex: idx + 1, totalDays: spanDates.length });
     });
@@ -57,16 +64,9 @@ function groupAbsencesByDate(absences: Absence[] | undefined, show: boolean): Re
   const byDate: Record<string, Absence[]> = {};
   if (!show || !absences) return byDate;
   absences.forEach((a) => {
-    let d = parseDateOnlyLocal(a.from);
-    const end = parseDateOnlyLocal(a.to);
-    while (d <= end) {
-      const ds = formatDateOnly(d);
+    expandDateRange(a.from, a.to).forEach((ds) => {
       (byDate[ds] = byDate[ds] || []).push(a);
-      // Increment by calendar day, not a fixed 24h in ms -- across a DST
-      // transition the local day is 23 or 25 hours, so +86400000 either
-      // lands on the same date twice or skips a day entirely.
-      d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-    }
+    });
   });
   return byDate;
 }

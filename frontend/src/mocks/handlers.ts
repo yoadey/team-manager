@@ -922,7 +922,10 @@ export const handlers = [
     const to = url.searchParams.get('to');
     const body: S['SharedCalendarEvent'][] = db.events
       .filter((e) => e.teamId === params.ownerTeamId && e.status === 'active')
-      .filter((e) => (from ? e.date >= from : true))
+      // A multi-day event that started before `from` but is still ongoing
+      // at `from` must still be included -- mirrors the real backend's
+      // COALESCE(end_date, date) >= from reasoning.
+      .filter((e) => (from ? (e.multiDayEndDate || e.date) >= from : true))
       .filter((e) => (to ? e.date <= to : true))
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((e) => ({
@@ -930,6 +933,7 @@ export const handlers = [
         type: e.type,
         title: e.title,
         date: e.date,
+        ...opt('multiDayEndDate', e.multiDayEndDate ?? undefined),
         ...opt('startTime', e.startTime ?? undefined),
         ...opt('endTime', e.endTime ?? undefined),
         ...opt('location', e.location || undefined),

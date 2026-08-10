@@ -354,6 +354,7 @@ const SharedCalendarEvent = z
     type: EventType,
     title: z.string(),
     date: z.string(),
+    multiDayEndDate: z.string().optional(),
     startTime: z.string().optional(),
     endTime: z.string().optional(),
     location: z.string().optional(),

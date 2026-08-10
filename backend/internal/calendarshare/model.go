@@ -28,10 +28,13 @@ type ShareRow struct {
 // serializer, so a new sensitive event field can't leak into a shared
 // calendar just by existing on the events table.
 type RedactedEventRow struct {
-	Id        uuid.UUID
-	Type      string
-	Title     string
-	Date      time.Time
+	Id    uuid.UUID
+	Type  string
+	Title string
+	Date  time.Time
+	// EndDate is the optional last day of a multi-day span (see
+	// events.EventRow.EndDate's identical field).
+	EndDate   *time.Time
 	StartTime *string
 	EndTime   *string
 	Location  *string

@@ -67,6 +67,17 @@ touches, DST-safely.
   dedicated boolean flag (matching how e.g. `meetTimeMandatory` is already
   a plain boolean) is the minimal-diff way to make "make this a single-day
   event again" an actual, working action instead of a silently-ignored one.
+- **Cross-team calendar sharing** (`calendarshare` package,
+  `SharedCalendarEvent`): the redacted schedule-only projection exposed
+  through a calendar share gets its own `multiDayEndDate` field and the
+  same `COALESCE(end_date, date) >= from` overlap fix as `ListEvents`,
+  since it was otherwise the one remaining event listing left truncating a
+  multi-day event to its first day / dropping it once its start date
+  passed.
+- **Client-side span-cap validation**: `eventFormSchema.ts` mirrors the
+  backend's 1095-day cap inline, so a typo'd year gets a translated,
+  field-specific error instead of round-tripping to the server for a raw
+  400.
 - **Every "is this past?" UI check must use the effective end date, not
   `date` alone**: `EventDetailSheet.tsx`, `EventsPage.tsx`,
   `components/cards.tsx` (`EventCard`), `pages/Home.tsx`, and

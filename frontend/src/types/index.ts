@@ -199,6 +199,8 @@ export interface SharedCalendarEvent {
   type: EventType;
   title: string;
   date: string;
+  /** Optional last day of a multi-day span (YYYY-MM-DD, inclusive); null for a single-day event. */
+  multiDayEndDate: string | null;
   startTime: string | null;
   endTime: string | null;
   location: string | null;

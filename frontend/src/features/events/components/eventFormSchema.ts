@@ -12,6 +12,19 @@ const validDate = (value: string) => {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 };
 
+// Days between two valid YYYY-MM-DD strings (b - a). Callers must validate
+// both with validDate() first -- this does no format checking itself.
+const daysBetween = (a: string, b: string) => {
+  const toUtcDays = (s: string) => Date.parse(s + 'T00:00:00Z') / 86_400_000;
+  return toUtcDays(b) - toUtcDays(a);
+};
+
+// Mirrors the backend's maxMultiDaySpanDays (events.Service, 1095 days /
+// ~3 years) -- an inline check here catches the common "typo'd the year"
+// mistake with a field-specific error instead of a raw, untranslated
+// server 400 surfacing through the generic save-error toast.
+const MAX_MULTI_DAY_SPAN_DAYS = 1095;
+
 const minutes = (value: string) => {
   if (!TIME_RE.test(value)) return null;
   const [h, m] = value.split(':').map(Number);
@@ -67,12 +80,20 @@ function validateMultiDayEndDate(data: EventFormRefineInput, ctx: z.RefinementCt
     });
     return;
   }
-  if (data.date && validDate(data.date) && data.multiDayEndDate < data.date) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['multiDayEndDate'],
-      message: t('validation.eventMultiDayEndDateBeforeStart'),
-    });
+  if (data.date && validDate(data.date)) {
+    if (data.multiDayEndDate < data.date) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['multiDayEndDate'],
+        message: t('validation.eventMultiDayEndDateBeforeStart'),
+      });
+    } else if (daysBetween(data.date, data.multiDayEndDate) > MAX_MULTI_DAY_SPAN_DAYS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['multiDayEndDate'],
+        message: t('validation.eventMultiDayEndDateSpanTooLong', { max: MAX_MULTI_DAY_SPAN_DAYS }),
+      });
+    }
   }
 }
 

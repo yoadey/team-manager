@@ -156,6 +156,9 @@ func (h *Handler) ListSharedCalendarEvents(ctx context.Context, req gen.ListShar
 			EndTime:   e.EndTime,
 			Location:  e.Location,
 		}
+		if e.EndDate != nil {
+			out[i].MultiDayEndDate = &openapi_types.Date{Time: *e.EndDate}
+		}
 	}
 	return out, nil
 }

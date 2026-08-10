@@ -194,6 +194,7 @@ export function mapSharedCalendarEvent(e: S['SharedCalendarEvent']): SharedCalen
     type: e.type,
     title: e.title,
     date: e.date,
+    multiDayEndDate: e.multiDayEndDate ?? null,
     startTime: e.startTime ?? null,
     endTime: e.endTime ?? null,
     location: e.location ?? null,
