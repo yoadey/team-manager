@@ -45,6 +45,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/roles"
 	"github.com/yoadey/team-manager/backend/internal/server"
 	"github.com/yoadey/team-manager/backend/internal/stats"
+	"github.com/yoadey/team-manager/backend/internal/statsprefs"
 	"github.com/yoadey/team-manager/backend/internal/storage"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
@@ -500,6 +501,12 @@ func main() {
 	statsSvc := stats.NewService(statsRepo)
 	statsHandler := stats.NewHandler(statsSvc, logger)
 
+	// ─── Stats preferences ───────────────────────────────────────────────────
+
+	statsPrefsRepo := statsprefs.NewRepository(pool)
+	statsPrefsSvc := statsprefs.NewService(statsPrefsRepo)
+	statsPrefsHandler := statsprefs.NewHandler(statsPrefsSvc, logger)
+
 	// ─── Aggregated server ───────────────────────────────────────────────────
 
 	srv := server.New(
@@ -514,6 +521,7 @@ func main() {
 		notifHandler,
 		financesHandler,
 		statsHandler,
+		statsPrefsHandler,
 		pushHandler,
 		calendarFeedHandler,
 		calendarShareHandler,

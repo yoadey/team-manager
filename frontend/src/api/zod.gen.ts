@@ -726,6 +726,40 @@ const AttendanceAbsenceTable = z
     to: z.string(),
   })
   .passthrough();
+const StatsPreferences = z
+  .object({ from: z.string(), to: z.string(), presetId: z.string().uuid() })
+  .partial()
+  .passthrough();
+const SetStatsPreferencesRequest = z
+  .object({
+    from: z.string(),
+    to: z.string(),
+    presetId: z.string().uuid().optional(),
+  })
+  .passthrough();
+const StatsPreset = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string(),
+    from: z.string(),
+    to: z.string(),
+  })
+  .passthrough();
+const CreateStatsPresetRequest = z
+  .object({
+    name: z.string().min(1).max(100),
+    from: z.string(),
+    to: z.string(),
+  })
+  .passthrough();
+const UpdateStatsPresetRequest = z
+  .object({
+    name: z.string().min(1).max(100),
+    from: z.string(),
+    to: z.string(),
+  })
+  .partial()
+  .passthrough();
 const Problem = z
   .object({
     type: z.string(),
@@ -823,6 +857,11 @@ export const schemas = {
   MemberAttendanceStats,
   AttendanceAbsenceRow,
   AttendanceAbsenceTable,
+  StatsPreferences,
+  SetStatsPreferencesRequest,
+  StatsPreset,
+  CreateStatsPresetRequest,
+  UpdateStatsPresetRequest,
   Problem,
 };
 
@@ -2693,6 +2732,115 @@ const endpoints = makeApi([
   },
   {
     method: "get",
+    path: "/teams/:teamId/stats-preferences",
+    alias: "getStatsPreferences",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: StatsPreferences,
+  },
+  {
+    method: "put",
+    path: "/teams/:teamId/stats-preferences",
+    alias: "setStatsPreferences",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: SetStatsPreferencesRequest,
+      },
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.void(),
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/stats-presets",
+    alias: "listStatsPresets",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.object({ items: z.array(StatsPreset) }).passthrough(),
+  },
+  {
+    method: "post",
+    path: "/teams/:teamId/stats-presets",
+    alias: "createStatsPreset",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: CreateStatsPresetRequest,
+      },
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: StatsPreset,
+  },
+  {
+    method: "patch",
+    path: "/teams/:teamId/stats-presets/:presetId",
+    alias: "updateStatsPreset",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: UpdateStatsPresetRequest,
+      },
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "presetId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: StatsPreset,
+  },
+  {
+    method: "delete",
+    path: "/teams/:teamId/stats-presets/:presetId",
+    alias: "deleteStatsPreset",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "presetId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.void(),
+  },
+  {
+    method: "get",
     path: "/teams/:teamId/stats/absences",
     alias: "getStatsAbsences",
     requestFormat: "json",
@@ -2754,6 +2902,16 @@ const endpoints = makeApi([
         name: "userId",
         type: "Path",
         schema: z.string().uuid(),
+      },
+      {
+        name: "from",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+      {
+        name: "to",
+        type: "Query",
+        schema: z.string().optional(),
       },
     ],
     response: MemberAttendanceStats,

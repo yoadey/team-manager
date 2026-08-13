@@ -64,7 +64,7 @@ func (h *Handler) GetMemberStats(ctx context.Context, req gen.GetMemberStatsRequ
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	stats, err := h.svc.GetMemberStats(ctx, req.TeamId, req.UserId, nil, nil)
+	stats, err := h.svc.GetMemberStats(ctx, req.TeamId, req.UserId, req.Params.From, req.Params.To)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("member not found")

@@ -19,6 +19,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/push"
 	"github.com/yoadey/team-manager/backend/internal/roles"
 	"github.com/yoadey/team-manager/backend/internal/stats"
+	"github.com/yoadey/team-manager/backend/internal/statsprefs"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
@@ -363,6 +364,7 @@ type Server struct {
 	Notifications *notifications.Handler
 	Finances      *finances.Handler
 	Stats         *stats.Handler
+	StatsPrefs    *statsprefs.Handler
 	Push          *push.Handler
 	CalendarFeed  *calendarfeed.Handler
 	CalendarShare *calendarshare.Handler
@@ -394,6 +396,7 @@ func New(
 	notificationsHandler *notifications.Handler,
 	financesHandler *finances.Handler,
 	statsHandler *stats.Handler,
+	statsPrefsHandler *statsprefs.Handler,
 	pushHandler *push.Handler,
 	calendarFeedHandler *calendarfeed.Handler,
 	calendarShareHandler *calendarshare.Handler,
@@ -410,6 +413,7 @@ func New(
 		Notifications: notificationsHandler,
 		Finances:      financesHandler,
 		Stats:         statsHandler,
+		StatsPrefs:    statsPrefsHandler,
 		Push:          pushHandler,
 		CalendarFeed:  calendarFeedHandler,
 		CalendarShare: calendarShareHandler,
@@ -748,6 +752,32 @@ func (s *Server) GetMemberStats(ctx context.Context, req gen.GetMemberStatsReque
 
 func (s *Server) GetAttendanceMatrix(ctx context.Context, req gen.GetAttendanceMatrixRequestObject) (gen.GetAttendanceMatrixResponseObject, error) {
 	return s.Stats.GetAttendanceMatrix(ctx, req)
+}
+
+// ─── Stats preferences delegations ────────────────────────────────────────────
+
+func (s *Server) GetStatsPreferences(ctx context.Context, req gen.GetStatsPreferencesRequestObject) (gen.GetStatsPreferencesResponseObject, error) {
+	return s.StatsPrefs.GetStatsPreferences(ctx, req)
+}
+
+func (s *Server) SetStatsPreferences(ctx context.Context, req gen.SetStatsPreferencesRequestObject) (gen.SetStatsPreferencesResponseObject, error) {
+	return s.StatsPrefs.SetStatsPreferences(ctx, req)
+}
+
+func (s *Server) ListStatsPresets(ctx context.Context, req gen.ListStatsPresetsRequestObject) (gen.ListStatsPresetsResponseObject, error) {
+	return s.StatsPrefs.ListStatsPresets(ctx, req)
+}
+
+func (s *Server) CreateStatsPreset(ctx context.Context, req gen.CreateStatsPresetRequestObject) (gen.CreateStatsPresetResponseObject, error) {
+	return s.StatsPrefs.CreateStatsPreset(ctx, req)
+}
+
+func (s *Server) UpdateStatsPreset(ctx context.Context, req gen.UpdateStatsPresetRequestObject) (gen.UpdateStatsPresetResponseObject, error) {
+	return s.StatsPrefs.UpdateStatsPreset(ctx, req)
+}
+
+func (s *Server) DeleteStatsPreset(ctx context.Context, req gen.DeleteStatsPresetRequestObject) (gen.DeleteStatsPresetResponseObject, error) {
+	return s.StatsPrefs.DeleteStatsPreset(ctx, req)
 }
 
 // ─── Push delegations ─────────────────────────────────────────────────────────

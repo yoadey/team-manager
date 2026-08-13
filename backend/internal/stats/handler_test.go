@@ -187,6 +187,32 @@ func TestHandler_GetMemberStats_Success(t *testing.T) {
 	assert.InEpsilon(t, float32(0.8), result.Quote, 0.001)
 }
 
+func TestHandler_GetMemberStats_ForwardsFromTo(t *testing.T) {
+	t.Parallel()
+	from := openapi_types.Date{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	to := openapi_types.Date{Time: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)}
+
+	var gotFrom, gotTo *openapi_types.Date
+	svc := &mockStatsService{
+		getMemberStats: func(_ context.Context, _, _ uuid.UUID, from, to *openapi_types.Date) (*gen.MemberAttendanceStats, error) {
+			gotFrom, gotTo = from, to
+			return &gen.MemberAttendanceStats{}, nil
+		},
+	}
+	h := stats.NewHandler(svc, slog.Default())
+
+	_, err := h.GetMemberStats(statsAuthedCtx(), gen.GetMemberStatsRequestObject{
+		TeamId: statsTeamID,
+		UserId: statsUserID,
+		Params: gen.GetMemberStatsParams{From: &from, To: &to},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, gotFrom)
+	require.NotNil(t, gotTo)
+	assert.True(t, from.Equal(gotFrom.Time))
+	assert.True(t, to.Equal(gotTo.Time))
+}
+
 func TestHandler_GetStatsAbsences_Unauthenticated(t *testing.T) {
 	t.Parallel()
 	h := stats.NewHandler(&mockStatsService{}, slog.Default())

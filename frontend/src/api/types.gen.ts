@@ -1261,6 +1261,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{teamId}/stats-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Get the caller's last-selected statistics date range for this team. Empty properties mean nothing has been saved yet. */
+        get: operations["getStatsPreferences"];
+        /** Save the caller's last-selected statistics date range for this team */
+        put: operations["setStatsPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/stats-presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List the caller's saved statistics date-range presets for this team */
+        get: operations["listStatsPresets"];
+        put?: never;
+        /** Save a new statistics date-range preset (e.g. "Saison 2026/27") */
+        post: operations["createStatsPreset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/stats-presets/{presetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                presetId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a saved statistics date-range preset */
+        delete: operations["deleteStatsPreset"];
+        options?: never;
+        head?: never;
+        /** Rename or reschedule a saved statistics date-range preset */
+        patch: operations["updateStatsPreset"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2187,6 +2248,49 @@ export interface components {
             from: string;
             /** Format: date */
             to: string;
+        };
+        /** @description The caller's last-selected statistics date range for a team. All properties are absent when nothing has been saved yet. */
+        StatsPreferences: {
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to?: string;
+            /**
+             * Format: uuid
+             * @description Set when the last selection was a saved preset (see StatsPreset) rather than an ad-hoc custom range.
+             */
+            presetId?: string;
+        };
+        SetStatsPreferencesRequest: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** Format: uuid */
+            presetId?: string;
+        };
+        StatsPreset: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
+        CreateStatsPresetRequest: {
+            name: string;
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
+        UpdateStatsPresetRequest: {
+            name?: string;
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to?: string;
         };
     };
     responses: {
@@ -4490,7 +4594,10 @@ export interface operations {
     };
     getMemberStats: {
         parameters: {
-            query?: never;
+            query?: {
+                from?: string;
+                to?: string;
+            };
             header?: never;
             path: {
                 teamId: components["parameters"]["teamId"];
@@ -4532,6 +4639,150 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendanceAbsenceTable"];
+                };
+            };
+        };
+    };
+    getStatsPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsPreferences"];
+                };
+            };
+        };
+    };
+    setStatsPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetStatsPreferencesRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listStatsPresets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["StatsPreset"][];
+                    };
+                };
+            };
+        };
+    };
+    createStatsPreset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateStatsPresetRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsPreset"];
+                };
+            };
+        };
+    };
+    deleteStatsPreset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                presetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateStatsPreset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                presetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStatsPresetRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsPreset"];
                 };
             };
         };

@@ -35,9 +35,10 @@ func NewService(repo statsRepo) *Service {
 // maxStatsRangeDays caps how far apart from/to may be. Generous for any
 // club's history view, while preventing a caller-supplied range (e.g.
 // from=0001-01-01) from forcing a full-table aggregation across every event
-// and attendance row the team has ever had, unlike GetMemberStats which
-// always uses the fixed 3-month default (its request has no from/to params
-// at all, so this function's from==nil, to==nil branch is its only path).
+// and attendance row the team has ever had. Applies uniformly to every
+// stats endpoint, including GetMemberStats (which, like the others, falls
+// back to the last-3-months default via this function's from==nil,
+// to==nil branch when the caller omits from/to).
 const maxStatsRangeDays = 730
 
 // defaultDateRange returns from = 3 months ago, to = today if not specified,

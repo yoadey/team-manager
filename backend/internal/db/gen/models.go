@@ -298,6 +298,25 @@ type Session struct {
 	CreatedAt time.Time
 }
 
+type StatsLastSelection struct {
+	TeamID    uuid.UUID
+	UserID    uuid.UUID
+	FromDate  pgtype.Date
+	ToDate    pgtype.Date
+	PresetID  *uuid.UUID
+	UpdatedAt time.Time
+}
+
+type StatsViewPreset struct {
+	ID        uuid.UUID
+	TeamID    uuid.UUID
+	UserID    uuid.UUID
+	Name      string
+	FromDate  pgtype.Date
+	ToDate    pgtype.Date
+	CreatedAt time.Time
+}
+
 type Team struct {
 	ID                      uuid.UUID
 	Name                    string

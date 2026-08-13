@@ -121,8 +121,8 @@ func TestService_GetOverview_DefaultsDateRangeWhenUnset(t *testing.T) {
 
 // Pins the exact default window width so a future change to defaultDateRange
 // (or to how GetMemberStats/GetOverview call it) can't silently drift from
-// "3 months" without a test failing -- this is the only path GetMemberStats
-// exercises, since its request has no from/to params at all.
+// "3 months" without a test failing -- this is the path every stats endpoint
+// takes when the caller omits from/to.
 func TestService_GetOverview_DefaultRangeIsExactlyThreeMonths(t *testing.T) {
 	t.Parallel()
 
@@ -236,11 +236,10 @@ func TestService_GetMemberStats(t *testing.T) {
 	assert.InDelta(t, 0.8, result.Quote, 0.001)
 }
 
-// Regression/documentation test: GetMemberStats's handler never has from/to
-// to pass through (its OpenAPI request has no such params), but the service
-// method itself still accepts them -- pin that even an explicit range is
-// used verbatim (defaultDateRange only falls back when nil), so a future
-// change can't silently start ignoring an explicitly-passed range instead.
+// Pins that GetMemberStats' from/to (now also accepted by the handler, via
+// GetMemberStatsParams) are used verbatim rather than falling back to the
+// default (defaultDateRange only falls back when nil), so a future change
+// can't silently start ignoring an explicitly-passed range.
 func TestService_GetMemberStats_UsesExplicitRangeWhenGiven(t *testing.T) {
 	t.Parallel()
 

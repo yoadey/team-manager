@@ -1986,6 +1986,17 @@ paths:
       operationId: getMemberStats
       x-rbac-module: events
       summary: Individual member attendance statistics
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
       responses:
         "200":
           description: OK
@@ -2020,6 +2031,114 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AttendanceAbsenceTable"
+
+  /teams/{teamId}/stats-preferences:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [stats]
+      operationId: getStatsPreferences
+      x-rbac-module: public
+      summary: >-
+        Get the caller's last-selected statistics date range for this team.
+        Empty properties mean nothing has been saved yet.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsPreferences"
+    put:
+      tags: [stats]
+      operationId: setStatsPreferences
+      x-rbac-module: public
+      summary: Save the caller's last-selected statistics date range for this team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetStatsPreferencesRequest"
+      responses:
+        "204":
+          description: No Content
+
+  /teams/{teamId}/stats-presets:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [stats]
+      operationId: listStatsPresets
+      x-rbac-module: public
+      summary: List the caller's saved statistics date-range presets for this team
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StatsPreset"
+    post:
+      tags: [stats]
+      operationId: createStatsPreset
+      x-rbac-module: public
+      summary: Save a new statistics date-range preset (e.g. "Saison 2026/27")
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStatsPresetRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsPreset"
+
+  /teams/{teamId}/stats-presets/{presetId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: presetId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [stats]
+      operationId: updateStatsPreset
+      x-rbac-module: public
+      summary: Rename or reschedule a saved statistics date-range preset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateStatsPresetRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsPreset"
+    delete:
+      tags: [stats]
+      operationId: deleteStatsPreset
+      x-rbac-module: public
+      summary: Delete a saved statistics date-range preset
+      responses:
+        "204":
+          description: No Content
 
 # ─── Components ───────────────────────────────────────────────────────────────
 components:
@@ -3997,6 +4116,84 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AttendanceAbsenceRow"
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+
+    StatsPreferences:
+      type: object
+      description: >-
+        The caller's last-selected statistics date range for a team. All
+        properties are absent when nothing has been saved yet.
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        presetId:
+          type: string
+          format: uuid
+          description: >-
+            Set when the last selection was a saved preset (see
+            StatsPreset) rather than an ad-hoc custom range.
+
+    SetStatsPreferencesRequest:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        presetId:
+          type: string
+          format: uuid
+
+    StatsPreset:
+      type: object
+      required: [id, name, from, to]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+
+    CreateStatsPresetRequest:
+      type: object
+      required: [name, from, to]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+
+    UpdateStatsPresetRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
         from:
           type: string
           format: date
