@@ -17,16 +17,29 @@
 
 ## 4. Backend: stats module
 - [x] 4.1 `stats/repository.go`: add `AND m.exclude_from_stats = false` to the
-      `memberships m` roster join in `MemberStats`, `SingleMemberStats`,
-      `AbsenceStats`, and the attendance-matrix queries
-      (`matrixColumns`/`matrixCells`)
+      `memberships m` roster join in `MemberStats`, `AbsenceStats`, and the
+      attendance-matrix queries (`matrixColumns`/`matrixCells`) — these
+      genuinely drop the excluded member's row. `SingleMemberStats` is
+      different (see 4.3): it does NOT filter the WHERE clause this way,
+      since dropping the row there would surface as a 404, not "no data".
 - [x] 4.2 Leave `EventStats`'s membership join unfiltered (see design.md) —
       added a comment at the call site pointing to the design decision so
       a future editor doesn't "fix" it by accident
-- [x] 4.3 Confirmed `SingleMemberStats` on an excluded member returns
-      `pgx.ErrNoRows` (same shape as a non-member), mapped by the handler to
-      404 "member not found" -- reusing established semantics rather than a
-      new response variant
+- [x] 4.3 **Corrected during review** (initial implementation had this
+      backwards): `SingleMemberStats` must NOT return `pgx.ErrNoRows` for an
+      excluded member — that conflated "excluded" with "not a member" and
+      surfaced as an incorrect 404 through `GetMemberStats`, contradicting
+      this same design.md's explicit decision below. Fixed by keeping the
+      membership row in the query (WHERE only checks team_id/user_id) and
+      instead forcing `eff = 'pending'` via a `CASE WHEN m.exclude_from_stats
+      THEN 'pending' ...` branch evaluated before the real per-event status,
+      so `yes`/`counted` both come out 0 (the same "no data" shape as a
+      member with zero events in range) without leaking their real
+      responses. A genuine non-member still produces zero rows → 404, since
+      the WHERE clause still requires a matching membership row to exist at
+      all. Regression-covered by
+      `TestStatsRepository_ExcludedMember_OmittedFromPersonalQuotas_ButCountedInEventStats`
+      and `serviceContract.test.ts`'s matching drift-bug-fix test.
 
 ## 5. Backend: tests
 - [x] 5.1 `members/repository_test.go`: `UpdateMember` persists

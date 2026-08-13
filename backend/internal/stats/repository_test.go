@@ -680,6 +680,59 @@ func TestStatsRepository_NotRelevantAbsence_ExcludedFromStats(t *testing.T) {
 	assert.Equal(t, "no", byUser[normalUID].Eff)
 }
 
+// An explicit attendance response for the same date a not-relevant absence
+// covers must win -- the CASE in every stats query only falls into the
+// 'excluded' branch when a.status IS NULL, so a member who is flagged
+// not-relevant but still explicitly responded (e.g. showed up anyway) is
+// counted on their real response, not silently dropped.
+func TestStatsRepository_NotRelevantAbsence_ExplicitResponseOverrides(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := stats.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Overrides User', 'overrides@example.com', '#00ffaa')`, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Overrides Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	today := time.Now().UTC().Format("2006-01-02")
+	var eid string
+	err = pool.QueryRow(ctx,
+		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Showed Up Anyway', $2, 'active') RETURNING id`,
+		tid, today).Scan(&eid)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx,
+		`INSERT INTO absences (team_id, user_id, from_date, to_date, not_relevant_for_stats) VALUES ($1, $2, $3, $3, true)`,
+		tid, uid, today)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO attendance (event_id, user_id, status) VALUES ($1, $2, 'yes')`, eid, uid)
+	require.NoError(t, err)
+
+	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
+	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+	teamID := uuid.MustParse(tid)
+
+	memberRows, err := repo.MemberStats(ctx, teamID, from, to)
+	require.NoError(t, err)
+	require.Len(t, memberRows, 1)
+	assert.Equal(t, 1, memberRows[0].Counted, "an explicit 'yes' must count even though the date is covered by a not-relevant absence")
+	assert.Equal(t, 1, memberRows[0].Yes)
+
+	_, cells, err := repo.AttendanceMatrix(ctx, teamID, from, to)
+	require.NoError(t, err)
+	require.Len(t, cells, 1)
+	assert.Equal(t, "yes", cells[0].Eff, "the explicit response must win over the not-relevant absence in the matrix too")
+}
+
 // A membership flagged exclude_from_stats must be absent from every
 // personal-quota-oriented statistics view (MemberStats, SingleMemberStats,
 // the attendance matrix), while their past explicit response still counts

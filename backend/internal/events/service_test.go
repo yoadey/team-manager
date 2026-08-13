@@ -1455,3 +1455,71 @@ func TestEventService_CreateEvent_MultiDay_PassesEndDateToRepository(t *testing.
 	require.NotNil(t, ev.MultiDayEndDate)
 	assert.Equal(t, end.Format("2006-01-02"), ev.MultiDayEndDate.Format("2006-01-02"))
 }
+
+// TestEventService_CreateEvent_PassesExcludeFromStatsToRepository is a
+// regression test: CreateEvent used to build CreateEventParams without ever
+// reading body.ExcludeFromStats, so every event created via the API silently
+// got exclude_from_stats=false regardless of what the client sent -- the
+// bug was invisible to repository-level tests, which call
+// Repository.CreateEvent/CreateSeries directly with the field already set.
+func TestEventService_CreateEvent_PassesExcludeFromStatsToRepository(t *testing.T) {
+	t.Parallel()
+
+	var gotExclude bool
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, _ string, params *events.CreateEventParams) (*events.EventRow, error) {
+			gotExclude = params.ExcludeFromStats
+			row := svcMakeEventRow("GL-Training")
+			row.ExcludeFromStats = params.ExcludeFromStats
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+	}
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+
+	exclude := true
+	body := &gen.CreateEventRequest{
+		Type:             gen.Training,
+		Title:            "GL-Training",
+		Date:             openapi_types.Date{Time: time.Now().UTC()},
+		ExcludeFromStats: &exclude,
+	}
+
+	ev, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.NoError(t, err)
+	assert.True(t, gotExclude, "CreateEvent must forward body.ExcludeFromStats to the repository params")
+	assert.True(t, ev.ExcludeFromStats)
+}
+
+// TestEventService_UpdateEvent_PassesExcludeFromStatsToRepository is a
+// regression test: UpdateEvent used to build UpdateEventParams without ever
+// reading body.ExcludeFromStats, so buildEventUpdateSets' `!= nil` guard
+// never fired and a PATCH could never change the flag at all, for either
+// update scope.
+func TestEventService_UpdateEvent_PassesExcludeFromStatsToRepository(t *testing.T) {
+	t.Parallel()
+
+	var capturedExclude *bool
+	repo := &mockSvcRepo{
+		updateEventFn: func(_ context.Context, _, _ string, params *events.UpdateEventParams, _ string) (*events.EventRow, error) {
+			capturedExclude = params.ExcludeFromStats
+			row := svcMakeEventRow("Training")
+			if params.ExcludeFromStats != nil {
+				row.ExcludeFromStats = *params.ExcludeFromStats
+			}
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+	}
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+
+	exclude := true
+	body := &gen.UpdateEventJSONRequestBody{ExcludeFromStats: &exclude}
+	ev, err := svc.UpdateEvent(context.Background(), testTeamID, testUserID, uuid.New().String(), "single", body)
+	require.NoError(t, err)
+	require.NotNil(t, capturedExclude, "UpdateEvent must forward body.ExcludeFromStats to the repository params")
+	assert.True(t, *capturedExclude)
+	assert.True(t, ev.ExcludeFromStats)
+}
