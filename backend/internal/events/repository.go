@@ -111,7 +111,7 @@ const selectEventFields = `
 	COALESCE(TO_CHAR(end_time, 'HH24:MI'), '') AS end_time,
 	meet_time_mandatory, response_mode,
 	COALESCE(nominated_role_ids, '{}') AS nominated_role_ids,
-	status, created_at, cancel_lead_minutes
+	status, created_at, cancel_lead_minutes, exclude_from_stats
 `
 
 // scanEventRow scans a full event row from the DB.
@@ -124,7 +124,7 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 		&meetTime, &startTime, &endTime,
 		&e.MeetTimeMandatory, &e.ResponseMode,
 		&e.NominatedRoleIds,
-		&e.Status, &e.CreatedAt, &e.CancelLeadMinutes,
+		&e.Status, &e.CreatedAt, &e.CancelLeadMinutes, &e.ExcludeFromStats,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("events.scanEventRow: %w", err)
@@ -354,11 +354,12 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 		INSERT INTO events (
 			team_id, type, title, date, end_date, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
-			response_mode, nominated_role_ids, status, cancel_lead_minutes
+			response_mode, nominated_role_ids, status, cancel_lead_minutes,
+			exclude_from_stats
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
 			$8::time, $9::time, $10::time, $11,
-			$12, $13, 'active', $14
+			$12, $13, 'active', $14, $15
 		)
 		RETURNING %s
 	`, selectEventFields)
@@ -372,6 +373,7 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 		strVal(params.ResponseMode, "opt_in"),
 		uuidSlice(params.NominatedRoleIds),
 		params.CancelLeadMinutes,
+		params.ExcludeFromStats,
 	)
 	e, err := scanEventRow(row)
 	if err != nil {
@@ -445,11 +447,12 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		INSERT INTO event_series (
 			team_id, type, title, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
-			response_mode, nominated_role_ids, repeat_weeks, repeat_end_date, cancel_lead_minutes
+			response_mode, nominated_role_ids, repeat_weeks, repeat_end_date, cancel_lead_minutes,
+			exclude_from_stats
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6::time, $7::time, $8::time, $9,
-			$10, $11, $12, $13, $14
+			$10, $11, $12, $13, $14, $15
 		)
 		RETURNING id
 	`
@@ -463,6 +466,7 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		len(dates),
 		params.RepeatEndDate,
 		params.CancelLeadMinutes,
+		params.ExcludeFromStats,
 	).Scan(&seriesID)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.CreateSeries: insert series: %w", err)
@@ -481,11 +485,12 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		INSERT INTO events (
 			team_id, series_id, type, title, date, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
-			response_mode, nominated_role_ids, status, cancel_lead_minutes
+			response_mode, nominated_role_ids, status, cancel_lead_minutes,
+			exclude_from_stats
 		)
 		SELECT $1, $2, $3, $4, d, $6, $7,
 			$8::time, $9::time, $10::time, $11,
-			$12, $13, 'active', $14
+			$12, $13, 'active', $14, $15
 		FROM unnest($5::date[]) AS d
 		RETURNING %s
 	`, selectEventFields)
@@ -499,6 +504,7 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		strVal(params.ResponseMode, "opt_in"),
 		uuidSlice(params.NominatedRoleIds),
 		params.CancelLeadMinutes,
+		params.ExcludeFromStats,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.CreateSeries: insert events: %w", err)
@@ -654,6 +660,25 @@ func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params 
 	return nil
 }
 
+// addEventTimeFields adds the meet/start/end time trio and the
+// meet-time-mandatory flag -- split out of buildEventUpdateSets purely to
+// keep that function's cyclomatic complexity under the repo's golangci-lint
+// threshold.
+func addEventTimeFields(b *sqlbuilder.Builder, params *UpdateEventParams) {
+	if params.MeetTime != nil {
+		b.Add("meet_time", nullableTime(params.MeetTime))
+	}
+	if params.StartTime != nil {
+		b.Add("start_time", nullableTime(params.StartTime))
+	}
+	if params.EndTime != nil {
+		b.Add("end_time", nullableTime(params.EndTime))
+	}
+	if params.MeetTimeMandatory != nil {
+		b.Add("meet_time_mandatory", *params.MeetTimeMandatory)
+	}
+}
+
 // buildEventUpdateSets builds the dynamic SET clause for a partial
 // UpdateEventParams patch via sqlbuilder, numbering placeholders from
 // startIdx. ok is false when params sets no field at all -- callers must not
@@ -681,18 +706,7 @@ func buildEventUpdateSets(params *UpdateEventParams, startIdx int) (setSQL strin
 	if params.Note != nil {
 		b.Add("note", *params.Note)
 	}
-	if params.MeetTime != nil {
-		b.Add("meet_time", nullableTime(params.MeetTime))
-	}
-	if params.StartTime != nil {
-		b.Add("start_time", nullableTime(params.StartTime))
-	}
-	if params.EndTime != nil {
-		b.Add("end_time", nullableTime(params.EndTime))
-	}
-	if params.MeetTimeMandatory != nil {
-		b.Add("meet_time_mandatory", *params.MeetTimeMandatory)
-	}
+	addEventTimeFields(b, params)
 	if params.ResponseMode != nil {
 		b.Add("response_mode", *params.ResponseMode)
 	}
@@ -701,6 +715,9 @@ func buildEventUpdateSets(params *UpdateEventParams, startIdx int) (setSQL strin
 	}
 	if params.CancelLeadMinutes != nil {
 		b.Add("cancel_lead_minutes", *params.CancelLeadMinutes)
+	}
+	if params.ExcludeFromStats != nil {
+		b.Add("exclude_from_stats", *params.ExcludeFromStats)
 	}
 
 	return b.Build(startIdx)

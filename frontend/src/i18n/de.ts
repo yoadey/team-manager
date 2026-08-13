@@ -343,6 +343,7 @@ export const de = {
     fieldStartTime: 'Beginn',
     fieldEndTime: 'Ende',
     meetTimeMandatory: 'Treffzeit ist Pflichtfeld',
+    excludeFromStats: 'Nicht in Statistik werten',
     responseMode: 'Rückmeldung',
     modeOptIn: 'Aktiv zusagen',
     modeOptInDesc: 'Standard offen – jeder sagt aktiv zu',

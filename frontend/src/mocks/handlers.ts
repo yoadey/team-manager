@@ -213,7 +213,28 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     ...opt('startTime', e.startTime ?? undefined),
     ...opt('endTime', e.endTime ?? undefined),
     ...opt('cancelLeadMinutes', e.cancelLeadMinutes ?? undefined),
+    excludeFromStats: e.excludeFromStats,
   };
+}
+
+// The scalar (non-date, non-nomination) fields of an UpdateEventRequest --
+// split out of applyEventPatch purely to keep that function's cyclomatic
+// complexity under the repo's eslint threshold; these fields are applied
+// unconditionally regardless of scope, mirroring the real backend's
+// buildEventUpdateSets (series-wide updates apply to every field except
+// date/multiDayEndDate).
+function applyEventScalarPatch(ev: EventDto, body: S['UpdateEventRequest']): void {
+  if (body.type !== undefined) ev.type = body.type;
+  if (body.title !== undefined) ev.title = body.title;
+  if (body.location !== undefined) ev.location = body.location;
+  if (body.note !== undefined) ev.note = body.note;
+  if (body.meetTimeMandatory !== undefined) ev.meetTimeMandatory = body.meetTimeMandatory;
+  if (body.responseMode !== undefined) ev.responseMode = body.responseMode;
+  if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
+  if (body.startTime !== undefined) ev.startTime = body.startTime || null;
+  if (body.endTime !== undefined) ev.endTime = body.endTime || null;
+  if (body.cancelLeadMinutes !== undefined) ev.cancelLeadMinutes = body.cancelLeadMinutes;
+  if (body.excludeFromStats !== undefined) ev.excludeFromStats = body.excludeFromStats;
 }
 
 // Applies an UpdateEventRequest patch to a single event row, mirroring
@@ -227,16 +248,7 @@ function applyEventPatch(ev: EventDto, body: S['UpdateEventRequest'], scope: 'si
     if (body.multiDayEndDate !== undefined) ev.multiDayEndDate = body.multiDayEndDate || null;
     if (body.clearMultiDayEndDate) ev.multiDayEndDate = null;
   }
-  if (body.type !== undefined) ev.type = body.type;
-  if (body.title !== undefined) ev.title = body.title;
-  if (body.location !== undefined) ev.location = body.location;
-  if (body.note !== undefined) ev.note = body.note;
-  if (body.meetTimeMandatory !== undefined) ev.meetTimeMandatory = body.meetTimeMandatory;
-  if (body.responseMode !== undefined) ev.responseMode = body.responseMode;
-  if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
-  if (body.startTime !== undefined) ev.startTime = body.startTime || null;
-  if (body.endTime !== undefined) ev.endTime = body.endTime || null;
-  if (body.cancelLeadMinutes !== undefined) ev.cancelLeadMinutes = body.cancelLeadMinutes;
+  applyEventScalarPatch(ev, body);
   if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
 }
 
@@ -987,6 +999,7 @@ export const handlers = [
       seriesId: null,
       status: 'active',
       cancelLeadMinutes: body.cancelLeadMinutes ?? null,
+      excludeFromStats: body.excludeFromStats ?? false,
       ...opt('nominatedRoleIds', body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined),
     });
     // endDate is the alternative to repeatWeeks for a recurring series (see
@@ -1666,7 +1679,7 @@ export const handlers = [
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
     const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
-    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date));
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats).sort((a, b) => a.date.localeCompare(b.date));
 
     const memberStats: S['MemberStat'][] = memberIds
       .map((uid) => {
@@ -1705,7 +1718,7 @@ export const handlers = [
     const userId = params.userId as string;
     const to = todayLocalDate();
     const from = threeMonthsBeforeLocal(to);
-    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to);
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats);
     let yes = 0, counted = 0;
     events.forEach((e) => {
       const s = rawCountedStatus(e.id, userId);
@@ -1730,7 +1743,7 @@ export const handlers = [
     const to = url.searchParams.get('to') || today;
     const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
     const events = db.events
-      .filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to)
+      .filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats)
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
     const columns: S['AttendanceMatrixColumn'][] = events.map((e) => ({
@@ -1773,7 +1786,7 @@ export const handlers = [
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
     const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
-    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date));
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats).sort((a, b) => a.date.localeCompare(b.date));
 
     const rows: S['AttendanceAbsenceRow'][] = [];
     events.forEach((e) => {

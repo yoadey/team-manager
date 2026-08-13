@@ -520,3 +520,73 @@ func TestStatsRepository_AbsenceStats_TeamScoped(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, rows, "another team's events/members must not leak into this team's absence table")
 }
+
+// An event flagged exclude_from_stats must be completely absent from every
+// statistics view (member quotas, per-event stats, the attendance matrix) --
+// as if it didn't exist for statistics purposes -- while a normal event in
+// the same range is still counted, confirming the new predicate doesn't
+// accidentally over-filter.
+func TestStatsRepository_ExcludesEventFlaggedExcludeFromStats(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := stats.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Excl Stats User', 'exclstats@example.com', '#778899')`, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Excl Stats Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	today := time.Now().UTC().Format("2006-01-02")
+	var counted, excluded string
+	err = pool.QueryRow(ctx,
+		`INSERT INTO events (team_id, type, title, date, status, exclude_from_stats)
+		 VALUES ($1, 'training', 'Counted Training', $2, 'active', false) RETURNING id`,
+		tid, today).Scan(&counted)
+	require.NoError(t, err)
+	err = pool.QueryRow(ctx,
+		`INSERT INTO events (team_id, type, title, date, status, exclude_from_stats)
+		 VALUES ($1, 'training', 'GL Training', $2, 'active', true) RETURNING id`,
+		tid, today).Scan(&excluded)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `INSERT INTO attendance (event_id, user_id, status) VALUES ($1, $2, 'yes')`, counted, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO attendance (event_id, user_id, status) VALUES ($1, $2, 'yes')`, excluded, uid)
+	require.NoError(t, err)
+
+	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
+	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+	teamID := uuid.MustParse(tid)
+
+	memberRows, err := repo.MemberStats(ctx, teamID, from, to)
+	require.NoError(t, err)
+	require.Len(t, memberRows, 1)
+	assert.Equal(t, 1, memberRows[0].Yes, "excluded event must not inflate the member's yes count")
+	assert.Equal(t, 1, memberRows[0].Counted, "excluded event must not inflate the member's counted total")
+
+	eventRows, err := repo.EventStats(ctx, teamID, from, to)
+	require.NoError(t, err)
+	require.Len(t, eventRows, 1, "excluded event must not appear in per-event stats")
+	assert.Equal(t, "Counted Training", eventRows[0].Title)
+
+	cols, cells, err := repo.AttendanceMatrix(ctx, teamID, from, to)
+	require.NoError(t, err)
+	require.Len(t, cols, 1, "excluded event must not appear as a matrix column")
+	assert.Equal(t, "Counted Training", cols[0].Title)
+	require.Len(t, cells, 1, "one member x one non-excluded event")
+	require.NotNil(t, cells[0].EventID)
+	assert.Equal(t, uuid.MustParse(counted), *cells[0].EventID)
+
+	single, err := repo.SingleMemberStats(ctx, teamID, uuid.MustParse(uid), from, to)
+	require.NoError(t, err)
+	assert.Equal(t, 1, single.Yes)
+	assert.Equal(t, 1, single.Counted)
+}

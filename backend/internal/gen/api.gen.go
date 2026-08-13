@@ -569,11 +569,14 @@ type CreateEventRequest struct {
 	Date              openapi_types.Date `json:"date"`
 
 	// EndDate Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
-	EndDate           *openapi_types.Date `json:"endDate,omitempty"`
-	EndTime           *string             `json:"endTime,omitempty"`
-	Location          *string             `json:"location,omitempty"`
-	MeetTime          *string             `json:"meetTime,omitempty"`
-	MeetTimeMandatory *bool               `json:"meetTimeMandatory,omitempty"`
+	EndDate *openapi_types.Date `json:"endDate,omitempty"`
+	EndTime *string             `json:"endTime,omitempty"`
+
+	// ExcludeFromStats When true, excludes this event from every attendance-statistics computation. For a recurring series, seeds every generated occurrence's own excludeFromStats.
+	ExcludeFromStats  *bool   `json:"excludeFromStats,omitempty"`
+	Location          *string `json:"location,omitempty"`
+	MeetTime          *string `json:"meetTime,omitempty"`
+	MeetTimeMandatory *bool   `json:"meetTimeMandatory,omitempty"`
 
 	// MultiDayEndDate Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true.
 	MultiDayEndDate  *openapi_types.Date   `json:"multiDayEndDate,omitempty"`
@@ -1068,9 +1071,12 @@ type TeamEvent struct {
 	Date              openapi_types.Date `json:"date"`
 
 	// EndTime HH:mm
-	EndTime  *string            `json:"endTime,omitempty"`
-	Id       openapi_types.UUID `json:"id"`
-	Location *string            `json:"location,omitempty"`
+	EndTime *string `json:"endTime,omitempty"`
+
+	// ExcludeFromStats When true, this event is left out of every attendance-statistics computation while remaining otherwise fully functional (RSVP, comments, notifications, cancellation are all unaffected).
+	ExcludeFromStats bool               `json:"excludeFromStats"`
+	Id               openapi_types.UUID `json:"id"`
+	Location         *string            `json:"location,omitempty"`
 
 	// MeetTime HH:mm
 	MeetTime          *string `json:"meetTime,omitempty"`
@@ -1167,9 +1173,12 @@ type UpdateEventRequest struct {
 	ClearMultiDayEndDate *bool               `json:"clearMultiDayEndDate,omitempty"`
 	Date                 *openapi_types.Date `json:"date,omitempty"`
 	EndTime              *string             `json:"endTime,omitempty"`
-	Location             *string             `json:"location,omitempty"`
-	MeetTime             *string             `json:"meetTime,omitempty"`
-	MeetTimeMandatory    *bool               `json:"meetTimeMandatory,omitempty"`
+
+	// ExcludeFromStats When true, excludes this event from every attendance-statistics computation. With scope=series, applies to every occurrence of the series; with scope=single, applies only to the targeted occurrence.
+	ExcludeFromStats  *bool   `json:"excludeFromStats,omitempty"`
+	Location          *string `json:"location,omitempty"`
+	MeetTime          *string `json:"meetTime,omitempty"`
+	MeetTimeMandatory *bool   `json:"meetTimeMandatory,omitempty"`
 
 	// MultiDayEndDate Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true. Setting a new value always replaces the event's current span, if any -- to turn a multi-day event back into a single-day one, use clearMultiDayEndDate instead (mutually exclusive with this field, since a date field itself cannot carry both a value and an explicit "clear" signal).
 	MultiDayEndDate  *openapi_types.Date   `json:"multiDayEndDate,omitempty"`

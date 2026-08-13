@@ -341,6 +341,7 @@ export const en: Messages = {
     fieldStartTime: 'Start',
     fieldEndTime: 'End',
     meetTimeMandatory: 'Meet time is required',
+    excludeFromStats: 'Exclude from statistics',
     responseMode: 'Response mode',
     modeOptIn: 'Actively accept',
     modeOptInDesc: 'Default open – each person actively accepts',

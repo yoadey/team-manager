@@ -103,6 +103,7 @@ type Event struct {
 	UpdatedAt         time.Time
 	CancelLeadMinutes pgtype.Int4
 	EndDate           pgtype.Date
+	ExcludeFromStats  bool
 }
 
 type EventComment struct {
@@ -136,6 +137,7 @@ type EventSeries struct {
 	CreatedAt         time.Time
 	RepeatEndDate     pgtype.Date
 	CancelLeadMinutes pgtype.Int4
+	ExcludeFromStats  bool
 }
 
 type Invite struct {

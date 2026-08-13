@@ -260,6 +260,7 @@ export function mapTeamEvent(e: S['TeamEvent']): TeamEvent {
     responseMode: (e.responseMode ?? 'opt_in') as 'opt_in' | 'opt_out',
     recurring: e.recurring,
     cancelLeadMinutes: e.cancelLeadMinutes ?? null,
+    excludeFromStats: e.excludeFromStats ?? false,
     ...opt('result', e.result),
     ...opt('nominatedRoleIds', e.nominatedRoleIds),
     status: e.status,

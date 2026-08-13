@@ -20,12 +20,14 @@ statistics.
 - **Series-aware.** A recurring series' template carries the same flag;
   creating a series seeds it onto every generated occurrence, exactly as
   `cancelLeadMinutes` already is today. Editing an existing series with
-  scope "series" updates the template and every future (`date >=
-  CURRENT_DATE`) occurrence, matching the existing single-vs-series edit
-  scope choice (`SeriesEditSubmit`). Editing with scope "single" changes
-  only that occurrence, so an individual exception — one GL-Training that
-  *should* count, or one regular training that exceptionally shouldn't — is
-  always possible without touching the series.
+  scope "series" updates every occurrence of that series (no date
+  filtering — mirroring exactly how `cancelLeadMinutes` and every other
+  series-wide-editable field already behave), matching the existing
+  single-vs-series edit scope choice (`SeriesEditSubmit`). Editing with
+  scope "single" changes only that occurrence, so an individual exception —
+  one GL-Training that *should* count, or one regular training that
+  exceptionally shouldn't — is always possible without touching the
+  series.
 - **Stats queries exclude flagged events entirely.** All five
   `stats/repository.go` queries gain `AND e.exclude_from_stats = false`. An
   excluded event contributes to no quote, no matrix cell, no event-level

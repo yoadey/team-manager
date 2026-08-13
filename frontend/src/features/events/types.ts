@@ -33,6 +33,8 @@ export interface EventFormValues extends Record<string, unknown> {
   /** Cancellation/RSVP-change lead time before start, split for the hours+minutes inputs; both 0 means no cutoff. */
   cancelLeadHours: number;
   cancelLeadMinutes: number;
+  /** When true, this event is left out of every attendance-statistics computation. */
+  excludeFromStats: boolean;
 }
 
 /** Plan-an-absence sheet. */
@@ -78,6 +80,8 @@ export interface EventDto {
   status: EventStatus;
   /** Cutoff, in minutes before the event's start; null when the event has no cancellation lead time. */
   cancelLeadMinutes: number | null;
+  /** When true, this event is left out of every attendance-statistics computation. */
+  excludeFromStats: boolean;
 }
 
 /** UI ViewModel consumed by event screens; summary and my* are client-side enrichment. */

@@ -15,9 +15,11 @@ boolean column treated the same way.
 - An event flagged `excludeFromStats` is invisible to every statistics
   query, with no other behavior change (RSVP, comments, notifications,
   cancellation all work exactly as before).
-- Setting the flag on a series applies it to all future occurrences by
-  default, but any single occurrence (past or future) can still be
-  toggled independently.
+- Setting the flag on a series (scope="series") applies it to every
+  occurrence of that series, mirroring exactly how `cancel_lead_minutes`
+  and every other series-wide-editable field already behave (no date
+  filtering) — but any single occurrence can still be toggled
+  independently afterward (scope="single").
 - Zero behavior change for any existing event or series (column defaults
   to `false`).
 

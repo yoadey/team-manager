@@ -42,6 +42,7 @@ describe('mapEventDtoToTeamEvent', () => {
       seriesId: null,
       status: 'active',
       cancelLeadMinutes: null,
+      excludeFromStats: false,
     };
     const summary: EventSummary = { yes: 3, no: 1, maybe: 0, pending: 2, notNominated: 0, nominated: 6, total: 6 };
 

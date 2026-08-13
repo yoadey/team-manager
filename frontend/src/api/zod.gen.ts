@@ -244,6 +244,7 @@ const TeamEvent = z
     myAuto: z.boolean().optional(),
     myReason: z.string().optional(),
     cancelLeadMinutes: z.number().int().optional(),
+    excludeFromStats: z.boolean(),
   })
   .passthrough();
 const CreateEventRequest = z
@@ -264,6 +265,7 @@ const CreateEventRequest = z
     repeatWeeks: z.number().int().gte(1).lte(104).optional(),
     endDate: z.string().optional(),
     cancelLeadMinutes: z.number().int().gte(0).optional(),
+    excludeFromStats: z.boolean().optional().default(false),
   })
   .passthrough();
 const UpdateEventRequest = z
@@ -282,6 +284,7 @@ const UpdateEventRequest = z
     responseMode: ResponseMode,
     nominatedRoleIds: z.array(z.string().uuid()),
     cancelLeadMinutes: z.number().int().gte(0),
+    excludeFromStats: z.boolean(),
   })
   .partial()
   .passthrough();

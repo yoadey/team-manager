@@ -96,6 +96,7 @@ func (r *Repository) MemberStats(ctx context.Context, teamID uuid.UUID, from, to
 			LEFT JOIN events e ON e.team_id = m.team_id
 				AND e.date BETWEEN $2 AND $3
 				AND e.status = 'active'
+				AND e.exclude_from_stats = false
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
 			WHERE m.team_id = $1
 		) sub
@@ -149,6 +150,7 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 			WHERE e.team_id = $1
 			  AND e.date BETWEEN $2 AND $3
 			  AND e.status = 'active'
+			  AND e.exclude_from_stats = false
 		) sub
 		GROUP BY event_id, title, type, date
 		ORDER BY date
@@ -193,6 +195,7 @@ func (r *Repository) AbsenceStats(ctx context.Context, teamID uuid.UUID, from, t
 			JOIN events e ON e.team_id = m.team_id
 				AND e.date BETWEEN $2 AND $3
 				AND e.status = 'active'
+				AND e.exclude_from_stats = false
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
 			WHERE m.team_id = $1
 		) sub
@@ -244,6 +247,7 @@ func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.
 			LEFT JOIN events e ON e.team_id = m.team_id
 				AND e.date BETWEEN $3 AND $4
 				AND e.status = 'active'
+				AND e.exclude_from_stats = false
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
 			WHERE m.team_id = $1 AND m.user_id = $2
 		) sub
@@ -292,6 +296,7 @@ func matrixColumns(ctx context.Context, db pgxIface, teamID uuid.UUID, from, to 
 		WHERE e.team_id = $1
 		  AND e.date BETWEEN $2 AND $3
 		  AND e.status = 'active'
+		  AND e.exclude_from_stats = false
 		ORDER BY e.date, e.id
 	`, teamID, from, to)
 	if err != nil {
@@ -328,6 +333,7 @@ func matrixCells(ctx context.Context, db pgxIface, teamID uuid.UUID, from, to st
 		LEFT JOIN events e ON e.team_id = m.team_id
 			AND e.date BETWEEN $2 AND $3
 			AND e.status = 'active'
+			AND e.exclude_from_stats = false
 		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
 		WHERE m.team_id = $1
 		ORDER BY u.name

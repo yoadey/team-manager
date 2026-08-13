@@ -1492,6 +1492,8 @@ export interface components {
             myReason?: string;
             /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response for this event. */
             cancelLeadMinutes?: number;
+            /** @description When true, this event is left out of every attendance-statistics computation while remaining otherwise fully functional (RSVP, comments, notifications, cancellation are all unaffected). */
+            excludeFromStats: boolean;
         };
         CreateEventRequest: {
             type: components["schemas"]["EventType"];
@@ -1520,6 +1522,11 @@ export interface components {
             endDate?: string;
             /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own cancelLeadMinutes, with each occurrence computing its own effective cutoff from its own start. */
             cancelLeadMinutes?: number;
+            /**
+             * @description When true, excludes this event from every attendance-statistics computation. For a recurring series, seeds every generated occurrence's own excludeFromStats.
+             * @default false
+             */
+            excludeFromStats: boolean;
         };
         UpdateEventRequest: {
             type?: components["schemas"]["EventType"];
@@ -1543,6 +1550,8 @@ export interface components {
             nominatedRoleIds?: string[];
             /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. */
             cancelLeadMinutes?: number;
+            /** @description When true, excludes this event from every attendance-statistics computation. With scope=series, applies to every occurrence of the series; with scope=single, applies only to the targeted occurrence. */
+            excludeFromStats?: boolean;
         };
         SetEventStatusRequest: {
             status: components["schemas"]["EventStatus"];

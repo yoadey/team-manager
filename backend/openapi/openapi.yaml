@@ -2583,7 +2583,8 @@ components:
 
     TeamEvent:
       type: object
-      required: [id, teamId, type, title, date, status, recurring, summary]
+      required:
+        [id, teamId, type, title, date, status, recurring, summary, excludeFromStats]
       properties:
         id:
           type: string
@@ -2650,6 +2651,12 @@ components:
             Optional cutoff, expressed as minutes before the event's start,
             after which a non-privileged member can no longer change their
             attendance response for this event.
+        excludeFromStats:
+          type: boolean
+          description: >-
+            When true, this event is left out of every attendance-statistics
+            computation while remaining otherwise fully functional (RSVP,
+            comments, notifications, cancellation are all unaffected).
 
     CreateEventRequest:
       type: object
@@ -2717,6 +2724,13 @@ components:
             generated occurrence's own cancelLeadMinutes, with each
             occurrence computing its own effective cutoff from its own
             start.
+        excludeFromStats:
+          type: boolean
+          default: false
+          description: >-
+            When true, excludes this event from every attendance-statistics
+            computation. For a recurring series, seeds every generated
+            occurrence's own excludeFromStats.
 
     UpdateEventRequest:
       type: object
@@ -2776,6 +2790,13 @@ components:
             Optional cutoff, expressed as minutes before the event's start,
             after which a non-privileged member can no longer change their
             attendance response.
+        excludeFromStats:
+          type: boolean
+          description: >-
+            When true, excludes this event from every attendance-statistics
+            computation. With scope=series, applies to every occurrence of
+            the series; with scope=single, applies only to the targeted
+            occurrence.
 
     SetEventStatusRequest:
       type: object

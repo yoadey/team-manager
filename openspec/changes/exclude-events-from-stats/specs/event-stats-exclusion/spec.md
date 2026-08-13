@@ -19,27 +19,25 @@ only affects whether the event is considered by attendance statistics.
 ### Requirement: Series seeding with per-occurrence override
 Setting `excludeFromStats` on a recurring series' template MUST seed the
 flag onto every occurrence generated for that series. Editing an existing
-series with scope "series" MUST update the template and every future
-(`date >= today`) occurrence. Editing a single occurrence with scope
-"single" MUST change only that occurrence, independent of the series
-template and other occurrences.
+series with scope "series" MUST update every occurrence of that series
+(consistent with how every other series-wide-editable event field behaves,
+with no date filtering). Editing a single occurrence with scope "single"
+MUST change only that occurrence, independent of other occurrences.
 
 #### Scenario: Creating a series with the flag set
 - **WHEN** a user creates a recurring series with `excludeFromStats: true`
 - **THEN** every generated occurrence has `excludeFromStats: true`
 
-#### Scenario: Series-scoped edit updates future occurrences
+#### Scenario: Series-scoped edit updates every occurrence
 - **WHEN** a user edits an existing series' `excludeFromStats` with scope
   "series"
-- **THEN** the series template and every occurrence dated today or later
-  are updated
-- **AND** occurrences dated before today are unchanged
+- **THEN** every occurrence of that series is updated, past and future
 
 #### Scenario: Single-occurrence override
 - **WHEN** a user edits one occurrence of a series with scope "single" to
   flip `excludeFromStats`
 - **THEN** only that occurrence's flag changes
-- **AND** the series template and all other occurrences are unaffected
+- **AND** all other occurrences are unaffected
 
 ### Requirement: Excluded events are omitted from all statistics
 Every attendance-statistics computation (overview quotes, per-event stats,

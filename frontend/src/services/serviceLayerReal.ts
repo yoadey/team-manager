@@ -568,6 +568,7 @@ export const realApi = {
         endDate?: string | undefined;
         /** Minutes before the event's start. */
         cancelLeadMinutes?: number | undefined;
+        excludeFromStats?: boolean | undefined;
       },
     ): Promise<TeamEvent> {
       const res = await apiClient.POST('/teams/{teamId}/events', {
@@ -589,6 +590,7 @@ export const realApi = {
           ...opt('repeatWeeks', payload.repeatWeeks),
           ...opt('endDate', payload.endDate),
           ...opt('cancelLeadMinutes', payload.cancelLeadMinutes),
+          excludeFromStats: payload.excludeFromStats ?? false,
         },
       });
       // Backend may return an array for series
@@ -626,6 +628,7 @@ export const realApi = {
         nominatedRoleIds?: string[];
         /** Minutes before the event's start. */
         cancelLeadMinutes?: number | undefined;
+        excludeFromStats?: boolean | undefined;
       },
       scope: 'single' | 'series',
       teamId: string,
@@ -650,6 +653,7 @@ export const realApi = {
           ...opt('responseMode', patch.responseMode as 'opt_in' | 'opt_out' | undefined),
           ...opt('nominatedRoleIds', patch.nominatedRoleIds),
           ...opt('cancelLeadMinutes', patch.cancelLeadMinutes),
+          ...opt('excludeFromStats', patch.excludeFromStats),
         },
       });
       const e = await check(res);
