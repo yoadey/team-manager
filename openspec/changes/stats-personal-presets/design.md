@@ -86,3 +86,13 @@ rail, not a real constraint on the feature's intended use.
   (`internal/gen/api.gen.go`) — requires `make generate` in the same
   change, and its handler signature change should be reviewed for any
   other caller of `Service.GetMemberStats` that assumed `nil, nil`.
+- **Known limitation, not fixed here (flagged in review)**: rescheduling a
+  preset's dates via `PATCH .../stats-presets/{id}` does not propagate to
+  a `stats_last_selection` row that has it as the active `presetId` —
+  `Service.UpdatePreset` only touches `stats_view_presets`, so that
+  selection's raw `from_date`/`to_date` would go stale relative to the
+  preset's new dates. Unreachable today: the shipped UI's "rename" form
+  (`Stats.tsx`) only ever PATCHes `name`, never `from`/`to`, so no user
+  action can currently trigger this. If a preset date-editing UI is added
+  later, `UpdatePreset` needs to also update any `stats_last_selection`
+  row currently pointing at that preset.
