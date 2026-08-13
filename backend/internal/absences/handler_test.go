@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,8 +19,9 @@ import (
 )
 
 type mockAbsenceService struct {
-	create func(ctx context.Context, teamID uuid.UUID, body *gen.CreateAbsenceRequest) (gen.Absence, error)
-	update func(ctx context.Context, id, teamID, userID uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error)
+	create            func(ctx context.Context, teamID uuid.UUID, body *gen.CreateAbsenceRequest) (gen.Absence, error)
+	update            func(ctx context.Context, id, teamID, userID uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error)
+	setStatsRelevance func(ctx context.Context, id, teamID, callerID uuid.UUID, notRelevant bool) (gen.Absence, error)
 }
 
 func (m *mockAbsenceService) ListByTeam(context.Context, uuid.UUID, int, string) ([]gen.Absence, *string, error) {
@@ -40,6 +42,10 @@ func (m *mockAbsenceService) Update(ctx context.Context, id, teamID, userID uuid
 
 func (m *mockAbsenceService) Delete(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
 	panic("not implemented")
+}
+
+func (m *mockAbsenceService) SetStatsRelevance(ctx context.Context, id, teamID, callerID uuid.UUID, notRelevant bool) (gen.Absence, error) {
+	return m.setStatsRelevance(ctx, id, teamID, callerID, notRelevant)
 }
 
 // A partial update (only "from" supplied) that would push the range past the
@@ -263,4 +269,70 @@ func TestAbsenceHandler_UpdateAbsence_OverlappingRange_Returns422(t *testing.T) 
 	apiErr, ok := err.(*apierror.APIError)
 	require.True(t, ok, "must map to an APIError, not fall through to the generic 500")
 	assert.Equal(t, 422, apiErr.Status)
+}
+
+func TestAbsenceHandler_SetAbsenceStatsRelevance_Forbidden_Returns403(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	svc := &mockAbsenceService{
+		setStatsRelevance: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, bool) (gen.Absence, error) {
+			return gen.Absence{}, absences.ErrForbiddenStatsRelevance
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	body := &gen.SetAbsenceStatsRelevanceRequest{NotRelevantForStats: true}
+	_, err := h.SetAbsenceStatsRelevance(ctx, gen.SetAbsenceStatsRelevanceRequestObject{TeamId: uuid.New(), AbsenceId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "must map to an APIError, not fall through to the generic 500")
+	assert.Equal(t, 403, apiErr.Status)
+}
+
+func TestAbsenceHandler_SetAbsenceStatsRelevance_NotFound_Returns404(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	svc := &mockAbsenceService{
+		setStatsRelevance: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, bool) (gen.Absence, error) {
+			return gen.Absence{}, pgx.ErrNoRows
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	body := &gen.SetAbsenceStatsRelevanceRequest{NotRelevantForStats: true}
+	_, err := h.SetAbsenceStatsRelevance(ctx, gen.SetAbsenceStatsRelevanceRequestObject{TeamId: uuid.New(), AbsenceId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "must map to an APIError, not fall through to the generic 500")
+	assert.Equal(t, 404, apiErr.Status)
+}
+
+func TestAbsenceHandler_SetAbsenceStatsRelevance_Success(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	absenceID := uuid.New()
+	teamID := uuid.New()
+	svc := &mockAbsenceService{
+		setStatsRelevance: func(_ context.Context, id, tid, callerID uuid.UUID, notRelevant bool) (gen.Absence, error) {
+			assert.Equal(t, absenceID, id)
+			assert.Equal(t, teamID, tid)
+			assert.Equal(t, userID, callerID)
+			assert.True(t, notRelevant)
+			return gen.Absence{Id: absenceID, NotRelevantForStats: true}, nil
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	body := &gen.SetAbsenceStatsRelevanceRequest{NotRelevantForStats: true}
+	resp, err := h.SetAbsenceStatsRelevance(ctx, gen.SetAbsenceStatsRelevanceRequestObject{TeamId: teamID, AbsenceId: absenceID, Body: body})
+
+	require.NoError(t, err)
+	result, ok := resp.(gen.SetAbsenceStatsRelevance200JSONResponse)
+	require.True(t, ok)
+	assert.True(t, result.NotRelevantForStats)
 }

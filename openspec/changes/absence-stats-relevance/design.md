@@ -56,27 +56,37 @@ caller.ID`) and, only when they differ, calls the local write-permission
 helper before proceeding — exactly the shape `notifications.Service.List`
 already uses for its own per-item, non-route-table permission filtering.
 
-**`EffectiveStatusExpr` gains a terminal `'excluded'` branch, evaluated
-before the opt-out fallback.** Today: `explicit response → that response`,
-else `absence covers date → 'no'`, else `opt-out event → 'yes'`, else
-`'pending'`. New: `explicit response → that response`, else
-`not-relevant absence covers date → 'excluded'`, else `(any other)
-absence covers date → 'no'`, else `opt-out event → 'yes'`, else
-`'pending'`. `'excluded'` is deliberately a new distinct value, not a reuse
-of `'pending'` — `'pending'` means "we don't know", `'excluded'` means "we
-know, and it's being deliberately left out." Every `COUNT(*) FILTER (WHERE
-eff IN ('yes','no','maybe'))` site already excludes anything outside that
-allowlist, so `'excluded'` is dropped automatically with no change needed
-beyond the CASE expression itself.
+**`EffectiveStatusExpr` itself is left unchanged — a new
+`NotRelevantAbsenceCoversExpr` is layered on top, only inside
+`stats/repository.go`.** `EffectiveStatusExpr` is shared with
+`internal/events`' own event-attendance-summary queries
+(`GetAttendanceSummary`/`GetAttendanceSummaries`), which bucket every roster
+row into exactly one of `yes/no/maybe/pending/not_nominated` and sum those
+buckets to `Total` — introducing a 6th value there would silently make
+`Total` stop reconciling with the sum of its buckets, and semantically an
+event's own attendance summary should keep showing such a member as "no"
+(operationally, they are not attending that specific event; only their
+season-long statistics should drop the date). So instead, each of the four
+`stats/repository.go` queries wraps `EffectiveStatusExpr` in its own CASE:
+`WHEN a.status IS NULL AND NotRelevantAbsenceCoversExpr THEN 'excluded'
+ELSE EffectiveStatusExpr`. `'excluded'` never leaves SQL as a wire value in
+these four queries — it's consumed only by `COUNT(*) FILTER (WHERE eff IN
+(...))` / `WHERE eff = 'no'`, so it's safely a new internal label.
 
-**Audit the blast radius of `EffectiveStatusExpr` beyond stats.** This
-expression is shared with non-statistics consumers (e.g. an event's own
-attendance-summary display). Implementation must locate every caller and
-confirm a `'excluded'` cell renders sensibly there too (most likely: same
-as `'pending'`/no visible response, since from a non-statistics viewer's
-perspective the member simply has no counted response for that date) —
-this is a required implementation check, not assumed correct by
-construction.
+**The attendance-matrix cell is the one place `eff` IS wire-exposed
+(`MatrixCellRow.Eff` is cast directly to `gen.AttendanceStatus`, whose enum
+is `yes/no/maybe/pending/not_nominated` with no "excluded" member).**
+Extending that enum would cascade into the OpenAPI contract, frontend
+types, i18n labels, and matrix cell rendering for one narrow case. Instead,
+`matrixCells`' own CASE maps a not-relevant-absence-covered date to
+`'pending'` (an existing, already-unaffiliated-with-any-response value)
+rather than introducing `'excluded'` on the wire. This is a semantic
+approximation ("no counted response" vs. "deliberately excluded") judged
+acceptable for a single grid cell, and it already gets the correct
+practical effect for free: the per-row `Yes`/`Counted` aggregation in
+`stats/service.go`'s `GetAttendanceMatrix` only credits `'yes'`/`'no'`/`'maybe'`
+cells, so a `'pending'` cell is already excluded from both, identical to
+what the other three stats queries achieve via `'excluded'`.
 
 ## Risks
 
@@ -84,6 +94,9 @@ construction.
   cause a write against another member's data outside team-admin actions
   (role assignment, removal). Keeping the endpoint single-purpose (one
   boolean, nothing else) bounds the risk.
-- **Shared SQL expression**: `EffectiveStatusExpr` change must be audited
-  against every current caller, not just the five `stats/repository.go`
-  queries, to avoid an unintended display regression.
+- **Two different stats-only encodings of the same underlying case**
+  (`'excluded'` in three queries, `'pending'` in the matrix) is a
+  deliberate tradeoff to avoid touching the wire-level `AttendanceStatus`
+  enum — documented here so a future reader doesn't "fix" the matrix query
+  to also emit `'excluded'` without realizing that would break JSON
+  contract validation against the OpenAPI enum.

@@ -300,6 +300,7 @@ function toWireAbsence(a: (typeof db.absences)[number], teamId: string): S['Abse
     from: a.from,
     to: a.to,
     createdAt: a.createdAt,
+    notRelevantForStats: a.notRelevantForStats,
     ...opt('reason', a.reason || undefined),
     ...opt('memberName', u?.name),
     ...opt('memberAvatarColor', u?.avatarColor),
@@ -1260,7 +1261,15 @@ export const handlers = [
   http.post(P('/teams/:teamId/absences'), async ({ params, request }) => {
     await mockDelay();
     const body = (await request.json()) as S['CreateAbsenceRequest'];
-    const a = { id: rid('abs'), userId: body.userId, from: body.from, to: body.to, reason: body.reason || '', createdAt: new Date().toISOString() };
+    const a = {
+      id: rid('abs'),
+      userId: body.userId,
+      from: body.from,
+      to: body.to,
+      reason: body.reason || '',
+      createdAt: new Date().toISOString(),
+      notRelevantForStats: false,
+    };
     db.absences.push(a);
     const mem = db.memberships.find((m) => m.userId === body.userId && m.teamId === params.teamId);
     if (mem) pushNotif({ teamId: mem.teamId, type: 'absence', actorId: body.userId, title: a.reason });
@@ -1283,6 +1292,15 @@ export const handlers = [
     if (!db.absences.some((x) => x.id === params.absenceId)) return problem(404, 'Absence not found');
     db.absences = db.absences.filter((x) => x.id !== params.absenceId);
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.patch(P('/teams/:teamId/absences/:absenceId/stats-relevance'), async ({ params, request }) => {
+    await mockDelay();
+    const a = db.absences.find((x) => x.id === params.absenceId);
+    if (!a) return problem(404, 'Absence not found');
+    const body = (await request.json()) as S['SetAbsenceStatsRelevanceRequest'];
+    a.notRelevantForStats = body.notRelevantForStats;
+    return HttpResponse.json(toWireAbsence(a, params.teamId as string));
   }),
 
   // ---- news ----

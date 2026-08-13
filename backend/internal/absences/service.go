@@ -2,6 +2,7 @@ package absences
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
+	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
 // absenceRepo is the interface the Service relies on.
@@ -18,21 +20,35 @@ type absenceRepo interface {
 	Create(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*AbsenceRow, error)
 	Update(ctx context.Context, id, teamID, userID uuid.UUID, fromDate, toDate *string, reason *string) (*AbsenceRow, error)
 	Delete(ctx context.Context, id, teamID, userID uuid.UUID) error
+	GetOwner(ctx context.Context, id, teamID uuid.UUID) (uuid.UUID, error)
+	SetStatsRelevance(ctx context.Context, id, teamID uuid.UUID, notRelevant bool, setBy uuid.UUID) (*AbsenceRow, error)
 }
+
+// permChecker returns the effective per-module permissions for a (team,
+// user) pair -- satisfied by members.Repository. Mirrors
+// notifications.Service's identical dependency.
+type permChecker interface {
+	GetPermissions(ctx context.Context, teamID, userID uuid.UUID) (teams.PermissionsJSON, error)
+}
+
+// ErrForbiddenStatsRelevance is returned by SetStatsRelevance when the
+// caller is neither the absence's owner nor an events:write holder.
+var ErrForbiddenStatsRelevance = errors.New("only the absence's owner or an events:write holder may set its stats relevance")
 
 // Service implements absence business logic.
 type Service struct {
 	repo  absenceRepo
 	pager *pagination.Paginator
+	perms permChecker
 }
 
 // NewService creates a new Service. pager may be nil, in which case a default
 // (unsigned) Paginator is used.
-func NewService(repo absenceRepo, pager *pagination.Paginator) *Service {
+func NewService(repo absenceRepo, pager *pagination.Paginator, perms permChecker) *Service {
 	if pager == nil {
 		pager = pagination.New(nil)
 	}
-	return &Service{repo: repo, pager: pager}
+	return &Service{repo: repo, pager: pager, perms: perms}
 }
 
 // ListByTeam returns a keyset page of team absences plus the next-page cursor
@@ -145,17 +161,57 @@ func (s *Service) Delete(ctx context.Context, id, teamID, userID uuid.UUID) erro
 	return nil
 }
 
+// SetStatsRelevance sets notRelevantForStats on the absence identified by
+// (id, teamID). callerID may always set this on their own absence,
+// unconditionally (parity with the rest of absences' self-service model).
+// Setting it on another member's absence additionally requires callerID to
+// hold events:write on teamID -- absences carries no module-level RBAC gate
+// of its own (x-rbac-module: public), so this check is enforced here rather
+// than by the generated route table (see design.md's "Route stays
+// x-rbac-module: public" decision).
+func (s *Service) SetStatsRelevance(ctx context.Context, id, teamID, callerID uuid.UUID, notRelevant bool) (gen.Absence, error) {
+	ownerID, err := s.repo.GetOwner(ctx, id, teamID)
+	if err != nil {
+		return gen.Absence{}, fmt.Errorf("absences.Service.SetStatsRelevance: %w", err)
+	}
+	if ownerID != callerID {
+		perms, err := s.perms.GetPermissions(ctx, teamID, callerID)
+		if err != nil {
+			return gen.Absence{}, fmt.Errorf("absences.Service.SetStatsRelevance: %w", err)
+		}
+		if !hasEventsWritePermission(perms) {
+			return gen.Absence{}, ErrForbiddenStatsRelevance
+		}
+	}
+	row, err := s.repo.SetStatsRelevance(ctx, id, teamID, notRelevant, callerID)
+	if err != nil {
+		return gen.Absence{}, fmt.Errorf("absences.Service.SetStatsRelevance: %w", err)
+	}
+	return toGenAbsence(row), nil
+}
+
+// hasEventsWritePermission reports whether p grants "write" on the events
+// module. Deliberately narrow (only the one module this package ever
+// checks) rather than a general multi-module helper -- mirrors
+// notifications.HasReadAccess's reasoning for locally re-implementing this
+// same fail-closed switch instead of importing internal/middleware's
+// unexported hasWritePermission.
+func hasEventsWritePermission(p teams.PermissionsJSON) bool {
+	return p.Events == "write"
+}
+
 // toGenAbsence maps an AbsenceRow to the generated gen.Absence type.
 func toGenAbsence(row *AbsenceRow) gen.Absence {
 	hasPhoto := row.HasPhoto
 	a := gen.Absence{
-		Id:        row.Id,
-		UserId:    row.UserId,
-		From:      openapi_types.Date{Time: row.FromDate},
-		To:        openapi_types.Date{Time: row.ToDate},
-		Reason:    row.Reason,
-		CreatedAt: row.CreatedAt,
-		HasPhoto:  &hasPhoto,
+		Id:                  row.Id,
+		UserId:              row.UserId,
+		From:                openapi_types.Date{Time: row.FromDate},
+		To:                  openapi_types.Date{Time: row.ToDate},
+		Reason:              row.Reason,
+		CreatedAt:           row.CreatedAt,
+		HasPhoto:            &hasPhoto,
+		NotRelevantForStats: row.NotRelevantForStats,
 	}
 	if row.MemberName != nil {
 		a.MemberName = row.MemberName

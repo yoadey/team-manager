@@ -553,6 +553,7 @@ export function createSeedData(): DemoDb {
       to: plusDays(12),
       reason: 'Urlaub (Italien)',
       createdAt: iso(new Date()),
+      notRelevantForStats: false,
     },
     {
       id: rid('abs'),
@@ -561,6 +562,7 @@ export function createSeedData(): DemoDb {
       to: plusDays(3),
       reason: 'Klassenfahrt',
       createdAt: iso(new Date()),
+      notRelevantForStats: false,
     },
     {
       id: rid('abs'),
@@ -569,6 +571,7 @@ export function createSeedData(): DemoDb {
       to: plusDays(27),
       reason: 'Urlaub',
       createdAt: iso(new Date()),
+      notRelevantForStats: false,
     },
   ];
 

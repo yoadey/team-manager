@@ -377,6 +377,7 @@ const Absence = z
     memberMembershipId: z.string().uuid().optional(),
     roleColor: z.string().optional(),
     roleName: z.string().optional(),
+    notRelevantForStats: z.boolean(),
   })
   .passthrough();
 const CreateAbsenceRequest = z
@@ -390,6 +391,9 @@ const CreateAbsenceRequest = z
 const UpdateAbsenceRequest = z
   .object({ from: z.string(), to: z.string(), reason: z.string() })
   .partial()
+  .passthrough();
+const SetAbsenceStatsRelevanceRequest = z
+  .object({ notRelevantForStats: z.boolean() })
   .passthrough();
 const NewsItem = z
   .object({
@@ -782,6 +786,7 @@ export const schemas = {
   Absence,
   CreateAbsenceRequest,
   UpdateAbsenceRequest,
+  SetAbsenceStatsRelevanceRequest,
   NewsItem,
   CreateNewsRequest,
   UpdateNewsRequest,
@@ -1269,6 +1274,30 @@ const endpoints = makeApi([
       },
     ],
     response: z.void(),
+  },
+  {
+    method: "patch",
+    path: "/teams/:teamId/absences/:absenceId/stats-relevance",
+    alias: "setAbsenceStatsRelevance",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ notRelevantForStats: z.boolean() }).passthrough(),
+      },
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "absenceId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: Absence,
   },
   {
     method: "get",

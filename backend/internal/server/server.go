@@ -632,6 +632,10 @@ func (s *Server) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceRequest
 	return s.Absences.UpdateAbsence(ctx, req)
 }
 
+func (s *Server) SetAbsenceStatsRelevance(ctx context.Context, req gen.SetAbsenceStatsRelevanceRequestObject) (gen.SetAbsenceStatsRelevanceResponseObject, error) {
+	return s.Absences.SetAbsenceStatsRelevance(ctx, req)
+}
+
 // ─── News delegations ─────────────────────────────────────────────────────────
 
 func (s *Server) ListNews(ctx context.Context, req gen.ListNewsRequestObject) (gen.ListNewsResponseObject, error) {

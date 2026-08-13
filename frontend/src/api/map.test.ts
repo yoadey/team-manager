@@ -221,7 +221,14 @@ describe('person-photo mappers build a member photo URL from membershipId', () =
   });
 
   it('mapAbsence builds a photo URL from memberMembershipId/hasPhoto', () => {
-    const base = { id: 'a1', userId: 'u1', from: '2025-01-01', to: '2025-01-02', createdAt: '2025-01-01T00:00:00Z' };
+    const base = {
+      id: 'a1',
+      userId: 'u1',
+      from: '2025-01-01',
+      to: '2025-01-02',
+      createdAt: '2025-01-01T00:00:00Z',
+      notRelevantForStats: false,
+    };
     expect(mapAbsence(base, 't1').photo).toBeNull();
     expect(mapAbsence({ ...base, memberMembershipId: 'm1', hasPhoto: true }, 't1').photo).toMatch(
       /^.*\/api\/v1\/teams\/t1\/members\/m1\/photo\?v=\d+$/,

@@ -419,6 +419,8 @@ export const de = {
     toastCalExported: '{n} Termine als .ics exportiert',
     editAbsenceLabel: 'Abwesenheit bearbeiten',
     deleteAbsenceLabel: 'Abwesenheit löschen',
+    absenceMarkNotRelevant: 'Als nicht statistikrelevant markieren',
+    absenceMarkRelevant: 'Als statistikrelevant markieren',
     absenceDeleteTitle: 'Abwesenheit löschen?',
     absenceDeleteMsg:
       'Der Zeitraum wird entfernt. Automatisch gesetzte Absagen in diesem Zeitraum werden zurückgenommen.',

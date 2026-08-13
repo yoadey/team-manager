@@ -31,6 +31,12 @@ const AbsenceCoversExpr = `
 // defaults to "no"; otherwise an opt_out event defaults to "yes"; otherwise
 // "pending". Shared by internal/events (event summary) and internal/stats
 // (attendance quotes) so the two can never diverge.
+//
+// Deliberately unaware of absences.not_relevant_for_stats: a member covered
+// by a "not relevant" absence still shows as "no" on the event's own
+// attendance summary (internal/events) -- operationally they are, in fact,
+// not attending that specific event; only internal/stats' season-long
+// aggregation should drop the date entirely. See NotRelevantAbsenceCoversExpr.
 const EffectiveStatusExpr = `
 	CASE
 		WHEN a.status IS NOT NULL THEN a.status
@@ -38,4 +44,23 @@ const EffectiveStatusExpr = `
 		WHEN e.response_mode = 'opt_out' THEN 'yes'
 		ELSE 'pending'
 	END
+`
+
+// NotRelevantAbsenceCoversExpr is a correlated EXISTS check for whether m's
+// planned absence covers e's date AND has been flagged
+// not_relevant_for_stats. Consumed only by internal/stats, layered on top of
+// EffectiveStatusExpr to recognize a stats-only "excluded" outcome (skip the
+// date entirely -- neither attending nor absent) without changing
+// EffectiveStatusExpr's own "no" default that internal/events' attendance
+// summary still relies on. Only meaningful when there is no explicit
+// attendance record for the (member, event) pair -- an explicit response
+// always wins, exactly as EffectiveStatusExpr's own precedence already
+// establishes.
+const NotRelevantAbsenceCoversExpr = `
+	EXISTS (
+		SELECT 1 FROM absences ab
+		WHERE ab.user_id = m.user_id AND ab.team_id = m.team_id
+		  AND ab.from_date <= e.date AND ab.to_date >= e.date
+		  AND ab.not_relevant_for_stats = true
+	)
 `

@@ -855,6 +855,15 @@ export const realApi = {
       });
       await checkOk(res);
     },
+
+    async setStatsRelevance(absenceId: string, teamId: string, notRelevantForStats: boolean): Promise<Absence> {
+      const res = await apiClient.PATCH('/teams/{teamId}/absences/{absenceId}/stats-relevance', {
+        params: { path: { teamId, absenceId } },
+        body: { notRelevantForStats },
+      });
+      const a = await check(res);
+      return mapAbsence(a, teamId);
+    },
   },
 
   news: {

@@ -837,6 +837,26 @@ export interface paths {
         patch: operations["updateAbsence"];
         trace?: never;
     };
+    "/teams/{teamId}/absences/{absenceId}/stats-relevance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                absenceId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Mark an absence as (not) relevant for attendance statistics. The absence's own owner may always set this; setting it on another member's absence additionally requires events:write, enforced in the service layer (this route carries no module-level write gate). */
+        patch: operations["setAbsenceStatsRelevance"];
+        trace?: never;
+    };
     "/teams/{teamId}/news": {
         parameters: {
             query?: never;
@@ -1641,6 +1661,11 @@ export interface components {
             memberMembershipId?: string;
             roleColor?: string;
             roleName?: string;
+            /** @description When true, the event dates this absence covers are excluded entirely from this member's attendance statistics (neither counted as attending nor as absent), instead of counting as absent like a normal absence. */
+            notRelevantForStats: boolean;
+        };
+        SetAbsenceStatsRelevanceRequest: {
+            notRelevantForStats: boolean;
         };
         CreateAbsenceRequest: {
             /** Format: uuid */
@@ -3798,6 +3823,33 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UpdateAbsenceRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Absence"];
+                };
+            };
+        };
+    };
+    setAbsenceStatsRelevance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                absenceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAbsenceStatsRelevanceRequest"];
             };
         };
         responses: {

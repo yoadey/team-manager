@@ -317,6 +317,7 @@ export function mapAbsence(a: S['Absence'], teamId: string): Absence {
     to: a.to,
     reason: a.reason ?? '',
     createdAt: a.createdAt,
+    notRelevantForStats: a.notRelevantForStats,
     photo: memberPhotoUrl(teamId, a.memberMembershipId, a.hasPhoto),
     ...opt('name', a.memberName),
     ...opt('avatarColor', a.memberAvatarColor),

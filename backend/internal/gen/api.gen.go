@@ -344,11 +344,14 @@ type Absence struct {
 	MemberAvatarColor  *string             `json:"memberAvatarColor,omitempty"`
 	MemberMembershipId *openapi_types.UUID `json:"memberMembershipId,omitempty"`
 	MemberName         *string             `json:"memberName,omitempty"`
-	Reason             *string             `json:"reason,omitempty"`
-	RoleColor          *string             `json:"roleColor,omitempty"`
-	RoleName           *string             `json:"roleName,omitempty"`
-	To                 openapi_types.Date  `json:"to"`
-	UserId             openapi_types.UUID  `json:"userId"`
+
+	// NotRelevantForStats When true, the event dates this absence covers are excluded entirely from this member's attendance statistics (neither counted as attending nor as absent), instead of counting as absent like a normal absence.
+	NotRelevantForStats bool               `json:"notRelevantForStats"`
+	Reason              *string            `json:"reason,omitempty"`
+	RoleColor           *string            `json:"roleColor,omitempty"`
+	RoleName            *string            `json:"roleName,omitempty"`
+	To                  openapi_types.Date `json:"to"`
+	UserId              openapi_types.UUID `json:"userId"`
 }
 
 // AcceptInviteResponse defines model for AcceptInviteResponse.
@@ -988,6 +991,11 @@ type Role struct {
 	TeamId      openapi_types.UUID `json:"teamId"`
 }
 
+// SetAbsenceStatsRelevanceRequest defines model for SetAbsenceStatsRelevanceRequest.
+type SetAbsenceStatsRelevanceRequest struct {
+	NotRelevantForStats bool `json:"notRelevantForStats"`
+}
+
 // SetAttendanceRequest defines model for SetAttendanceRequest.
 type SetAttendanceRequest struct {
 	Reason           *string                               `json:"reason,omitempty"`
@@ -1482,6 +1490,9 @@ type CreateAbsenceJSONRequestBody = CreateAbsenceRequest
 // UpdateAbsenceJSONRequestBody defines body for UpdateAbsence for application/json ContentType.
 type UpdateAbsenceJSONRequestBody = UpdateAbsenceRequest
 
+// SetAbsenceStatsRelevanceJSONRequestBody defines body for SetAbsenceStatsRelevance for application/json ContentType.
+type SetAbsenceStatsRelevanceJSONRequestBody = SetAbsenceStatsRelevanceRequest
+
 // UpdateCalendarFeedSettingsJSONRequestBody defines body for UpdateCalendarFeedSettings for application/json ContentType.
 type UpdateCalendarFeedSettingsJSONRequestBody = CalendarFeedSettings
 
@@ -1637,6 +1648,9 @@ type ServerInterface interface {
 	// Update absence
 	// (PATCH /teams/{teamId}/absences/{absenceId})
 	UpdateAbsence(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID)
+	// Mark an absence as (not) relevant for attendance statistics. The absence's own owner may always set this; setting it on another member's absence additionally requires events:write, enforced in the service layer (this route carries no module-level write gate).
+	// (PATCH /teams/{teamId}/absences/{absenceId}/stats-relevance)
+	SetAbsenceStatsRelevance(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID)
 	// Get the caller's calendar feed content selection for this team
 	// (GET /teams/{teamId}/calendar-feed/settings)
 	GetCalendarFeedSettings(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1988,6 +2002,12 @@ func (_ Unimplemented) DeleteAbsence(w http.ResponseWriter, r *http.Request, tea
 // Update absence
 // (PATCH /teams/{teamId}/absences/{absenceId})
 func (_ Unimplemented) UpdateAbsence(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Mark an absence as (not) relevant for attendance statistics. The absence's own owner may always set this; setting it on another member's absence additionally requires events:write, enforced in the service layer (this route carries no module-level write gate).
+// (PATCH /teams/{teamId}/absences/{absenceId}/stats-relevance)
+func (_ Unimplemented) SetAbsenceStatsRelevance(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3015,6 +3035,47 @@ func (siw *ServerInterfaceWrapper) UpdateAbsence(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateAbsence(w, r, teamId, absenceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAbsenceStatsRelevance operation middleware
+func (siw *ServerInterfaceWrapper) SetAbsenceStatsRelevance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "absenceId" -------------
+	var absenceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "absenceId", chi.URLParam(r, "absenceId"), &absenceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "absenceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAbsenceStatsRelevance(w, r, teamId, absenceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6011,6 +6072,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/teams/{teamId}/absences/{absenceId}", wrapper.UpdateAbsence)
 	})
 	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/teams/{teamId}/absences/{absenceId}/stats-relevance", wrapper.SetAbsenceStatsRelevance)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/calendar-feed/settings", wrapper.GetCalendarFeedSettings)
 	})
 	r.Group(func(r chi.Router) {
@@ -7055,6 +7119,30 @@ type UpdateAbsenceResponseObject interface {
 type UpdateAbsence200JSONResponse Absence
 
 func (response UpdateAbsence200JSONResponse) VisitUpdateAbsenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAbsenceStatsRelevanceRequestObject struct {
+	TeamId    TeamId             `json:"teamId"`
+	AbsenceId openapi_types.UUID `json:"absenceId"`
+	Body      *SetAbsenceStatsRelevanceJSONRequestBody
+}
+
+type SetAbsenceStatsRelevanceResponseObject interface {
+	VisitSetAbsenceStatsRelevanceResponse(w http.ResponseWriter) error
+}
+
+type SetAbsenceStatsRelevance200JSONResponse Absence
+
+func (response SetAbsenceStatsRelevance200JSONResponse) VisitSetAbsenceStatsRelevanceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -8805,6 +8893,9 @@ type StrictServerInterface interface {
 	// Update absence
 	// (PATCH /teams/{teamId}/absences/{absenceId})
 	UpdateAbsence(ctx context.Context, request UpdateAbsenceRequestObject) (UpdateAbsenceResponseObject, error)
+	// Mark an absence as (not) relevant for attendance statistics. The absence's own owner may always set this; setting it on another member's absence additionally requires events:write, enforced in the service layer (this route carries no module-level write gate).
+	// (PATCH /teams/{teamId}/absences/{absenceId}/stats-relevance)
+	SetAbsenceStatsRelevance(ctx context.Context, request SetAbsenceStatsRelevanceRequestObject) (SetAbsenceStatsRelevanceResponseObject, error)
 	// Get the caller's calendar feed content selection for this team
 	// (GET /teams/{teamId}/calendar-feed/settings)
 	GetCalendarFeedSettings(ctx context.Context, request GetCalendarFeedSettingsRequestObject) (GetCalendarFeedSettingsResponseObject, error)
@@ -9715,6 +9806,40 @@ func (sh *strictHandler) UpdateAbsence(w http.ResponseWriter, r *http.Request, t
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateAbsenceResponseObject); ok {
 		if err := validResponse.VisitUpdateAbsenceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetAbsenceStatsRelevance operation middleware
+func (sh *strictHandler) SetAbsenceStatsRelevance(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID) {
+	var request SetAbsenceStatsRelevanceRequestObject
+
+	request.TeamId = teamId
+	request.AbsenceId = absenceId
+
+	var body SetAbsenceStatsRelevanceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetAbsenceStatsRelevance(ctx, request.(SetAbsenceStatsRelevanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetAbsenceStatsRelevance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetAbsenceStatsRelevanceResponseObject); ok {
+		if err := validResponse.VisitSetAbsenceStatsRelevanceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

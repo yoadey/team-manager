@@ -467,7 +467,7 @@ func main() {
 	// ─── Absences ────────────────────────────────────────────────────────────
 
 	absencesRepo := absences.NewRepository(pool)
-	absencesSvc := absences.NewService(absencesRepo, pager)
+	absencesSvc := absences.NewService(absencesRepo, pager, membersRepo)
 	absencesHandler := absences.NewHandler(absencesSvc, logger)
 
 	// ─── News ────────────────────────────────────────────────────────────────

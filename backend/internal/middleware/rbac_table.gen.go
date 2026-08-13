@@ -73,6 +73,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "POST", Segments: []string{"notifications", "seen"}, Module: "public", SelfService: false},                                 // markNotificationsSeen
 	{Method: "DELETE", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                          // removeMember
 	{Method: "DELETE", Segments: []string{"calendar-feed", "token"}, Module: "events", SelfService: true},                               // revokeCalendarFeedToken
+	{Method: "PATCH", Segments: []string{"absences", "{absenceId}", "stats-relevance"}, Module: "public", SelfService: false},           // setAbsenceStatsRelevance
 	{Method: "POST", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: true},                      // setAttendance
 	{Method: "POST", Segments: []string{"events", "{eventId}", "status"}, Module: "events", SelfService: false},                         // setEventStatus
 	{Method: "PUT", Segments: []string{"members", "{membershipId}", "roles"}, Module: "settings", SelfService: false},                   // setMemberRoles

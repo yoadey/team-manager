@@ -1403,6 +1403,38 @@ paths:
         "204":
           description: No Content
 
+  /teams/{teamId}/absences/{absenceId}/stats-relevance:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: absenceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [absences]
+      operationId: setAbsenceStatsRelevance
+      x-rbac-module: public
+      summary: >-
+        Mark an absence as (not) relevant for attendance statistics. The
+        absence's own owner may always set this; setting it on another
+        member's absence additionally requires events:write, enforced in the
+        service layer (this route carries no module-level write gate).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetAbsenceStatsRelevanceRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Absence"
+
   # ── News ────────────────────────────────────────────────────────────────────
 
   /teams/{teamId}/news:
@@ -2935,7 +2967,7 @@ components:
 
     Absence:
       type: object
-      required: [id, userId, from, to, createdAt]
+      required: [id, userId, from, to, createdAt, notRelevantForStats]
       properties:
         id:
           type: string
@@ -2967,6 +2999,20 @@ components:
           type: string
         roleName:
           type: string
+        notRelevantForStats:
+          type: boolean
+          description: >-
+            When true, the event dates this absence covers are excluded
+            entirely from this member's attendance statistics (neither
+            counted as attending nor as absent), instead of counting as
+            absent like a normal absence.
+
+    SetAbsenceStatsRelevanceRequest:
+      type: object
+      required: [notRelevantForStats]
+      properties:
+        notRelevantForStats:
+          type: boolean
 
     CreateAbsenceRequest:
       type: object

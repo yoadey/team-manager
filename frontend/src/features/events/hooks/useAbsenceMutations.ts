@@ -48,3 +48,15 @@ export function useDeleteAbsenceMutation(api: typeof defaultApi) {
       ]),
   });
 }
+
+// Takes the team id per call, same reasoning as useDeleteAbsenceMutation --
+// EventAbsences (where this is invoked) can still be mounted for a team the
+// user has since switched away from mid-request.
+export function useSetAbsenceStatsRelevanceMutation(api: typeof defaultApi) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, teamId, notRelevantForStats }: { id: string; teamId: string; notRelevantForStats: boolean }) =>
+      api.absences.setStatsRelevance(id, teamId, notRelevantForStats),
+    onSuccess: (_data, { teamId }) => qc.invalidateQueries({ queryKey: queryKeys.absences(teamId) }),
+  });
+}

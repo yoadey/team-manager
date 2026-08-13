@@ -138,6 +138,8 @@ export interface Absence {
   to: string;
   reason: string;
   createdAt: string;
+  /** When true, the event dates this absence covers are excluded entirely from this member's attendance statistics. */
+  notRelevantForStats: boolean;
   // enriched in listForTeam
   name?: string;
   avatarColor?: string;

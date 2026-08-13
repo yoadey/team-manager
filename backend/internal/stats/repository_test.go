@@ -590,3 +590,92 @@ func TestStatsRepository_ExcludesEventFlaggedExcludeFromStats(t *testing.T) {
 	assert.Equal(t, 1, single.Yes)
 	assert.Equal(t, 1, single.Counted)
 }
+
+// An absence flagged not_relevant_for_stats must exclude its covered event
+// date entirely from statistics (neither attending nor absent), across every
+// stats view -- as opposed to a normal absence in the same range, which
+// still counts as "no" (the pre-existing default). The matrix cell for the
+// excluded date reads 'pending' (not a new wire value -- see
+// attendance/sql.go's NotRelevantAbsenceCoversExpr doc comment), but is
+// still excluded from the row's Yes/Counted the same way.
+func TestStatsRepository_NotRelevantAbsence_ExcludedFromStats(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := stats.NewRepository(pool)
+	ctx := context.Background()
+
+	excludedUID := uuid.New().String()
+	normalUID := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Not Relevant User', 'notrelevant@example.com', '#0011ff')`, excludedUID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Normal Absence User', 'normalabsence@example.com', '#ff1100')`, normalUID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Not Relevant Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, excludedUID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, normalUID)
+	require.NoError(t, err)
+
+	today := time.Now().UTC().Format("2006-01-02")
+	var eid string
+	err = pool.QueryRow(ctx,
+		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Covered Both Ways', $2, 'active') RETURNING id`,
+		tid, today).Scan(&eid)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx,
+		`INSERT INTO absences (team_id, user_id, from_date, to_date, not_relevant_for_stats) VALUES ($1, $2, $3, $3, true)`,
+		tid, excludedUID, today)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO absences (team_id, user_id, from_date, to_date, not_relevant_for_stats) VALUES ($1, $2, $3, $3, false)`,
+		tid, normalUID, today)
+	require.NoError(t, err)
+
+	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
+	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+	teamID := uuid.MustParse(tid)
+
+	memberRows, err := repo.MemberStats(ctx, teamID, from, to)
+	require.NoError(t, err)
+	require.Len(t, memberRows, 2)
+	for _, m := range memberRows {
+		if m.UserID.String() == excludedUID {
+			assert.Zero(t, m.Counted, "not-relevant absence must not count toward this member's quote at all")
+		} else {
+			assert.Equal(t, 1, m.Counted, "a normal absence must still count as one 'no'")
+			assert.Zero(t, m.Yes)
+		}
+	}
+
+	single, err := repo.SingleMemberStats(ctx, teamID, uuid.MustParse(excludedUID), from, to)
+	require.NoError(t, err)
+	assert.Zero(t, single.Counted)
+
+	eventRows, err := repo.EventStats(ctx, teamID, from, to)
+	require.NoError(t, err)
+	require.Len(t, eventRows, 1)
+	assert.Equal(t, 1, eventRows[0].Counted, "only the normal absence counts toward this event's turnout")
+
+	absenceRows, err := repo.AbsenceStats(ctx, teamID, from, to)
+	require.NoError(t, err)
+	require.Len(t, absenceRows, 1, "the not-relevant absence must not appear in the absence table")
+	assert.Equal(t, normalUID, absenceRows[0].UserID.String())
+
+	_, cells, err := repo.AttendanceMatrix(ctx, teamID, from, to)
+	require.NoError(t, err)
+	byUser := map[string]stats.MatrixCellRow{}
+	for _, c := range cells {
+		byUser[c.UserID.String()] = c
+	}
+	require.Contains(t, byUser, excludedUID)
+	assert.Equal(t, "pending", byUser[excludedUID].Eff, "excluded cell reads as pending, not a new wire value")
+	require.Contains(t, byUser, normalUID)
+	assert.Equal(t, "no", byUser[normalUID].Eff)
+}

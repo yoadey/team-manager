@@ -67,6 +67,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 const selectAbsenceFields = `
 	a.id, a.user_id, a.team_id, a.from_date, a.to_date, a.reason, a.created_at,
+	a.not_relevant_for_stats, a.not_relevant_set_by,
 	u.name AS member_name, u.avatar_color AS member_avatar_color,
 	(u.photo_object_key IS NOT NULL) AS has_photo,
 	m.id AS membership_id,
@@ -97,6 +98,7 @@ func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) 
 	ab := &AbsenceRow{}
 	err := row.Scan(
 		&ab.Id, &ab.UserId, &ab.TeamId, &ab.FromDate, &ab.ToDate, &ab.Reason, &ab.CreatedAt,
+		&ab.NotRelevantForStats, &ab.NotRelevantSetBy,
 		&ab.MemberName, &ab.MemberAvatarColor, &ab.HasPhoto, &ab.MembershipId,
 		&ab.RoleName, &ab.RoleColor,
 	)
@@ -414,6 +416,53 @@ func (r *Repository) Delete(ctx context.Context, id, teamID, userID uuid.UUID) e
 		return pgx.ErrNoRows
 	}
 	return nil
+}
+
+// GetOwner returns the user_id of the absence identified by (id, teamID),
+// scoped to the team so a caller can't probe another team's absence IDs.
+// Returns pgx.ErrNoRows if no matching absence exists. Used by
+// Service.SetStatsRelevance to decide, before writing, whether the caller
+// is acting on their own absence (always allowed) or someone else's
+// (requires events:write) -- an absence's owner is immutable once created,
+// so there's no TOCTOU window between this read and the subsequent write.
+func (r *Repository) GetOwner(ctx context.Context, id, teamID uuid.UUID) (uuid.UUID, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var ownerID uuid.UUID
+	err := r.pool.QueryRow(ctx, `SELECT user_id FROM absences WHERE id = $1 AND team_id = $2`, id, teamID).Scan(&ownerID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, pgx.ErrNoRows
+		}
+		return uuid.Nil, fmt.Errorf("absences.Repository.GetOwner: %w", err)
+	}
+	return ownerID, nil
+}
+
+// SetStatsRelevance sets notRelevantForStats (and who set it) on the absence
+// identified by (id, teamID) and returns the enriched row. The caller
+// (Service.SetStatsRelevance) is responsible for authorizing setBy against
+// the absence's owner before calling this -- this method performs the write
+// unconditionally once scoped to (id, teamID).
+func (r *Repository) SetStatsRelevance(ctx context.Context, id, teamID uuid.UUID, notRelevant bool, setBy uuid.UUID) (*AbsenceRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE absences SET not_relevant_for_stats = $3, not_relevant_set_by = $4
+		WHERE id = $1 AND team_id = $2`,
+		id, teamID, notRelevant, setBy,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("absences.Repository.SetStatsRelevance: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, pgx.ErrNoRows
+	}
+	ab, err := findByIDQ(ctx, r.pool, id)
+	if err != nil {
+		return nil, err
+	}
+	return ab, nil
 }
 
 // querier is satisfied by both *pgxpool.Pool and pgx.Tx, letting findByIDQ

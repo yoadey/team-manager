@@ -90,7 +90,11 @@ func (r *Repository) MemberStats(ctx context.Context, teamID uuid.UUID, from, to
 				u.name         AS name,
 				u.avatar_color AS avatar_color,
 				(u.photo_object_key IS NOT NULL) AS has_photo,
-				CASE WHEN e.id IS NULL THEN 'pending' ELSE `+attendance.EffectiveStatusExpr+` END AS eff
+				CASE
+					WHEN e.id IS NULL THEN 'pending'
+					WHEN a.status IS NULL AND `+attendance.NotRelevantAbsenceCoversExpr+` THEN 'excluded'
+					ELSE `+attendance.EffectiveStatusExpr+`
+				END AS eff
 			FROM memberships m
 			JOIN users u ON u.id = m.user_id
 			LEFT JOIN events e ON e.team_id = m.team_id
@@ -143,7 +147,10 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 				e.title      AS title,
 				e.type       AS type,
 				e.date::text AS date,
-				`+attendance.EffectiveStatusExpr+` AS eff
+				CASE
+					WHEN a.status IS NULL AND `+attendance.NotRelevantAbsenceCoversExpr+` THEN 'excluded'
+					ELSE `+attendance.EffectiveStatusExpr+`
+				END AS eff
 			FROM events e
 			JOIN memberships m ON m.team_id = e.team_id
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = m.user_id
@@ -189,7 +196,10 @@ func (r *Repository) AbsenceStats(ctx context.Context, teamID uuid.UUID, from, t
 				e.id           AS event_id,
 				e.title        AS title,
 				e.date::text   AS date,
-				`+attendance.EffectiveStatusExpr+` AS eff
+				CASE
+					WHEN a.status IS NULL AND `+attendance.NotRelevantAbsenceCoversExpr+` THEN 'excluded'
+					ELSE `+attendance.EffectiveStatusExpr+`
+				END AS eff
 			FROM memberships m
 			JOIN users u ON u.id = m.user_id
 			JOIN events e ON e.team_id = m.team_id
@@ -241,7 +251,11 @@ func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.
 				u.name         AS name,
 				u.avatar_color AS avatar_color,
 				(u.photo_object_key IS NOT NULL) AS has_photo,
-				CASE WHEN e.id IS NULL THEN 'pending' ELSE `+attendance.EffectiveStatusExpr+` END AS eff
+				CASE
+					WHEN e.id IS NULL THEN 'pending'
+					WHEN a.status IS NULL AND `+attendance.NotRelevantAbsenceCoversExpr+` THEN 'excluded'
+					ELSE `+attendance.EffectiveStatusExpr+`
+				END AS eff
 			FROM memberships m
 			JOIN users u ON u.id = m.user_id
 			LEFT JOIN events e ON e.team_id = m.team_id
@@ -320,6 +334,14 @@ func matrixCells(ctx context.Context, db pgxIface, teamID uuid.UUID, from, to st
 	// against every active event in range (LEFT JOIN so a member with no events
 	// still yields one placeholder row with a NULL event_id and stays visible as
 	// an empty matrix row). Effective status is the shared expression.
+	//
+	// A date covered by a not-relevant-for-stats absence maps to 'pending'
+	// here (not a distinct wire value) since Eff is exposed directly as
+	// gen.AttendanceStatus, whose enum has no "excluded" member -- 'pending'
+	// already means "no counted response" for this cell, and is already
+	// excluded from the row Yes/Counted aggregation below (see
+	// stats/service.go's GetAttendanceMatrix), giving the same practical
+	// effect as the 'excluded' value the other stats queries use internally.
 	rows, err := db.Query(ctx, `
 		SELECT
 			u.id,
@@ -327,7 +349,11 @@ func matrixCells(ctx context.Context, db pgxIface, teamID uuid.UUID, from, to st
 			u.avatar_color,
 			(u.photo_object_key IS NOT NULL) AS has_photo,
 			e.id AS event_id,
-			CASE WHEN e.id IS NULL THEN 'pending' ELSE `+attendance.EffectiveStatusExpr+` END AS eff
+			CASE
+				WHEN e.id IS NULL THEN 'pending'
+				WHEN a.status IS NULL AND `+attendance.NotRelevantAbsenceCoversExpr+` THEN 'pending'
+				ELSE `+attendance.EffectiveStatusExpr+`
+			END AS eff
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		LEFT JOIN events e ON e.team_id = m.team_id

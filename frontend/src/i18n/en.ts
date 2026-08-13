@@ -416,6 +416,8 @@ export const en: Messages = {
     toastCalExported: '{n} events exported as .ics',
     editAbsenceLabel: 'Edit absence',
     deleteAbsenceLabel: 'Delete absence',
+    absenceMarkNotRelevant: 'Mark as not relevant for statistics',
+    absenceMarkRelevant: 'Mark as relevant for statistics',
     absenceDeleteTitle: 'Delete absence?',
     absenceDeleteMsg: 'The period will be removed. Automatically set declines in this period will be undone.',
     toastAbsenceDeleted: 'Absence removed',
