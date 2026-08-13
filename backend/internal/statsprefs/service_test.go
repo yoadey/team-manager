@@ -16,6 +16,7 @@ import (
 type mockRepo struct {
 	getLastSelectionFn    func(ctx context.Context, teamID, userID uuid.UUID) (statsprefs.LastSelection, error)
 	upsertLastSelectionFn func(ctx context.Context, teamID, userID uuid.UUID, sel statsprefs.LastSelection) error
+	presetExistsFn        func(ctx context.Context, teamID, userID, presetID uuid.UUID) (bool, error)
 	listPresetsFn         func(ctx context.Context, teamID, userID uuid.UUID) ([]statsprefs.Preset, error)
 	countPresetsFn        func(ctx context.Context, teamID, userID uuid.UUID) (int, error)
 	createPresetFn        func(ctx context.Context, teamID, userID uuid.UUID, name string, from, to time.Time) (statsprefs.Preset, error)
@@ -29,6 +30,10 @@ func (m *mockRepo) GetLastSelection(ctx context.Context, teamID, userID uuid.UUI
 
 func (m *mockRepo) UpsertLastSelection(ctx context.Context, teamID, userID uuid.UUID, sel statsprefs.LastSelection) error {
 	return m.upsertLastSelectionFn(ctx, teamID, userID, sel)
+}
+
+func (m *mockRepo) PresetExists(ctx context.Context, teamID, userID, presetID uuid.UUID) (bool, error) {
+	return m.presetExistsFn(ctx, teamID, userID, presetID)
 }
 
 func (m *mockRepo) ListPresets(ctx context.Context, teamID, userID uuid.UUID) ([]statsprefs.Preset, error) {
@@ -124,4 +129,63 @@ func TestService_DeletePreset_PropagatesRepositoryError(t *testing.T) {
 	svc := statsprefs.NewService(repo)
 	err := svc.DeletePreset(context.Background(), uuid.New(), uuid.New(), uuid.New())
 	require.Error(t, err)
+}
+
+func TestService_SetLastSelection_WithoutPresetID_SkipsOwnershipCheck(t *testing.T) {
+	t.Parallel()
+
+	from := time.Now()
+	upserted := false
+	repo := &mockRepo{
+		presetExistsFn: func(_ context.Context, _, _, _ uuid.UUID) (bool, error) {
+			t.Fatal("PresetExists must not be called when the selection has no presetId")
+			return false, nil
+		},
+		upsertLastSelectionFn: func(_ context.Context, _, _ uuid.UUID, _ statsprefs.LastSelection) error {
+			upserted = true
+			return nil
+		},
+	}
+
+	svc := statsprefs.NewService(repo)
+	err := svc.SetLastSelection(context.Background(), uuid.New(), uuid.New(), statsprefs.LastSelection{FromDate: &from, ToDate: &from})
+	require.NoError(t, err)
+	assert.True(t, upserted)
+}
+
+func TestService_SetLastSelection_WithOwnedPresetID_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	from := time.Now()
+	presetID := uuid.New()
+	repo := &mockRepo{
+		presetExistsFn:        func(_ context.Context, _, _, _ uuid.UUID) (bool, error) { return true, nil },
+		upsertLastSelectionFn: func(_ context.Context, _, _ uuid.UUID, _ statsprefs.LastSelection) error { return nil },
+	}
+
+	svc := statsprefs.NewService(repo)
+	err := svc.SetLastSelection(context.Background(), uuid.New(), uuid.New(), statsprefs.LastSelection{FromDate: &from, ToDate: &from, PresetID: &presetID})
+	require.NoError(t, err)
+}
+
+// TestService_SetLastSelection_WithForeignPresetID_RejectsWithoutUpserting
+// verifies a caller can't point their saved selection at a presetId that
+// isn't theirs (or belongs to a different team) -- only the DB's foreign
+// key would otherwise catch a nonexistent id, and it can't check ownership.
+func TestService_SetLastSelection_WithForeignPresetID_RejectsWithoutUpserting(t *testing.T) {
+	t.Parallel()
+
+	from := time.Now()
+	foreignPresetID := uuid.New()
+	repo := &mockRepo{
+		presetExistsFn: func(_ context.Context, _, _, _ uuid.UUID) (bool, error) { return false, nil },
+		upsertLastSelectionFn: func(_ context.Context, _, _ uuid.UUID, _ statsprefs.LastSelection) error {
+			t.Fatal("UpsertLastSelection must not be called when the presetId isn't owned by this caller")
+			return nil
+		},
+	}
+
+	svc := statsprefs.NewService(repo)
+	err := svc.SetLastSelection(context.Background(), uuid.New(), uuid.New(), statsprefs.LastSelection{FromDate: &from, ToDate: &from, PresetID: &foreignPresetID})
+	require.ErrorIs(t, err, statsprefs.ErrPresetNotFound)
 }

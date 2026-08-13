@@ -1761,24 +1761,27 @@ export const handlers = [
     await mockDelay();
     const teamId = params.teamId as string;
     const userId = params.userId as string;
-    // Mirrors backend/internal/stats/repository.go's SingleMemberStats,
-    // which returns pgx.ErrNoRows (404 "member not found") for a
-    // non-member and, identically, for a member flagged excludeFromStats --
-    // there is no separate "empty stats" response shape for the latter.
+    // Mirrors backend/internal/stats/repository.go's SingleMemberStats: 404
+    // only for a genuine non-member; an excluded member is not an invalid
+    // target and gets the same "no data" (all-zero) shape as a member with
+    // no events in range, per exclude-members-from-stats' design.md -- their
+    // real per-event responses (if any) must not leak through here either.
     const membership = db.memberships.find((m) => m.teamId === teamId && m.userId === userId);
-    if (!membership || membership.excludeFromStats) return problem(404, 'Member not found');
+    if (!membership) return problem(404, 'Member not found');
     const url = new URL(request.url);
     const today = todayLocalDate();
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
-    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats);
     let yes = 0, counted = 0;
-    events.forEach((e) => {
-      const s = rawCountedStatus(e.id, userId);
-      if (!s) return;
-      counted++;
-      if (s === 'yes') yes++;
-    });
+    if (!membership.excludeFromStats) {
+      const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats);
+      events.forEach((e) => {
+        const s = rawCountedStatus(e.id, userId);
+        if (!s) return;
+        counted++;
+        if (s === 'yes') yes++;
+      });
+    }
     const body: S['MemberAttendanceStats'] = { quote: counted ? yes / counted : 0, counted, yes };
     return HttpResponse.json(body);
   }),

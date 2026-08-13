@@ -361,6 +361,25 @@ describe('drift-bug fix: stats count only explicit attendance responses, not opt
   });
 });
 
+describe('drift-bug fix: an excluded member is not an invalid GetMemberStats target', () => {
+  it("returns zero-value 'no data' stats (not a 404) for a member flagged excludeFromStats, without leaking their real response", async () => {
+    const today = todayLocalDate();
+    const event = await api.events.create('t_a', { type: 'training', title: 'Exclusion regression test', date: today });
+    await api.attendance.set(event.id, 'u4', { status: 'yes' }, 't_a');
+
+    const members = await api.members.list('t_a');
+    const u4 = members.find((m) => m.userId === 'u4')!;
+    await api.members.update(u4.membershipId, { excludeFromStats: true }, 't_a');
+
+    const stat = await api.stats.attendanceFor('t_a', 'u4');
+    expect(stat).toEqual({ quote: null, counted: 0, yes: 0 });
+  });
+
+  it('still 404s for a userId that is not a member of the team at all', async () => {
+    await expect(api.stats.attendanceFor('t_a', 'not-a-real-user-id')).rejects.toThrow();
+  });
+});
+
 describe('drift-bug fix: single-choice polls reject multiple selected options', () => {
   it('rejects (422) a vote selecting >1 option on a non-multiple poll instead of silently truncating', async () => {
     const created = await api.polls.create('t_a', {

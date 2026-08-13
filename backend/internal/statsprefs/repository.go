@@ -64,6 +64,23 @@ func (r *Repository) UpsertLastSelection(ctx context.Context, teamID, userID uui
 	return nil
 }
 
+// PresetExists reports whether presetID is a preset owned by (teamID,
+// userID) -- used by Service.SetLastSelection to validate a caller-supplied
+// presetId before persisting it, so a saved selection can never reference
+// another user's or another team's preset.
+func (r *Repository) PresetExists(ctx context.Context, teamID, userID, presetID uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM stats_view_presets WHERE id = $1 AND team_id = $2 AND user_id = $3)
+	`, presetID, teamID, userID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("statsprefs.Repository.PresetExists: %w", err)
+	}
+	return exists, nil
+}
+
 // ListPresets returns every preset (teamID, userID) has saved, newest first.
 func (r *Repository) ListPresets(ctx context.Context, teamID, userID uuid.UUID) ([]Preset, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)

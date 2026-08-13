@@ -744,8 +744,14 @@ func TestStatsRepository_ExcludedMember_OmittedFromPersonalQuotas_ButCountedInEv
 	require.Len(t, memberRows, 1, "excluded member must be omitted from the roster")
 	assert.Equal(t, includedUID, memberRows[0].UserID.String())
 
-	_, err = repo.SingleMemberStats(ctx, teamID, uuid.MustParse(excludedUID), from, to)
-	require.ErrorIs(t, err, pgx.ErrNoRows, "excluded member's single-member view has no computed statistics")
+	// An excluded member is not an invalid target -- their single-member view
+	// returns the same "no data" shape as a member with no events in range
+	// (not an error), and must not leak their real 'yes' response recorded
+	// above for the Turnout Training event.
+	excludedStat, err := repo.SingleMemberStats(ctx, teamID, uuid.MustParse(excludedUID), from, to)
+	require.NoError(t, err)
+	assert.Equal(t, 0, excludedStat.Yes)
+	assert.Equal(t, 0, excludedStat.Counted)
 
 	_, cells, err := repo.AttendanceMatrix(ctx, teamID, from, to)
 	require.NoError(t, err)

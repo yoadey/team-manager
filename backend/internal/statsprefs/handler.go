@@ -13,7 +13,15 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
+
+// maxPresetNameLen mirrors CreateStatsPresetRequest/UpdateStatsPresetRequest's
+// `maxLength: 100` in openapi.yaml -- there's no request-validation
+// middleware in this codebase (see e.g. absences/handler.go's identical
+// validate.MaxLen calls), so the OpenAPI-declared bound must be re-enforced
+// here to actually take effect.
+const maxPresetNameLen = 100
 
 // statsprefsService is the interface the Handler relies on.
 type statsprefsService interface {
@@ -64,10 +72,16 @@ func (h *Handler) SetStatsPreferences(ctx context.Context, req gen.SetStatsPrefe
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if req.Body.From.After(req.Body.To.Time) {
+		return nil, apierror.BadRequest("'from' must not be after 'to'")
+	}
 	from := req.Body.From.Time
 	to := req.Body.To.Time
 	sel := LastSelection{FromDate: &from, ToDate: &to, PresetID: req.Body.PresetId}
 	if err := h.svc.SetLastSelection(ctx, req.TeamId, user.Id, sel); err != nil {
+		if errors.Is(err, ErrPresetNotFound) {
+			return nil, apierror.BadRequest("presetId does not reference a preset you own in this team")
+		}
 		h.logger.ErrorContext(ctx, "SetStatsPreferences failed", "err", err)
 		return nil, apierror.Internal("failed to set stats preferences")
 	}
@@ -103,6 +117,15 @@ func (h *Handler) CreateStatsPreset(ctx context.Context, req gen.CreateStatsPres
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if err := validate.RequireNonEmpty(req.Body.Name, "name"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if err := validate.MaxLen(req.Body.Name, maxPresetNameLen, "name"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if req.Body.From.After(req.Body.To.Time) {
+		return nil, apierror.BadRequest("'from' must not be after 'to'")
+	}
 	p, err := h.svc.CreatePreset(ctx, req.TeamId, user.Id, req.Body.Name, req.Body.From.Time, req.Body.To.Time)
 	if err != nil {
 		if errors.Is(err, ErrTooManyPresets) {
@@ -123,12 +146,26 @@ func (h *Handler) UpdateStatsPreset(ctx context.Context, req gen.UpdateStatsPres
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if req.Body.Name != nil {
+		if err := validate.RequireNonEmpty(*req.Body.Name, "name"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+		if err := validate.MaxLen(*req.Body.Name, maxPresetNameLen, "name"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 	var from, to *time.Time
 	if req.Body.From != nil {
 		from = &req.Body.From.Time
 	}
 	if req.Body.To != nil {
 		to = &req.Body.To.Time
+	}
+	// Ordering is only checkable here (no extra DB read) when both bounds
+	// arrive in the same PATCH -- mirrors absences/handler.go's UpdateAbsence
+	// doing the identical both-fields-present-only check for the same reason.
+	if from != nil && to != nil && from.After(*to) {
+		return nil, apierror.BadRequest("'from' must not be after 'to'")
 	}
 	p, err := h.svc.UpdatePreset(ctx, req.TeamId, user.Id, req.PresetId, req.Body.Name, from, to)
 	if err != nil {

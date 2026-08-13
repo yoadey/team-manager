@@ -193,3 +193,37 @@ func TestRepository_DeletingActivePreset_ClearsSelectionPresetID(t *testing.T) {
 	require.NotNil(t, got.FromDate, "the selection row itself must survive the preset delete")
 	assert.True(t, from.Equal(*got.FromDate))
 }
+
+func TestRepository_PresetExists_ScopedToOwnerAndTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := statsprefs.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := seedTeam(t, ctx, pool, "PresetExists Team A")
+	teamB := seedTeam(t, ctx, pool, "PresetExists Team B")
+	owner := seedUser(t, ctx, pool, "PresetExists Owner", "presetexists-owner@example.com")
+	other := seedUser(t, ctx, pool, "PresetExists Other", "presetexists-other@example.com")
+
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	preset, err := repo.CreatePreset(ctx, teamA, owner, "Mine", from, to)
+	require.NoError(t, err)
+
+	exists, err := repo.PresetExists(ctx, teamA, owner, preset.ID)
+	require.NoError(t, err)
+	assert.True(t, exists, "the owner's own preset in the right team must exist")
+
+	exists, err = repo.PresetExists(ctx, teamA, other, preset.ID)
+	require.NoError(t, err)
+	assert.False(t, exists, "a different user's presetId must not resolve as existing")
+
+	exists, err = repo.PresetExists(ctx, teamB, owner, preset.ID)
+	require.NoError(t, err)
+	assert.False(t, exists, "the same preset in a different team must not resolve as existing")
+
+	exists, err = repo.PresetExists(ctx, teamA, owner, uuid.New())
+	require.NoError(t, err)
+	assert.False(t, exists, "a nonexistent presetId must not resolve as existing")
+}

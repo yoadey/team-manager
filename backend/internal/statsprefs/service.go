@@ -12,6 +12,7 @@ import (
 type statsprefsRepo interface {
 	GetLastSelection(ctx context.Context, teamID, userID uuid.UUID) (LastSelection, error)
 	UpsertLastSelection(ctx context.Context, teamID, userID uuid.UUID, sel LastSelection) error
+	PresetExists(ctx context.Context, teamID, userID, presetID uuid.UUID) (bool, error)
 	ListPresets(ctx context.Context, teamID, userID uuid.UUID) ([]Preset, error)
 	CountPresets(ctx context.Context, teamID, userID uuid.UUID) (int, error)
 	CreatePreset(ctx context.Context, teamID, userID uuid.UUID, name string, from, to time.Time) (Preset, error)
@@ -38,8 +39,22 @@ func (s *Service) GetLastSelection(ctx context.Context, teamID, userID uuid.UUID
 	return sel, nil
 }
 
-// SetLastSelection saves (teamID, userID)'s current statistics range.
+// SetLastSelection saves (teamID, userID)'s current statistics range. When
+// sel.PresetID is set, it must reference a preset (teamID, userID) actually
+// owns -- rejected with ErrPresetNotFound otherwise, so a selection can
+// never be pointed at another user's or another team's preset (only the
+// DB's existence-checking foreign key would otherwise catch a bogus id, and
+// it can't check ownership).
 func (s *Service) SetLastSelection(ctx context.Context, teamID, userID uuid.UUID, sel LastSelection) error {
+	if sel.PresetID != nil {
+		ok, err := s.repo.PresetExists(ctx, teamID, userID, *sel.PresetID)
+		if err != nil {
+			return fmt.Errorf("statsprefs.Service.SetLastSelection: %w", err)
+		}
+		if !ok {
+			return ErrPresetNotFound
+		}
+	}
 	if err := s.repo.UpsertLastSelection(ctx, teamID, userID, sel); err != nil {
 		return fmt.Errorf("statsprefs.Service.SetLastSelection: %w", err)
 	}

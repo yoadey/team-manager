@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/statsprefs"
@@ -198,5 +200,142 @@ func TestHandler_DeleteStatsPreset_Unauthenticated(t *testing.T) {
 	t.Parallel()
 	h := statsprefs.NewHandler(&mockStatsPrefsService{}, slog.Default())
 	_, err := h.DeleteStatsPreset(context.Background(), gen.DeleteStatsPresetRequestObject{TeamId: statsPrefsTeamID, PresetId: uuid.New()})
+	require.Error(t, err)
+}
+
+func TestHandler_SetStatsPreferences_FromAfterTo_RejectsWithoutCallingService(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsPrefsService{
+		setLastSelectionFn: func(_ context.Context, _, _ uuid.UUID, _ statsprefs.LastSelection) error {
+			t.Fatal("SetLastSelection must not be called when from is after to")
+			return nil
+		},
+	}
+	h := statsprefs.NewHandler(svc, slog.Default())
+
+	from := openapi_types.Date{Time: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)}
+	to := openapi_types.Date{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	_, err := h.SetStatsPreferences(statsPrefsAuthedCtx(), gen.SetStatsPreferencesRequestObject{
+		TeamId: statsPrefsTeamID,
+		Body:   &gen.SetStatsPreferencesJSONRequestBody{From: from, To: to},
+	})
+	require.Error(t, err)
+}
+
+func TestHandler_SetStatsPreferences_ForeignPresetId_ReturnsBadRequest(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsPrefsService{
+		setLastSelectionFn: func(_ context.Context, _, _ uuid.UUID, _ statsprefs.LastSelection) error {
+			return statsprefs.ErrPresetNotFound
+		},
+	}
+	h := statsprefs.NewHandler(svc, slog.Default())
+
+	from := openapi_types.Date{Time: time.Now()}
+	to := openapi_types.Date{Time: time.Now()}
+	foreignID := uuid.New()
+	_, err := h.SetStatsPreferences(statsPrefsAuthedCtx(), gen.SetStatsPreferencesRequestObject{
+		TeamId: statsPrefsTeamID,
+		Body:   &gen.SetStatsPreferencesJSONRequestBody{From: from, To: to, PresetId: &foreignID},
+	})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+}
+
+func TestHandler_CreateStatsPreset_EmptyName_RejectsWithoutCallingService(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsPrefsService{
+		createPresetFn: func(_ context.Context, _, _ uuid.UUID, _ string, _, _ time.Time) (statsprefs.Preset, error) {
+			t.Fatal("CreatePreset must not be called with an empty name")
+			return statsprefs.Preset{}, nil
+		},
+	}
+	h := statsprefs.NewHandler(svc, slog.Default())
+
+	_, err := h.CreateStatsPreset(statsPrefsAuthedCtx(), gen.CreateStatsPresetRequestObject{
+		TeamId: statsPrefsTeamID,
+		Body:   &gen.CreateStatsPresetJSONRequestBody{Name: "   ", From: openapi_types.Date{Time: time.Now()}, To: openapi_types.Date{Time: time.Now()}},
+	})
+	require.Error(t, err)
+}
+
+func TestHandler_CreateStatsPreset_NameTooLong_RejectsWithoutCallingService(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsPrefsService{
+		createPresetFn: func(_ context.Context, _, _ uuid.UUID, _ string, _, _ time.Time) (statsprefs.Preset, error) {
+			t.Fatal("CreatePreset must not be called with a too-long name")
+			return statsprefs.Preset{}, nil
+		},
+	}
+	h := statsprefs.NewHandler(svc, slog.Default())
+
+	_, err := h.CreateStatsPreset(statsPrefsAuthedCtx(), gen.CreateStatsPresetRequestObject{
+		TeamId: statsPrefsTeamID,
+		Body: &gen.CreateStatsPresetJSONRequestBody{
+			Name: strings.Repeat("a", 101),
+			From: openapi_types.Date{Time: time.Now()},
+			To:   openapi_types.Date{Time: time.Now()},
+		},
+	})
+	require.Error(t, err)
+}
+
+func TestHandler_CreateStatsPreset_FromAfterTo_RejectsWithoutCallingService(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsPrefsService{
+		createPresetFn: func(_ context.Context, _, _ uuid.UUID, _ string, _, _ time.Time) (statsprefs.Preset, error) {
+			t.Fatal("CreatePreset must not be called when from is after to")
+			return statsprefs.Preset{}, nil
+		},
+	}
+	h := statsprefs.NewHandler(svc, slog.Default())
+
+	from := openapi_types.Date{Time: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)}
+	to := openapi_types.Date{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	_, err := h.CreateStatsPreset(statsPrefsAuthedCtx(), gen.CreateStatsPresetRequestObject{
+		TeamId: statsPrefsTeamID,
+		Body:   &gen.CreateStatsPresetJSONRequestBody{Name: "Saison", From: from, To: to},
+	})
+	require.Error(t, err)
+}
+
+func TestHandler_UpdateStatsPreset_FromAfterTo_RejectsWithoutCallingService(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsPrefsService{
+		updatePresetFn: func(_ context.Context, _, _, _ uuid.UUID, _ *string, _, _ *time.Time) (statsprefs.Preset, error) {
+			t.Fatal("UpdatePreset must not be called when from is after to")
+			return statsprefs.Preset{}, nil
+		},
+	}
+	h := statsprefs.NewHandler(svc, slog.Default())
+
+	from := openapi_types.Date{Time: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)}
+	to := openapi_types.Date{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	_, err := h.UpdateStatsPreset(statsPrefsAuthedCtx(), gen.UpdateStatsPresetRequestObject{
+		TeamId:   statsPrefsTeamID,
+		PresetId: uuid.New(),
+		Body:     &gen.UpdateStatsPresetJSONRequestBody{From: &from, To: &to},
+	})
+	require.Error(t, err)
+}
+
+func TestHandler_UpdateStatsPreset_EmptyName_RejectsWithoutCallingService(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsPrefsService{
+		updatePresetFn: func(_ context.Context, _, _, _ uuid.UUID, _ *string, _, _ *time.Time) (statsprefs.Preset, error) {
+			t.Fatal("UpdatePreset must not be called with an empty name")
+			return statsprefs.Preset{}, nil
+		},
+	}
+	h := statsprefs.NewHandler(svc, slog.Default())
+
+	emptyName := "   "
+	_, err := h.UpdateStatsPreset(statsPrefsAuthedCtx(), gen.UpdateStatsPresetRequestObject{
+		TeamId:   statsPrefsTeamID,
+		PresetId: uuid.New(),
+		Body:     &gen.UpdateStatsPresetJSONRequestBody{Name: &emptyName},
+	})
 	require.Error(t, err)
 }

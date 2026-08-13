@@ -242,7 +242,15 @@ func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.
 	// Same roster-driven, effective-status logic as MemberStats, scoped to one
 	// member. Joining from memberships (rather than the previous EXISTS guard)
 	// both provides the `m` alias the shared expression needs and returns no row
-	// -- hence pgx.ErrNoRows -- when the user is not a member of the team.
+	// -- hence pgx.ErrNoRows -- when the user is not a member of the team at
+	// all. Deliberately NOT filtered on m.exclude_from_stats here (unlike
+	// MemberStats/AttendanceMatrix's roster joins): per
+	// exclude-members-from-stats' design.md, an excluded member is "not an
+	// invalid target, their statistics are just empty by policy" -- the CASE
+	// below forces their eff to 'pending' (so counted/yes both come out 0,
+	// the same "no data" shape as a member with no events in range) rather
+	// than dropping the row entirely, which would surface as this endpoint's
+	// 404 "member not found" and be indistinguishable from a non-member.
 	s := &MemberStatRow{}
 	err := r.db.QueryRow(ctx, `
 		SELECT
@@ -259,6 +267,7 @@ func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.
 				u.avatar_color AS avatar_color,
 				(u.photo_object_key IS NOT NULL) AS has_photo,
 				CASE
+					WHEN m.exclude_from_stats THEN 'pending'
 					WHEN e.id IS NULL THEN 'pending'
 					WHEN a.status IS NULL AND `+attendance.NotRelevantAbsenceCoversExpr+` THEN 'excluded'
 					ELSE `+attendance.EffectiveStatusExpr+`
@@ -270,7 +279,7 @@ func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.
 				AND e.status = 'active'
 				AND e.exclude_from_stats = false
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
-			WHERE m.team_id = $1 AND m.user_id = $2 AND m.exclude_from_stats = false
+			WHERE m.team_id = $1 AND m.user_id = $2
 		) sub
 		GROUP BY user_id, name, avatar_color, has_photo
 	`, teamID, userID, from, to).Scan(&s.UserID, &s.Name, &s.AvatarColor, &s.HasPhoto, &s.Yes, &s.Counted)

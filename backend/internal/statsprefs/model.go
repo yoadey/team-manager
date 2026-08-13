@@ -33,3 +33,9 @@ const maxPresetsPerTeamUser = 20
 // ErrTooManyPresets is returned by Service.CreatePreset when the caller
 // already has maxPresetsPerTeamUser presets saved for this team.
 var ErrTooManyPresets = errors.New("maximum number of saved statistics presets reached")
+
+// ErrPresetNotFound is returned by Service.SetLastSelection when the
+// caller-supplied PresetID doesn't reference a preset owned by them in this
+// team -- prevents a saved selection from ever pointing at another user's
+// (or another team's) preset.
+var ErrPresetNotFound = errors.New("preset not found")
