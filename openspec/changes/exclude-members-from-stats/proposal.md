@@ -16,21 +16,22 @@ row.
   that already gates the rest of profile editing).
 - **Excluded from personal-quota views, kept in event-level views.** A
   flagged member disappears from `MemberStats` (the overview quota list),
-  `SingleMemberStats`, and the attendance matrix's rows/columns — their
-  personal statistics are simply not computed. `EventStats` (per-event
-  turnout numbers) is deliberately left unfiltered: it answers "how many
-  people were at this training", and silently dropping a flagged member's
-  historical yes/no response there would understate real turnout for that
-  specific event. The exclusion is about *that person's personal quota*,
-  not a rewrite of event-level history.
+  `SingleMemberStats`, the attendance matrix's rows/columns, and the
+  absence table (`AbsenceStats`) — their personal statistics are simply not
+  computed. `EventStats` (per-event turnout numbers) is deliberately left
+  unfiltered: it answers "how many people were at this training", and
+  silently dropping a flagged member's historical yes/no response there
+  would understate real turnout for that specific event. The exclusion is
+  about *that person's personal quota*, not a rewrite of event-level
+  history.
 
 ## Capabilities
 
 ### New Capabilities
 - `member-stats-exclusion`: a per-membership flag, editable via the member
   profile form, that removes a member from personal-quota-oriented
-  statistics views (overview, single-member, matrix) while leaving
-  event-level turnout aggregates unaffected.
+  statistics views (overview, single-member, matrix, absence table) while
+  leaving event-level turnout aggregates unaffected.
 
 ## Impact
 

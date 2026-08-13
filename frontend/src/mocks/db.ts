@@ -384,6 +384,7 @@ export function createSeedData(): DemoDb {
     roleIds,
     group,
     joinedAt: iso(new Date(Date.now() - 200 * DAY)),
+    excludeFromStats: false,
   });
   db.memberships = [
     M('t_a', 'u1', [RA('Admin / Trainer'), RA('Tänzer / Mitglied')], 'A-Formation'),

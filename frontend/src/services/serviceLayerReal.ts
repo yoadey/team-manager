@@ -403,6 +403,7 @@ export const realApi = {
         birthday?: string | null;
         address?: string | null;
         group?: string | null;
+        excludeFromStats?: boolean;
       },
       teamId: string,
     ): Promise<Member> {
@@ -415,6 +416,7 @@ export const realApi = {
           ...opt('birthday', patch.birthday ?? undefined),
           ...opt('address', patch.address ?? undefined),
           ...opt('group', patch.group ?? undefined),
+          ...opt('excludeFromStats', patch.excludeFromStats),
         },
       });
       const m = await check(res);

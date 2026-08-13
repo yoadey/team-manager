@@ -20,6 +20,7 @@ function makeMember(overrides: Partial<Member> = {}): Member {
     joinedAt: '2026-01-01',
     primaryRole: null,
     perms: {} as never,
+    excludeFromStats: false,
     ...overrides,
   };
 }

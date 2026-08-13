@@ -12,7 +12,15 @@ export function useInvalidateMembers(teamId: string | null) {
 
 export interface SaveMemberInput {
   membershipId: string;
-  patch: { name: string; email: string; phone: string; birthday: string; address: string; group: string };
+  patch: {
+    name: string;
+    email: string;
+    phone: string;
+    birthday: string;
+    address: string;
+    group: string;
+    excludeFromStats?: boolean;
+  };
   roleIds: string[];
   rolesChanged: boolean;
   /** Self's own changed photo (already gated by the caller to self-only); explicitly undefined otherwise. */

@@ -179,6 +179,7 @@ describe('mapUser / mapTeam resolve hasPhoto/hasLogo to a display URL', () => {
     avatarColor: '#000',
     roles: [],
     joinedAt: '2025-01-01T00:00:00Z',
+    excludeFromStats: false,
   };
 
   it('mapMember returns null photo when hasPhoto is false or absent', () => {

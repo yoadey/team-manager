@@ -64,6 +64,7 @@ export interface Membership {
   roleIds: string[];
   group: string;
   joinedAt: string;
+  excludeFromStats: boolean;
 }
 
 export interface MemberStat {

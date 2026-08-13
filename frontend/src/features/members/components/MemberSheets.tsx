@@ -1,4 +1,4 @@
-import { NEUTRAL } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useForm } from 'react-hook-form';
@@ -8,6 +8,57 @@ import type { Member } from '../types';
 import type { SheetProps } from '@/sheets/types';
 import { getIntlLocale, t } from '@/i18n';
 import { memberFormSchema, type MemberFormValues } from './memberFormSchema';
+
+function ExcludeFromStatsToggle({
+  checked,
+  tk,
+  onToggle,
+}: {
+  checked: boolean;
+  tk: ReturnType<typeof buildTokens>;
+  onToggle: () => void;
+}) {
+  return (
+    <ButtonBase
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={t('members.excludeFromStats')}
+      onClick={onToggle}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        width: '100%',
+        p: '12px 14px',
+        borderRadius: '13px',
+        cursor: 'pointer',
+        border: `1px solid ${NEUTRAL.line}`,
+        background: NEUTRAL.sidebar,
+        justifyContent: 'flex-start',
+      }}
+    >
+      <Box
+        component="span"
+        sx={{
+          width: '22px',
+          height: '22px',
+          borderRadius: '7px',
+          background: checked ? tk.primary : NEUTRAL.card,
+          border: '2px solid ' + (checked ? tk.primary : NEUTRAL.faint),
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flex: '0 0 auto',
+        }}
+      >
+        {checked ? <Sym name="check" size={16} color="#fff" /> : null}
+      </Box>
+      <Box component="span" sx={{ flex: 1, textAlign: 'left', fontSize: '14px', fontWeight: 500 }}>
+        {t('members.excludeFromStats')}
+      </Box>
+    </ButtonBase>
+  );
+}
 
 export function MemberDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
@@ -186,8 +237,10 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
 
 export function MemberFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
+  const tk = buildTokens(state.primaryColor);
   const canRoles = app.can('settings', 'write');
   const canEditPhoto = !!sheet.self;
+  const canExcludeFromStats = app.can('members', 'write');
 
   const {
     register,
@@ -204,6 +257,7 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
   const myIds = watch('roleIds') || [];
   const currentPhoto = watch('photo');
   const currentName = watch('name');
+  const excludeFromStats = watch('excludeFromStats');
 
   const photoRow = canEditPhoto ? (
     <Box key="ph" sx={{ display: 'flex', alignItems: 'center', gap: '14px', mb: '4px' }}>
@@ -332,6 +386,13 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
       </Field>
       {contactNote}
       {roleChips}
+      {canExcludeFromStats ? (
+        <ExcludeFromStatsToggle
+          checked={!!excludeFromStats}
+          tk={tk}
+          onToggle={() => setValue('excludeFromStats', !excludeFromStats, { shouldValidate: true })}
+        />
+      ) : null}
       <PrimaryButton
         label={t('members.saveProfile')}
         onClick={handleSubmit(onSubmit)}

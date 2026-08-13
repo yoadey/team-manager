@@ -679,3 +679,89 @@ func TestStatsRepository_NotRelevantAbsence_ExcludedFromStats(t *testing.T) {
 	require.Contains(t, byUser, normalUID)
 	assert.Equal(t, "no", byUser[normalUID].Eff)
 }
+
+// A membership flagged exclude_from_stats must be absent from every
+// personal-quota-oriented statistics view (MemberStats, SingleMemberStats,
+// the attendance matrix), while their past explicit response still counts
+// toward EventStats' per-event turnout (a deliberate asymmetry -- see
+// exclude-members-from-stats' design.md).
+func TestStatsRepository_ExcludedMember_OmittedFromPersonalQuotas_ButCountedInEventStats(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := stats.NewRepository(pool)
+	ctx := context.Background()
+
+	excludedUID := uuid.New().String()
+	includedUID := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Excluded Member', 'excludedmember@example.com', '#aa00aa')`, excludedUID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Included Member', 'includedmember@example.com', '#00aa00')`, includedUID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Excluded Member Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id, exclude_from_stats) VALUES ($1, $2, true)`, tid, excludedUID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id, exclude_from_stats) VALUES ($1, $2, false)`, tid, includedUID)
+	require.NoError(t, err)
+
+	today := time.Now().UTC().Format("2006-01-02")
+	var eid string
+	err = pool.QueryRow(ctx,
+		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Turnout Training', $2, 'active') RETURNING id`,
+		tid, today).Scan(&eid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO attendance (event_id, user_id, status) VALUES ($1, $2, 'yes')`, eid, excludedUID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO attendance (event_id, user_id, status) VALUES ($1, $2, 'yes')`, eid, includedUID)
+	require.NoError(t, err)
+
+	// A second event both members miss via a covering planned absence (no
+	// explicit response), to exercise AbsenceStats' own exclude_from_stats
+	// filter.
+	var missedID string
+	err = pool.QueryRow(ctx,
+		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Missed Training', $2, 'active') RETURNING id`,
+		tid, today).Scan(&missedID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO absences (team_id, user_id, from_date, to_date) VALUES ($1, $2, $3, $3)`, tid, excludedUID, today)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO absences (team_id, user_id, from_date, to_date) VALUES ($1, $2, $3, $3)`, tid, includedUID, today)
+	require.NoError(t, err)
+
+	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
+	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+	teamID := uuid.MustParse(tid)
+
+	memberRows, err := repo.MemberStats(ctx, teamID, from, to)
+	require.NoError(t, err)
+	require.Len(t, memberRows, 1, "excluded member must be omitted from the roster")
+	assert.Equal(t, includedUID, memberRows[0].UserID.String())
+
+	_, err = repo.SingleMemberStats(ctx, teamID, uuid.MustParse(excludedUID), from, to)
+	require.ErrorIs(t, err, pgx.ErrNoRows, "excluded member's single-member view has no computed statistics")
+
+	_, cells, err := repo.AttendanceMatrix(ctx, teamID, from, to)
+	require.NoError(t, err)
+	for _, c := range cells {
+		assert.NotEqual(t, excludedUID, c.UserID.String(), "excluded member must have no matrix row")
+	}
+
+	absenceRows, err := repo.AbsenceStats(ctx, teamID, from, to)
+	require.NoError(t, err)
+	for _, a := range absenceRows {
+		assert.NotEqual(t, excludedUID, a.UserID.String(), "excluded member must have no absence-table row")
+	}
+	require.NotEmpty(t, absenceRows, "sanity check: the included member's absence is still reported")
+
+	eventRows, err := repo.EventStats(ctx, teamID, from, to)
+	require.NoError(t, err)
+	require.Len(t, eventRows, 1)
+	assert.Equal(t, 2, eventRows[0].Yes, "excluded member's past response still counts toward this event's turnout")
+}

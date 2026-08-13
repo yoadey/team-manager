@@ -90,6 +90,7 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
         roleIds: member.roles.map((r) => r.id),
         group: member.group,
         photo: member.photo,
+        excludeFromStats: member.excludeFromStats,
       };
       setState((st) => ({
         sheet: {
@@ -138,6 +139,7 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
             birthday: f.birthday || '',
             address: f.address || '',
             group: f.group || '',
+            excludeFromStats: !!f.excludeFromStats,
           },
           roleIds: nextRoleIds,
           rolesChanged,

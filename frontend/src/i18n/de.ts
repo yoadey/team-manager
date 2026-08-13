@@ -465,6 +465,7 @@ export const de = {
     photoChange: 'Foto ändern',
     rolesMulti: 'Rollen (Mehrfachauswahl)',
     contactNote: 'Kontaktdaten sind optional. Geburtstag und Adresse sieht nur das Trainerteam.',
+    excludeFromStats: 'Von Statistik ausschließen',
     fieldName: 'Name',
     fieldNamePlaceholder: 'Vor- und Nachname',
     fieldNameError: 'Name fehlt.',

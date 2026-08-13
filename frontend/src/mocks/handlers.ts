@@ -165,6 +165,7 @@ function toWireMember(m: (typeof db.memberships)[number]): S['Member'] {
     roles: roles.map(toWireRole),
     perms: mergePerms(roles),
     joinedAt: m.joinedAt,
+    excludeFromStats: m.excludeFromStats,
     ...opt('phone', u.phone || undefined),
     ...opt('birthday', u.birthday || undefined),
     ...opt('address', u.address || undefined),
@@ -704,7 +705,15 @@ export const handlers = [
     const [adminRole] = roles;
     db.roles.push(...roles);
     team.reasonVisibilityRoles = [adminRole.id];
-    db.memberships.push({ id: rid('mem'), teamId: team.id, userId: auth, roleIds: [adminRole.id], group: '', joinedAt: new Date().toISOString() });
+    db.memberships.push({
+      id: rid('mem'),
+      teamId: team.id,
+      userId: auth,
+      roleIds: [adminRole.id],
+      group: '',
+      joinedAt: new Date().toISOString(),
+      excludeFromStats: false,
+    });
     return HttpResponse.json(toWireTeamForUser(team, auth), { status: 201 });
   }),
 
@@ -792,7 +801,15 @@ export const handlers = [
       // (Kassenwart, Teamkapitän, ...) would otherwise risk handing a new
       // member a privileged role if the true default role were ever deleted.
       const memberRole = db.roles.find((r) => r.teamId === inv.teamId && r.name === DEFAULT_MEMBER_ROLE_NAME);
-      db.memberships.push({ id: rid('mem'), teamId: inv.teamId, userId: auth, roleIds: memberRole ? [memberRole.id] : [], group: '', joinedAt: new Date().toISOString() });
+      db.memberships.push({
+        id: rid('mem'),
+        teamId: inv.teamId,
+        userId: auth,
+        roleIds: memberRole ? [memberRole.id] : [],
+        group: '',
+        joinedAt: new Date().toISOString(),
+        excludeFromStats: false,
+      });
     }
     const t = db.teams.find((x) => x.id === inv.teamId)!;
     const body: S['AcceptInviteResponse'] = { ...toWireTeamForUser(t, auth), alreadyMember };
@@ -818,6 +835,7 @@ export const handlers = [
     if (body.birthday !== undefined) u.birthday = body.birthday;
     if (body.address !== undefined) u.address = body.address;
     if (body.group !== undefined) m.group = body.group;
+    if (body.excludeFromStats !== undefined) m.excludeFromStats = body.excludeFromStats;
     // An explicitly empty array clears all roles (matches the real backend's
     // SetRoles, only guarded by ErrLastSettingsAdmin server-side) — only an
     // absent field should be a no-op, not an empty one.
@@ -1696,10 +1714,19 @@ export const handlers = [
     const today = todayLocalDate();
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
-    const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+    // EventStats (below) is a per-event turnout number, so it must keep
+    // counting every current member including excluded ones -- only the
+    // per-member quota list drops excluded members from the roster
+    // entirely. Mirrors backend/internal/stats/repository.go's identical
+    // MemberStats-vs-EventStats asymmetry (see exclude-members-from-stats'
+    // design.md).
+    const allMemberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+    const statsMemberIds = db.memberships
+      .filter((m) => m.teamId === teamId && !m.excludeFromStats)
+      .map((m) => m.userId);
     const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats).sort((a, b) => a.date.localeCompare(b.date));
 
-    const memberStats: S['MemberStat'][] = memberIds
+    const memberStats: S['MemberStat'][] = statsMemberIds
       .map((uid) => {
         const u = requireUser(uid);
         let yes = 0, counted = 0;
@@ -1716,7 +1743,7 @@ export const handlers = [
 
     const eventStats: S['EventStat'][] = events.map((e) => {
       let yes = 0, counted = 0;
-      memberIds.forEach((uid) => {
+      allMemberIds.forEach((uid) => {
         const s = rawCountedStatus(e.id, uid);
         if (!s) return;
         counted++;
@@ -1734,6 +1761,12 @@ export const handlers = [
     await mockDelay();
     const teamId = params.teamId as string;
     const userId = params.userId as string;
+    // Mirrors backend/internal/stats/repository.go's SingleMemberStats,
+    // which returns pgx.ErrNoRows (404 "member not found") for a
+    // non-member and, identically, for a member flagged excludeFromStats --
+    // there is no separate "empty stats" response shape for the latter.
+    const membership = db.memberships.find((m) => m.teamId === teamId && m.userId === userId);
+    if (!membership || membership.excludeFromStats) return problem(404, 'Member not found');
     const to = todayLocalDate();
     const from = threeMonthsBeforeLocal(to);
     const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats);
@@ -1759,7 +1792,9 @@ export const handlers = [
     const today = todayLocalDate();
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
-    const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+    const memberIds = db.memberships
+      .filter((m) => m.teamId === teamId && !m.excludeFromStats)
+      .map((m) => m.userId);
     const events = db.events
       .filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats)
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
@@ -1803,7 +1838,9 @@ export const handlers = [
     const today = todayLocalDate();
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
-    const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+    const memberIds = db.memberships
+      .filter((m) => m.teamId === teamId && !m.excludeFromStats)
+      .map((m) => m.userId);
     const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats).sort((a, b) => a.date.localeCompare(b.date));
 
     const rows: S['AttendanceAbsenceRow'][] = [];

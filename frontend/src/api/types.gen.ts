@@ -1452,6 +1452,8 @@ export interface components {
             perms?: components["schemas"]["Permissions"];
             /** Format: date-time */
             joinedAt: string;
+            /** @description When true, this member is omitted from personal-quota-oriented attendance statistics (overview, single-member view, attendance matrix), while their historical event-level responses still count toward per-event turnout aggregates. */
+            excludeFromStats: boolean;
         };
         UpdateMemberRequest: {
             name?: string;
@@ -1463,6 +1465,7 @@ export interface components {
             address?: string;
             roleIds?: string[];
             group?: string;
+            excludeFromStats?: boolean;
         };
         SetRolesRequest: {
             roleIds: string[];

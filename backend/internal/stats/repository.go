@@ -102,7 +102,7 @@ func (r *Repository) MemberStats(ctx context.Context, teamID uuid.UUID, from, to
 				AND e.status = 'active'
 				AND e.exclude_from_stats = false
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
-			WHERE m.team_id = $1
+			WHERE m.team_id = $1 AND m.exclude_from_stats = false
 		) sub
 		GROUP BY user_id, name, avatar_color, has_photo
 		ORDER BY yes_count DESC, name
@@ -133,6 +133,13 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 	// longer inflates the count -- the previous query counted any attendance row
 	// including ex-members', which could not reconcile with the member-level
 	// aggregation that filtered to current members.
+	//
+	// Deliberately NOT filtered on m.exclude_from_stats: this query answers
+	// "how many people attended this event" (a per-event turnout number), not
+	// a personal quota -- an excluded member's own historical response still
+	// belongs in that count. Unlike MemberStats/SingleMemberStats/matrixCells,
+	// which drop excluded members from the roster entirely since they compute
+	// per-member quotas. See exclude-members-from-stats' design.md.
 	rows, err := r.db.Query(ctx, `
 		SELECT
 			event_id,
@@ -207,7 +214,7 @@ func (r *Repository) AbsenceStats(ctx context.Context, teamID uuid.UUID, from, t
 				AND e.status = 'active'
 				AND e.exclude_from_stats = false
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
-			WHERE m.team_id = $1
+			WHERE m.team_id = $1 AND m.exclude_from_stats = false
 		) sub
 		WHERE eff = 'no'
 		ORDER BY date, name
@@ -263,7 +270,7 @@ func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.
 				AND e.status = 'active'
 				AND e.exclude_from_stats = false
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
-			WHERE m.team_id = $1 AND m.user_id = $2
+			WHERE m.team_id = $1 AND m.user_id = $2 AND m.exclude_from_stats = false
 		) sub
 		GROUP BY user_id, name, avatar_color, has_photo
 	`, teamID, userID, from, to).Scan(&s.UserID, &s.Name, &s.AvatarColor, &s.HasPhoto, &s.Yes, &s.Counted)
@@ -361,7 +368,7 @@ func matrixCells(ctx context.Context, db pgxIface, teamID uuid.UUID, from, to st
 			AND e.status = 'active'
 			AND e.exclude_from_stats = false
 		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
-		WHERE m.team_id = $1
+		WHERE m.team_id = $1 AND m.exclude_from_stats = false
 		ORDER BY u.name
 	`, teamID, from, to)
 	if err != nil {

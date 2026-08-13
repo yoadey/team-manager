@@ -2521,7 +2521,8 @@ components:
 
     Member:
       type: object
-      required: [membershipId, userId, name, email, avatarColor, roles, joinedAt]
+      required:
+        [membershipId, userId, name, email, avatarColor, roles, joinedAt, excludeFromStats]
       properties:
         membershipId:
           type: string
@@ -2558,6 +2559,13 @@ components:
         joinedAt:
           type: string
           format: date-time
+        excludeFromStats:
+          type: boolean
+          description: >-
+            When true, this member is omitted from personal-quota-oriented
+            attendance statistics (overview, single-member view, attendance
+            matrix), while their historical event-level responses still
+            count toward per-event turnout aggregates.
 
     UpdateMemberRequest:
       type: object
@@ -2581,6 +2589,8 @@ components:
             format: uuid
         group:
           type: string
+        excludeFromStats:
+          type: boolean
 
     SetRolesRequest:
       type: object

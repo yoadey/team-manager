@@ -142,7 +142,7 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 		SELECT m.id, u.id, u.name, u.email, u.phone,
 		       u.birthday, u.address, u.avatar_color,
 		       (u.photo_object_key IS NOT NULL AND length(u.photo_object_key) > 0),
-		       m."group", m.joined_at
+		       m."group", m.joined_at, m.exclude_from_stats
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.team_id = $1 %s
@@ -314,6 +314,13 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID, cal
 		_, err = tx.Exec(ctx, `UPDATE memberships SET "group" = $1 WHERE id = $2 AND team_id = $3`, *patch.Group, membershipID, teamID)
 		if err != nil {
 			return nil, fmt.Errorf("members.Repository.UpdateMember: update membership: %w", err)
+		}
+	}
+
+	if patch.ExcludeFromStats != nil {
+		_, err = tx.Exec(ctx, `UPDATE memberships SET exclude_from_stats = $1 WHERE id = $2 AND team_id = $3`, *patch.ExcludeFromStats, membershipID, teamID)
+		if err != nil {
+			return nil, fmt.Errorf("members.Repository.UpdateMember: update exclude_from_stats: %w", err)
 		}
 	}
 
@@ -779,7 +786,7 @@ func getMemberByMembershipIDQ(ctx context.Context, q querier, membershipID strin
 		SELECT m.id, u.id, u.name, u.email, u.phone,
 		       u.birthday, u.address, u.avatar_color,
 		       (u.photo_object_key IS NOT NULL AND length(u.photo_object_key) > 0),
-		       m."group", m.joined_at
+		       m."group", m.joined_at, m.exclude_from_stats
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.id = $1
@@ -871,7 +878,7 @@ func scanMemberRow(row interface{ Scan(dest ...any) error }) (*MemberRow, error)
 		&mr.MembershipID, &mr.UserID, &mr.Name, &mr.Email, &mr.Phone,
 		&mr.Birthday, &mr.Address, &mr.AvatarColor,
 		&mr.HasPhoto,
-		&mr.Group, &mr.JoinedAt,
+		&mr.Group, &mr.JoinedAt, &mr.ExcludeFromStats,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)

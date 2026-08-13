@@ -461,6 +461,7 @@ export const en: Messages = {
     photoChange: 'Change photo',
     rolesMulti: 'Roles (multiple selection)',
     contactNote: 'Contact details are optional. Birthday and address are only visible to the coaching team.',
+    excludeFromStats: 'Exclude from statistics',
     fieldName: 'Name',
     fieldNamePlaceholder: 'First and last name',
     fieldNameError: 'Name is required.',

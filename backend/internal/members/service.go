@@ -194,18 +194,19 @@ func toGenMember(mr MemberRow) gen.Member {
 	perms := teams.MergePermissions(mr.Roles)
 
 	m := gen.Member{
-		MembershipId: mr.MembershipID,
-		UserId:       mr.UserID,
-		Name:         mr.Name,
-		Email:        openapi_types.Email(mr.Email),
-		Phone:        mr.Phone,
-		AvatarColor:  mr.AvatarColor,
-		HasPhoto:     &hasPhoto,
-		Group:        mr.Group,
-		JoinedAt:     mr.JoinedAt,
-		Roles:        genRoles,
-		PrimaryRole:  primaryRole,
-		Perms:        &perms,
+		MembershipId:     mr.MembershipID,
+		UserId:           mr.UserID,
+		Name:             mr.Name,
+		Email:            openapi_types.Email(mr.Email),
+		Phone:            mr.Phone,
+		AvatarColor:      mr.AvatarColor,
+		HasPhoto:         &hasPhoto,
+		Group:            mr.Group,
+		JoinedAt:         mr.JoinedAt,
+		Roles:            genRoles,
+		PrimaryRole:      primaryRole,
+		Perms:            &perms,
+		ExcludeFromStats: mr.ExcludeFromStats,
 	}
 
 	if mr.Address != nil {

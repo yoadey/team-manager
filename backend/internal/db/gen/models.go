@@ -13,14 +13,16 @@ import (
 )
 
 type Absence struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	TeamID    uuid.UUID
-	FromDate  pgtype.Date
-	ToDate    pgtype.Date
-	Reason    pgtype.Text
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                  uuid.UUID
+	UserID              uuid.UUID
+	TeamID              uuid.UUID
+	FromDate            pgtype.Date
+	ToDate              pgtype.Date
+	Reason              pgtype.Text
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	NotRelevantForStats bool
+	NotRelevantSetBy    *uuid.UUID
 }
 
 type Attendance struct {
@@ -149,12 +151,13 @@ type Invite struct {
 }
 
 type Membership struct {
-	ID        uuid.UUID
-	TeamID    uuid.UUID
-	UserID    uuid.UUID
-	Group     pgtype.Text
-	JoinedAt  time.Time
-	UpdatedAt time.Time
+	ID               uuid.UUID
+	TeamID           uuid.UUID
+	UserID           uuid.UUID
+	Group            pgtype.Text
+	JoinedAt         time.Time
+	UpdatedAt        time.Time
+	ExcludeFromStats bool
 }
 
 type MembershipRole struct {

@@ -14,6 +14,8 @@ export interface MemberDto {
   group: string;
   roles: RoleDto[];
   joinedAt: string;
+  /** When true, this member is omitted from personal-quota-oriented attendance statistics. */
+  excludeFromStats: boolean;
 }
 
 /** UI ViewModel consumed by member screens. */
@@ -33,4 +35,5 @@ export interface MemberFormValues extends Record<string, unknown> {
   roleIds: string[];
   group: string;
   photo: string | null;
+  excludeFromStats: boolean;
 }

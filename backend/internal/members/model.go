@@ -22,14 +22,21 @@ type MemberRow struct {
 	Group        *string
 	JoinedAt     time.Time
 	Roles        []teams.RoleRow
+	// ExcludeFromStats removes this member from personal-quota-oriented
+	// statistics views (overview, single-member, attendance matrix) while
+	// leaving event-level turnout aggregates unaffected -- see
+	// stats.Repository's doc comments on the roster joins for the exact
+	// per-query treatment.
+	ExcludeFromStats bool
 }
 
 // MemberPatch carries optional fields for an UPDATE on users/memberships.
 type MemberPatch struct {
-	Name     *string
-	Email    *string
-	Phone    *string
-	Birthday *time.Time
-	Address  *string
-	Group    *string
+	Name             *string
+	Email            *string
+	Phone            *string
+	Birthday         *time.Time
+	Address          *string
+	Group            *string
+	ExcludeFromStats *bool
 }

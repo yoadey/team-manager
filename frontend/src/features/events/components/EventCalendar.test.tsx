@@ -49,6 +49,7 @@ function makeMember(overrides: Partial<Member> = {}): Member {
     joinedAt: '2020-01-01',
     primaryRole: null,
     perms: { events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read', settings: 'read' },
+    excludeFromStats: false,
     ...overrides,
   };
 }

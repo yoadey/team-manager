@@ -20,8 +20,8 @@ them.
 
 ### Requirement: Excluded members are omitted from personal-quota statistics
 A member flagged `excludeFromStats` MUST be omitted from the statistics
-overview's member quotas, the single-member statistics view, and the
-attendance matrix's rows/columns.
+overview's member quotas, the single-member statistics view, the attendance
+matrix's rows/columns, and the absence table.
 
 #### Scenario: Excluded member omitted from the overview
 - **WHEN** the statistics overview is requested for a team with an excluded
@@ -32,6 +32,11 @@ attendance matrix's rows/columns.
 - **WHEN** a single-member statistics view is requested for an excluded
   member
 - **THEN** the response reflects no computed attendance statistics for them
+
+#### Scenario: Excluded member omitted from the absence table
+- **WHEN** the absence table is requested for a date range in which an
+  excluded member missed an event
+- **THEN** that member's row does not appear in the absence table
 
 ### Requirement: Excluded members' historical responses still count in event-level statistics
 An excluded member's past explicit attendance responses MUST continue to

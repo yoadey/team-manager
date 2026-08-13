@@ -215,6 +215,7 @@ export function mapMember(m: S['Member'], teamId: string): Member {
     group: m.group ?? '',
     roles: (m.roles ?? []).map(mapRole),
     joinedAt: m.joinedAt,
+    excludeFromStats: m.excludeFromStats,
   };
   return {
     ...dto,

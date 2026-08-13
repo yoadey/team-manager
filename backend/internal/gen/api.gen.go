@@ -765,15 +765,18 @@ type LoginResponse struct {
 
 // Member defines model for Member.
 type Member struct {
-	Address      *string             `json:"address,omitempty"`
-	AvatarColor  string              `json:"avatarColor"`
-	Birthday     *openapi_types.Date `json:"birthday,omitempty"`
-	Email        openapi_types.Email `json:"email"`
-	Group        *string             `json:"group,omitempty"`
-	HasPhoto     *bool               `json:"hasPhoto,omitempty"`
-	JoinedAt     time.Time           `json:"joinedAt"`
-	MembershipId openapi_types.UUID  `json:"membershipId"`
-	Name         string              `json:"name"`
+	Address     *string             `json:"address,omitempty"`
+	AvatarColor string              `json:"avatarColor"`
+	Birthday    *openapi_types.Date `json:"birthday,omitempty"`
+	Email       openapi_types.Email `json:"email"`
+
+	// ExcludeFromStats When true, this member is omitted from personal-quota-oriented attendance statistics (overview, single-member view, attendance matrix), while their historical event-level responses still count toward per-event turnout aggregates.
+	ExcludeFromStats bool               `json:"excludeFromStats"`
+	Group            *string            `json:"group,omitempty"`
+	HasPhoto         *bool              `json:"hasPhoto,omitempty"`
+	JoinedAt         time.Time          `json:"joinedAt"`
+	MembershipId     openapi_types.UUID `json:"membershipId"`
+	Name             string             `json:"name"`
 
 	// Perms Per-module permission levels
 	Perms       *Permissions       `json:"perms,omitempty"`
@@ -1200,13 +1203,14 @@ type UpdateEventRequest struct {
 
 // UpdateMemberRequest defines model for UpdateMemberRequest.
 type UpdateMemberRequest struct {
-	Address  *string               `json:"address,omitempty"`
-	Birthday *openapi_types.Date   `json:"birthday,omitempty"`
-	Email    *openapi_types.Email  `json:"email,omitempty"`
-	Group    *string               `json:"group,omitempty"`
-	Name     *string               `json:"name,omitempty"`
-	Phone    *string               `json:"phone,omitempty"`
-	RoleIds  *[]openapi_types.UUID `json:"roleIds,omitempty"`
+	Address          *string               `json:"address,omitempty"`
+	Birthday         *openapi_types.Date   `json:"birthday,omitempty"`
+	Email            *openapi_types.Email  `json:"email,omitempty"`
+	ExcludeFromStats *bool                 `json:"excludeFromStats,omitempty"`
+	Group            *string               `json:"group,omitempty"`
+	Name             *string               `json:"name,omitempty"`
+	Phone            *string               `json:"phone,omitempty"`
+	RoleIds          *[]openapi_types.UUID `json:"roleIds,omitempty"`
 }
 
 // UpdateNewsRequest defines model for UpdateNewsRequest.

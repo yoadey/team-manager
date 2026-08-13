@@ -156,6 +156,7 @@ const Member = z
     primaryRole: Role.optional(),
     perms: Permissions.optional(),
     joinedAt: z.string().datetime({ offset: true }),
+    excludeFromStats: z.boolean(),
   })
   .passthrough();
 const UpdateMemberRequest = z
@@ -167,6 +168,7 @@ const UpdateMemberRequest = z
     address: z.string(),
     roleIds: z.array(z.string().uuid()),
     group: z.string(),
+    excludeFromStats: z.boolean(),
   })
   .partial()
   .passthrough();
