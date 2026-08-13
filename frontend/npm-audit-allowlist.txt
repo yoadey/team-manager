@@ -18,6 +18,23 @@
 GHSA-52f5-9888-hmc6
 GHSA-ph9p-34f9-6g65
 
+# GHSA-jmr9-qjv8-65gv: `extract-zip` <=2.0.1 has an unvalidated symlink
+# path-traversal when extracting a ZIP whose entries include a symlink
+# pointing outside the target directory. Reached only via the same
+# @lhci/cli (Lighthouse CI, devDependency) chain as the `tmp` advisories
+# above: @lhci/cli -> lighthouse -> puppeteer-core -> @puppeteer/browsers
+# -> extract-zip. @puppeteer/browsers uses extract-zip exclusively to
+# unpack the Chrome-for-Testing archive it downloads from Google's own
+# CDN during the frontend-lighthouse CI job -- the ZIP being extracted is
+# never attacker-influenced (it's not a user upload or any other untrusted
+# input this repo processes), so the symlink-traversal precondition is not
+# reachable here. `npm audit fix --force` resolves this the same way as
+# the `tmp` advisories -- downgrading @lhci/cli to 0.1.0 (a breaking
+# major-version change) -- not applied here for the same reason. Revisit
+# when @lhci/cli ships a fixed puppeteer-core/extract-zip chain on its
+# current major.
+GHSA-jmr9-qjv8-65gv
+
 # GHSA-mh99-v99m-4gvg: `brace-expansion` <=5.0.7 (DoS via unbounded expansion
 # length). The vulnerable range covers every published version, so no
 # non-breaking fix exists yet -- `npm audit`'s only `fixAvailable` is a
