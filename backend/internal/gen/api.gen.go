@@ -344,11 +344,14 @@ type Absence struct {
 	MemberAvatarColor  *string             `json:"memberAvatarColor,omitempty"`
 	MemberMembershipId *openapi_types.UUID `json:"memberMembershipId,omitempty"`
 	MemberName         *string             `json:"memberName,omitempty"`
-	Reason             *string             `json:"reason,omitempty"`
-	RoleColor          *string             `json:"roleColor,omitempty"`
-	RoleName           *string             `json:"roleName,omitempty"`
-	To                 openapi_types.Date  `json:"to"`
-	UserId             openapi_types.UUID  `json:"userId"`
+
+	// NotRelevantForStats When true, the event dates this absence covers are excluded entirely from this member's attendance statistics (neither counted as attending nor as absent), instead of counting as absent like a normal absence.
+	NotRelevantForStats bool               `json:"notRelevantForStats"`
+	Reason              *string            `json:"reason,omitempty"`
+	RoleColor           *string            `json:"roleColor,omitempty"`
+	RoleName            *string            `json:"roleName,omitempty"`
+	To                  openapi_types.Date `json:"to"`
+	UserId              openapi_types.UUID `json:"userId"`
 }
 
 // AcceptInviteResponse defines model for AcceptInviteResponse.
@@ -569,11 +572,14 @@ type CreateEventRequest struct {
 	Date              openapi_types.Date `json:"date"`
 
 	// EndDate Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
-	EndDate           *openapi_types.Date `json:"endDate,omitempty"`
-	EndTime           *string             `json:"endTime,omitempty"`
-	Location          *string             `json:"location,omitempty"`
-	MeetTime          *string             `json:"meetTime,omitempty"`
-	MeetTimeMandatory *bool               `json:"meetTimeMandatory,omitempty"`
+	EndDate *openapi_types.Date `json:"endDate,omitempty"`
+	EndTime *string             `json:"endTime,omitempty"`
+
+	// ExcludeFromStats When true, excludes this event from every attendance-statistics computation. For a recurring series, seeds every generated occurrence's own excludeFromStats.
+	ExcludeFromStats  *bool   `json:"excludeFromStats,omitempty"`
+	Location          *string `json:"location,omitempty"`
+	MeetTime          *string `json:"meetTime,omitempty"`
+	MeetTimeMandatory *bool   `json:"meetTimeMandatory,omitempty"`
 
 	// MultiDayEndDate Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true.
 	MultiDayEndDate  *openapi_types.Date   `json:"multiDayEndDate,omitempty"`
@@ -627,6 +633,13 @@ type CreateRoleRequest struct {
 
 	// Permissions Per-module permission levels
 	Permissions Permissions `json:"permissions"`
+}
+
+// CreateStatsPresetRequest defines model for CreateStatsPresetRequest.
+type CreateStatsPresetRequest struct {
+	From openapi_types.Date `json:"from"`
+	Name string             `json:"name"`
+	To   openapi_types.Date `json:"to"`
 }
 
 // CreateTeamRequest defines model for CreateTeamRequest.
@@ -759,15 +772,18 @@ type LoginResponse struct {
 
 // Member defines model for Member.
 type Member struct {
-	Address      *string             `json:"address,omitempty"`
-	AvatarColor  string              `json:"avatarColor"`
-	Birthday     *openapi_types.Date `json:"birthday,omitempty"`
-	Email        openapi_types.Email `json:"email"`
-	Group        *string             `json:"group,omitempty"`
-	HasPhoto     *bool               `json:"hasPhoto,omitempty"`
-	JoinedAt     time.Time           `json:"joinedAt"`
-	MembershipId openapi_types.UUID  `json:"membershipId"`
-	Name         string              `json:"name"`
+	Address     *string             `json:"address,omitempty"`
+	AvatarColor string              `json:"avatarColor"`
+	Birthday    *openapi_types.Date `json:"birthday,omitempty"`
+	Email       openapi_types.Email `json:"email"`
+
+	// ExcludeFromStats When true, this member is omitted from personal-quota-oriented attendance statistics (overview, single-member view, attendance matrix), while their historical event-level responses still count toward per-event turnout aggregates.
+	ExcludeFromStats bool               `json:"excludeFromStats"`
+	Group            *string            `json:"group,omitempty"`
+	HasPhoto         *bool              `json:"hasPhoto,omitempty"`
+	JoinedAt         time.Time          `json:"joinedAt"`
+	MembershipId     openapi_types.UUID `json:"membershipId"`
+	Name             string             `json:"name"`
 
 	// Perms Per-module permission levels
 	Perms       *Permissions       `json:"perms,omitempty"`
@@ -985,6 +1001,11 @@ type Role struct {
 	TeamId      openapi_types.UUID `json:"teamId"`
 }
 
+// SetAbsenceStatsRelevanceRequest defines model for SetAbsenceStatsRelevanceRequest.
+type SetAbsenceStatsRelevanceRequest struct {
+	NotRelevantForStats bool `json:"notRelevantForStats"`
+}
+
 // SetAttendanceRequest defines model for SetAttendanceRequest.
 type SetAttendanceRequest struct {
 	Reason           *string                               `json:"reason,omitempty"`
@@ -1011,6 +1032,13 @@ type SetNominationRequest struct {
 // SetRolesRequest defines model for SetRolesRequest.
 type SetRolesRequest struct {
 	RoleIds []openapi_types.UUID `json:"roleIds"`
+}
+
+// SetStatsPreferencesRequest defines model for SetStatsPreferencesRequest.
+type SetStatsPreferencesRequest struct {
+	From     openapi_types.Date  `json:"from"`
+	PresetId *openapi_types.UUID `json:"presetId,omitempty"`
+	To       openapi_types.Date  `json:"to"`
 }
 
 // SharedCalendarEvent A redacted projection of an event for cross-team calendar sharing -- deliberately excludes attendance, participants, comments, and notes.
@@ -1047,6 +1075,23 @@ type StatsOverview struct {
 	To        openapi_types.Date `json:"to"`
 }
 
+// StatsPreferences The caller's last-selected statistics date range for a team. All properties are absent when nothing has been saved yet.
+type StatsPreferences struct {
+	From *openapi_types.Date `json:"from,omitempty"`
+
+	// PresetId Set when the last selection was a saved preset (see StatsPreset) rather than an ad-hoc custom range.
+	PresetId *openapi_types.UUID `json:"presetId,omitempty"`
+	To       *openapi_types.Date `json:"to,omitempty"`
+}
+
+// StatsPreset defines model for StatsPreset.
+type StatsPreset struct {
+	From openapi_types.Date `json:"from"`
+	Id   openapi_types.UUID `json:"id"`
+	Name string             `json:"name"`
+	To   openapi_types.Date `json:"to"`
+}
+
 // Team defines model for Team.
 type Team struct {
 	Description             *string               `json:"description,omitempty"`
@@ -1068,9 +1113,12 @@ type TeamEvent struct {
 	Date              openapi_types.Date `json:"date"`
 
 	// EndTime HH:mm
-	EndTime  *string            `json:"endTime,omitempty"`
-	Id       openapi_types.UUID `json:"id"`
-	Location *string            `json:"location,omitempty"`
+	EndTime *string `json:"endTime,omitempty"`
+
+	// ExcludeFromStats When true, this event is left out of every attendance-statistics computation while remaining otherwise fully functional (RSVP, comments, notifications, cancellation are all unaffected).
+	ExcludeFromStats bool               `json:"excludeFromStats"`
+	Id               openapi_types.UUID `json:"id"`
+	Location         *string            `json:"location,omitempty"`
 
 	// MeetTime HH:mm
 	MeetTime          *string `json:"meetTime,omitempty"`
@@ -1167,9 +1215,12 @@ type UpdateEventRequest struct {
 	ClearMultiDayEndDate *bool               `json:"clearMultiDayEndDate,omitempty"`
 	Date                 *openapi_types.Date `json:"date,omitempty"`
 	EndTime              *string             `json:"endTime,omitempty"`
-	Location             *string             `json:"location,omitempty"`
-	MeetTime             *string             `json:"meetTime,omitempty"`
-	MeetTimeMandatory    *bool               `json:"meetTimeMandatory,omitempty"`
+
+	// ExcludeFromStats When true, excludes this event from every attendance-statistics computation. With scope=series, applies to every occurrence of the series; with scope=single, applies only to the targeted occurrence.
+	ExcludeFromStats  *bool   `json:"excludeFromStats,omitempty"`
+	Location          *string `json:"location,omitempty"`
+	MeetTime          *string `json:"meetTime,omitempty"`
+	MeetTimeMandatory *bool   `json:"meetTimeMandatory,omitempty"`
 
 	// MultiDayEndDate Optional last day of a multi-day span: when set, the event occurs on every calendar day from date through multiDayEndDate inclusive. Must not be earlier than date, and must not be set together with recurring: true. Setting a new value always replaces the event's current span, if any -- to turn a multi-day event back into a single-day one, use clearMultiDayEndDate instead (mutually exclusive with this field, since a date field itself cannot carry both a value and an explicit "clear" signal).
 	MultiDayEndDate  *openapi_types.Date   `json:"multiDayEndDate,omitempty"`
@@ -1183,13 +1234,14 @@ type UpdateEventRequest struct {
 
 // UpdateMemberRequest defines model for UpdateMemberRequest.
 type UpdateMemberRequest struct {
-	Address  *string               `json:"address,omitempty"`
-	Birthday *openapi_types.Date   `json:"birthday,omitempty"`
-	Email    *openapi_types.Email  `json:"email,omitempty"`
-	Group    *string               `json:"group,omitempty"`
-	Name     *string               `json:"name,omitempty"`
-	Phone    *string               `json:"phone,omitempty"`
-	RoleIds  *[]openapi_types.UUID `json:"roleIds,omitempty"`
+	Address          *string               `json:"address,omitempty"`
+	Birthday         *openapi_types.Date   `json:"birthday,omitempty"`
+	Email            *openapi_types.Email  `json:"email,omitempty"`
+	ExcludeFromStats *bool                 `json:"excludeFromStats,omitempty"`
+	Group            *string               `json:"group,omitempty"`
+	Name             *string               `json:"name,omitempty"`
+	Phone            *string               `json:"phone,omitempty"`
+	RoleIds          *[]openapi_types.UUID `json:"roleIds,omitempty"`
 }
 
 // UpdateNewsRequest defines model for UpdateNewsRequest.
@@ -1213,6 +1265,13 @@ type UpdateRoleRequest struct {
 
 	// Permissions Per-module permission levels
 	Permissions *Permissions `json:"permissions,omitempty"`
+}
+
+// UpdateStatsPresetRequest defines model for UpdateStatsPresetRequest.
+type UpdateStatsPresetRequest struct {
+	From *openapi_types.Date `json:"from,omitempty"`
+	Name *string             `json:"name,omitempty"`
+	To   *openapi_types.Date `json:"to,omitempty"`
 }
 
 // UpdateTeamRequest defines model for UpdateTeamRequest.
@@ -1432,6 +1491,12 @@ type GetAttendanceMatrixParams struct {
 	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// GetMemberStatsParams defines parameters for GetMemberStats.
+type GetMemberStatsParams struct {
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+}
+
 // DeletePushSubscriptionParams defines parameters for DeletePushSubscription.
 type DeletePushSubscriptionParams struct {
 	Endpoint string `form:"endpoint" json:"endpoint"`
@@ -1472,6 +1537,9 @@ type CreateAbsenceJSONRequestBody = CreateAbsenceRequest
 
 // UpdateAbsenceJSONRequestBody defines body for UpdateAbsence for application/json ContentType.
 type UpdateAbsenceJSONRequestBody = UpdateAbsenceRequest
+
+// SetAbsenceStatsRelevanceJSONRequestBody defines body for SetAbsenceStatsRelevance for application/json ContentType.
+type SetAbsenceStatsRelevanceJSONRequestBody = SetAbsenceStatsRelevanceRequest
 
 // UpdateCalendarFeedSettingsJSONRequestBody defines body for UpdateCalendarFeedSettings for application/json ContentType.
 type UpdateCalendarFeedSettingsJSONRequestBody = CalendarFeedSettings
@@ -1551,6 +1619,15 @@ type CreateRoleJSONRequestBody = CreateRoleRequest
 // UpdateRoleJSONRequestBody defines body for UpdateRole for application/json ContentType.
 type UpdateRoleJSONRequestBody = UpdateRoleRequest
 
+// SetStatsPreferencesJSONRequestBody defines body for SetStatsPreferences for application/json ContentType.
+type SetStatsPreferencesJSONRequestBody = SetStatsPreferencesRequest
+
+// CreateStatsPresetJSONRequestBody defines body for CreateStatsPreset for application/json ContentType.
+type CreateStatsPresetJSONRequestBody = CreateStatsPresetRequest
+
+// UpdateStatsPresetJSONRequestBody defines body for UpdateStatsPreset for application/json ContentType.
+type UpdateStatsPresetJSONRequestBody = UpdateStatsPresetRequest
+
 // RegisterPushSubscriptionJSONRequestBody defines body for RegisterPushSubscription for application/json ContentType.
 type RegisterPushSubscriptionJSONRequestBody = PushSubscriptionRequest
 
@@ -1628,6 +1705,9 @@ type ServerInterface interface {
 	// Update absence
 	// (PATCH /teams/{teamId}/absences/{absenceId})
 	UpdateAbsence(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID)
+	// Mark an absence as (not) relevant for attendance statistics. The absence's own owner may always set this; setting it on another member's absence additionally requires events:write, enforced in the service layer (this route carries no module-level write gate).
+	// (PATCH /teams/{teamId}/absences/{absenceId}/stats-relevance)
+	SetAbsenceStatsRelevance(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID)
 	// Get the caller's calendar feed content selection for this team
 	// (GET /teams/{teamId}/calendar-feed/settings)
 	GetCalendarFeedSettings(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1817,6 +1897,24 @@ type ServerInterface interface {
 	// Team attendance statistics
 	// (GET /teams/{teamId}/stats)
 	GetStatsOverview(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsOverviewParams)
+	// Get the caller's last-selected statistics date range for this team. Empty properties mean nothing has been saved yet.
+	// (GET /teams/{teamId}/stats-preferences)
+	GetStatsPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Save the caller's last-selected statistics date range for this team
+	// (PUT /teams/{teamId}/stats-preferences)
+	SetStatsPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// List the caller's saved statistics date-range presets for this team
+	// (GET /teams/{teamId}/stats-presets)
+	ListStatsPresets(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Save a new statistics date-range preset (e.g. "Saison 2026/27")
+	// (POST /teams/{teamId}/stats-presets)
+	CreateStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Delete a saved statistics date-range preset
+	// (DELETE /teams/{teamId}/stats-presets/{presetId})
+	DeleteStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId, presetId openapi_types.UUID)
+	// Rename or reschedule a saved statistics date-range preset
+	// (PATCH /teams/{teamId}/stats-presets/{presetId})
+	UpdateStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId, presetId openapi_types.UUID)
 	// Per-member, per-event absence table for the date range
 	// (GET /teams/{teamId}/stats/absences)
 	GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams)
@@ -1825,7 +1923,7 @@ type ServerInterface interface {
 	GetAttendanceMatrix(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetAttendanceMatrixParams)
 	// Individual member attendance statistics
 	// (GET /teams/{teamId}/stats/members/{userId})
-	GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID)
+	GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID, params GetMemberStatsParams)
 	// Unregister a Web Push subscription
 	// (DELETE /users/me/push-subscriptions)
 	DeletePushSubscription(w http.ResponseWriter, r *http.Request, params DeletePushSubscriptionParams)
@@ -1979,6 +2077,12 @@ func (_ Unimplemented) DeleteAbsence(w http.ResponseWriter, r *http.Request, tea
 // Update absence
 // (PATCH /teams/{teamId}/absences/{absenceId})
 func (_ Unimplemented) UpdateAbsence(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Mark an absence as (not) relevant for attendance statistics. The absence's own owner may always set this; setting it on another member's absence additionally requires events:write, enforced in the service layer (this route carries no module-level write gate).
+// (PATCH /teams/{teamId}/absences/{absenceId}/stats-relevance)
+func (_ Unimplemented) SetAbsenceStatsRelevance(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2360,6 +2464,42 @@ func (_ Unimplemented) GetStatsOverview(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Get the caller's last-selected statistics date range for this team. Empty properties mean nothing has been saved yet.
+// (GET /teams/{teamId}/stats-preferences)
+func (_ Unimplemented) GetStatsPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Save the caller's last-selected statistics date range for this team
+// (PUT /teams/{teamId}/stats-preferences)
+func (_ Unimplemented) SetStatsPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the caller's saved statistics date-range presets for this team
+// (GET /teams/{teamId}/stats-presets)
+func (_ Unimplemented) ListStatsPresets(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Save a new statistics date-range preset (e.g. "Saison 2026/27")
+// (POST /teams/{teamId}/stats-presets)
+func (_ Unimplemented) CreateStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete a saved statistics date-range preset
+// (DELETE /teams/{teamId}/stats-presets/{presetId})
+func (_ Unimplemented) DeleteStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId, presetId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Rename or reschedule a saved statistics date-range preset
+// (PATCH /teams/{teamId}/stats-presets/{presetId})
+func (_ Unimplemented) UpdateStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId, presetId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Per-member, per-event absence table for the date range
 // (GET /teams/{teamId}/stats/absences)
 func (_ Unimplemented) GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams) {
@@ -2374,7 +2514,7 @@ func (_ Unimplemented) GetAttendanceMatrix(w http.ResponseWriter, r *http.Reques
 
 // Individual member attendance statistics
 // (GET /teams/{teamId}/stats/members/{userId})
-func (_ Unimplemented) GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID) {
+func (_ Unimplemented) GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID, params GetMemberStatsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3006,6 +3146,47 @@ func (siw *ServerInterfaceWrapper) UpdateAbsence(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateAbsence(w, r, teamId, absenceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAbsenceStatsRelevance operation middleware
+func (siw *ServerInterfaceWrapper) SetAbsenceStatsRelevance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "absenceId" -------------
+	var absenceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "absenceId", chi.URLParam(r, "absenceId"), &absenceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "absenceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAbsenceStatsRelevance(w, r, teamId, absenceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5594,6 +5775,216 @@ func (siw *ServerInterfaceWrapper) GetStatsOverview(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetStatsPreferences operation middleware
+func (siw *ServerInterfaceWrapper) GetStatsPreferences(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStatsPreferences(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetStatsPreferences operation middleware
+func (siw *ServerInterfaceWrapper) SetStatsPreferences(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetStatsPreferences(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListStatsPresets operation middleware
+func (siw *ServerInterfaceWrapper) ListStatsPresets(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListStatsPresets(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateStatsPreset operation middleware
+func (siw *ServerInterfaceWrapper) CreateStatsPreset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateStatsPreset(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteStatsPreset operation middleware
+func (siw *ServerInterfaceWrapper) DeleteStatsPreset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "presetId" -------------
+	var presetId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "presetId", chi.URLParam(r, "presetId"), &presetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "presetId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteStatsPreset(w, r, teamId, presetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateStatsPreset operation middleware
+func (siw *ServerInterfaceWrapper) UpdateStatsPreset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "presetId" -------------
+	var presetId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "presetId", chi.URLParam(r, "presetId"), &presetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "presetId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateStatsPreset(w, r, teamId, presetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetStatsAbsences operation middleware
 func (siw *ServerInterfaceWrapper) GetStatsAbsences(w http.ResponseWriter, r *http.Request) {
 
@@ -5746,8 +6137,37 @@ func (siw *ServerInterfaceWrapper) GetMemberStats(w http.ResponseWriter, r *http
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetMemberStatsParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetMemberStats(w, r, teamId, userId)
+		siw.Handler.GetMemberStats(w, r, teamId, userId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6002,6 +6422,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/teams/{teamId}/absences/{absenceId}", wrapper.UpdateAbsence)
 	})
 	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/teams/{teamId}/absences/{absenceId}/stats-relevance", wrapper.SetAbsenceStatsRelevance)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/calendar-feed/settings", wrapper.GetCalendarFeedSettings)
 	})
 	r.Group(func(r chi.Router) {
@@ -6189,6 +6612,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/stats", wrapper.GetStatsOverview)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/stats-preferences", wrapper.GetStatsPreferences)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/teams/{teamId}/stats-preferences", wrapper.SetStatsPreferences)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/stats-presets", wrapper.ListStatsPresets)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/teams/{teamId}/stats-presets", wrapper.CreateStatsPreset)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{teamId}/stats-presets/{presetId}", wrapper.DeleteStatsPreset)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/teams/{teamId}/stats-presets/{presetId}", wrapper.UpdateStatsPreset)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/stats/absences", wrapper.GetStatsAbsences)
@@ -7046,6 +7487,30 @@ type UpdateAbsenceResponseObject interface {
 type UpdateAbsence200JSONResponse Absence
 
 func (response UpdateAbsence200JSONResponse) VisitUpdateAbsenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAbsenceStatsRelevanceRequestObject struct {
+	TeamId    TeamId             `json:"teamId"`
+	AbsenceId openapi_types.UUID `json:"absenceId"`
+	Body      *SetAbsenceStatsRelevanceJSONRequestBody
+}
+
+type SetAbsenceStatsRelevanceResponseObject interface {
+	VisitSetAbsenceStatsRelevanceResponse(w http.ResponseWriter) error
+}
+
+type SetAbsenceStatsRelevance200JSONResponse Absence
+
+func (response SetAbsenceStatsRelevance200JSONResponse) VisitSetAbsenceStatsRelevanceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -8621,6 +9086,133 @@ func (response GetStatsOverview200JSONResponse) VisitGetStatsOverviewResponse(w 
 	return err
 }
 
+type GetStatsPreferencesRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type GetStatsPreferencesResponseObject interface {
+	VisitGetStatsPreferencesResponse(w http.ResponseWriter) error
+}
+
+type GetStatsPreferences200JSONResponse StatsPreferences
+
+func (response GetStatsPreferences200JSONResponse) VisitGetStatsPreferencesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetStatsPreferencesRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+	Body   *SetStatsPreferencesJSONRequestBody
+}
+
+type SetStatsPreferencesResponseObject interface {
+	VisitSetStatsPreferencesResponse(w http.ResponseWriter) error
+}
+
+type SetStatsPreferences204Response struct {
+}
+
+func (response SetStatsPreferences204Response) VisitSetStatsPreferencesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ListStatsPresetsRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type ListStatsPresetsResponseObject interface {
+	VisitListStatsPresetsResponse(w http.ResponseWriter) error
+}
+
+type ListStatsPresets200JSONResponse struct {
+	Items []StatsPreset `json:"items"`
+}
+
+func (response ListStatsPresets200JSONResponse) VisitListStatsPresetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStatsPresetRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+	Body   *CreateStatsPresetJSONRequestBody
+}
+
+type CreateStatsPresetResponseObject interface {
+	VisitCreateStatsPresetResponse(w http.ResponseWriter) error
+}
+
+type CreateStatsPreset201JSONResponse StatsPreset
+
+func (response CreateStatsPreset201JSONResponse) VisitCreateStatsPresetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteStatsPresetRequestObject struct {
+	TeamId   TeamId             `json:"teamId"`
+	PresetId openapi_types.UUID `json:"presetId"`
+}
+
+type DeleteStatsPresetResponseObject interface {
+	VisitDeleteStatsPresetResponse(w http.ResponseWriter) error
+}
+
+type DeleteStatsPreset204Response struct {
+}
+
+func (response DeleteStatsPreset204Response) VisitDeleteStatsPresetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type UpdateStatsPresetRequestObject struct {
+	TeamId   TeamId             `json:"teamId"`
+	PresetId openapi_types.UUID `json:"presetId"`
+	Body     *UpdateStatsPresetJSONRequestBody
+}
+
+type UpdateStatsPresetResponseObject interface {
+	VisitUpdateStatsPresetResponse(w http.ResponseWriter) error
+}
+
+type UpdateStatsPreset200JSONResponse StatsPreset
+
+func (response UpdateStatsPreset200JSONResponse) VisitUpdateStatsPresetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetStatsAbsencesRequestObject struct {
 	TeamId TeamId `json:"teamId"`
 	Params GetStatsAbsencesParams
@@ -8670,6 +9262,7 @@ func (response GetAttendanceMatrix200JSONResponse) VisitGetAttendanceMatrixRespo
 type GetMemberStatsRequestObject struct {
 	TeamId TeamId             `json:"teamId"`
 	UserId openapi_types.UUID `json:"userId"`
+	Params GetMemberStatsParams
 }
 
 type GetMemberStatsResponseObject interface {
@@ -8796,6 +9389,9 @@ type StrictServerInterface interface {
 	// Update absence
 	// (PATCH /teams/{teamId}/absences/{absenceId})
 	UpdateAbsence(ctx context.Context, request UpdateAbsenceRequestObject) (UpdateAbsenceResponseObject, error)
+	// Mark an absence as (not) relevant for attendance statistics. The absence's own owner may always set this; setting it on another member's absence additionally requires events:write, enforced in the service layer (this route carries no module-level write gate).
+	// (PATCH /teams/{teamId}/absences/{absenceId}/stats-relevance)
+	SetAbsenceStatsRelevance(ctx context.Context, request SetAbsenceStatsRelevanceRequestObject) (SetAbsenceStatsRelevanceResponseObject, error)
 	// Get the caller's calendar feed content selection for this team
 	// (GET /teams/{teamId}/calendar-feed/settings)
 	GetCalendarFeedSettings(ctx context.Context, request GetCalendarFeedSettingsRequestObject) (GetCalendarFeedSettingsResponseObject, error)
@@ -8985,6 +9581,24 @@ type StrictServerInterface interface {
 	// Team attendance statistics
 	// (GET /teams/{teamId}/stats)
 	GetStatsOverview(ctx context.Context, request GetStatsOverviewRequestObject) (GetStatsOverviewResponseObject, error)
+	// Get the caller's last-selected statistics date range for this team. Empty properties mean nothing has been saved yet.
+	// (GET /teams/{teamId}/stats-preferences)
+	GetStatsPreferences(ctx context.Context, request GetStatsPreferencesRequestObject) (GetStatsPreferencesResponseObject, error)
+	// Save the caller's last-selected statistics date range for this team
+	// (PUT /teams/{teamId}/stats-preferences)
+	SetStatsPreferences(ctx context.Context, request SetStatsPreferencesRequestObject) (SetStatsPreferencesResponseObject, error)
+	// List the caller's saved statistics date-range presets for this team
+	// (GET /teams/{teamId}/stats-presets)
+	ListStatsPresets(ctx context.Context, request ListStatsPresetsRequestObject) (ListStatsPresetsResponseObject, error)
+	// Save a new statistics date-range preset (e.g. "Saison 2026/27")
+	// (POST /teams/{teamId}/stats-presets)
+	CreateStatsPreset(ctx context.Context, request CreateStatsPresetRequestObject) (CreateStatsPresetResponseObject, error)
+	// Delete a saved statistics date-range preset
+	// (DELETE /teams/{teamId}/stats-presets/{presetId})
+	DeleteStatsPreset(ctx context.Context, request DeleteStatsPresetRequestObject) (DeleteStatsPresetResponseObject, error)
+	// Rename or reschedule a saved statistics date-range preset
+	// (PATCH /teams/{teamId}/stats-presets/{presetId})
+	UpdateStatsPreset(ctx context.Context, request UpdateStatsPresetRequestObject) (UpdateStatsPresetResponseObject, error)
 	// Per-member, per-event absence table for the date range
 	// (GET /teams/{teamId}/stats/absences)
 	GetStatsAbsences(ctx context.Context, request GetStatsAbsencesRequestObject) (GetStatsAbsencesResponseObject, error)
@@ -9706,6 +10320,40 @@ func (sh *strictHandler) UpdateAbsence(w http.ResponseWriter, r *http.Request, t
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateAbsenceResponseObject); ok {
 		if err := validResponse.VisitUpdateAbsenceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetAbsenceStatsRelevance operation middleware
+func (sh *strictHandler) SetAbsenceStatsRelevance(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID) {
+	var request SetAbsenceStatsRelevanceRequestObject
+
+	request.TeamId = teamId
+	request.AbsenceId = absenceId
+
+	var body SetAbsenceStatsRelevanceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetAbsenceStatsRelevance(ctx, request.(SetAbsenceStatsRelevanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetAbsenceStatsRelevance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetAbsenceStatsRelevanceResponseObject); ok {
+		if err := validResponse.VisitSetAbsenceStatsRelevanceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -11574,6 +12222,185 @@ func (sh *strictHandler) GetStatsOverview(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// GetStatsPreferences operation middleware
+func (sh *strictHandler) GetStatsPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request GetStatsPreferencesRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStatsPreferences(ctx, request.(GetStatsPreferencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStatsPreferences")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStatsPreferencesResponseObject); ok {
+		if err := validResponse.VisitGetStatsPreferencesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetStatsPreferences operation middleware
+func (sh *strictHandler) SetStatsPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request SetStatsPreferencesRequestObject
+
+	request.TeamId = teamId
+
+	var body SetStatsPreferencesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetStatsPreferences(ctx, request.(SetStatsPreferencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetStatsPreferences")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetStatsPreferencesResponseObject); ok {
+		if err := validResponse.VisitSetStatsPreferencesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListStatsPresets operation middleware
+func (sh *strictHandler) ListStatsPresets(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request ListStatsPresetsRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListStatsPresets(ctx, request.(ListStatsPresetsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListStatsPresets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListStatsPresetsResponseObject); ok {
+		if err := validResponse.VisitListStatsPresetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateStatsPreset operation middleware
+func (sh *strictHandler) CreateStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request CreateStatsPresetRequestObject
+
+	request.TeamId = teamId
+
+	var body CreateStatsPresetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateStatsPreset(ctx, request.(CreateStatsPresetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateStatsPreset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateStatsPresetResponseObject); ok {
+		if err := validResponse.VisitCreateStatsPresetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteStatsPreset operation middleware
+func (sh *strictHandler) DeleteStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId, presetId openapi_types.UUID) {
+	var request DeleteStatsPresetRequestObject
+
+	request.TeamId = teamId
+	request.PresetId = presetId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteStatsPreset(ctx, request.(DeleteStatsPresetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteStatsPreset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteStatsPresetResponseObject); ok {
+		if err := validResponse.VisitDeleteStatsPresetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateStatsPreset operation middleware
+func (sh *strictHandler) UpdateStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId, presetId openapi_types.UUID) {
+	var request UpdateStatsPresetRequestObject
+
+	request.TeamId = teamId
+	request.PresetId = presetId
+
+	var body UpdateStatsPresetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateStatsPreset(ctx, request.(UpdateStatsPresetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateStatsPreset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateStatsPresetResponseObject); ok {
+		if err := validResponse.VisitUpdateStatsPresetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetStatsAbsences operation middleware
 func (sh *strictHandler) GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams) {
 	var request GetStatsAbsencesRequestObject
@@ -11629,11 +12456,12 @@ func (sh *strictHandler) GetAttendanceMatrix(w http.ResponseWriter, r *http.Requ
 }
 
 // GetMemberStats operation middleware
-func (sh *strictHandler) GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID) {
+func (sh *strictHandler) GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID, params GetMemberStatsParams) {
 	var request GetMemberStatsRequestObject
 
 	request.TeamId = teamId
 	request.UserId = userId
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.GetMemberStats(ctx, request.(GetMemberStatsRequestObject))

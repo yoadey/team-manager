@@ -42,6 +42,7 @@ describe('mapEventDtoToTeamEvent', () => {
       seriesId: null,
       status: 'active',
       cancelLeadMinutes: null,
+      excludeFromStats: false,
     };
     const summary: EventSummary = { yes: 3, no: 1, maybe: 0, pending: 2, notNominated: 0, nominated: 6, total: 6 };
 
@@ -69,6 +70,7 @@ describe('mapMemberDtoToMember', () => {
       group: 'A-Formation',
       roles: [adminRole],
       joinedAt: '2024-01-01T00:00:00.000Z',
+      excludeFromStats: false,
     };
 
     const result = mapMemberDtoToMember(dto, adminRole, writeAll);
@@ -92,6 +94,7 @@ describe('mapMemberDtoToMember', () => {
       group: '',
       roles: [],
       joinedAt: '2024-01-01T00:00:00.000Z',
+      excludeFromStats: false,
     };
 
     expect(mapMemberDtoToMember(dto, null, writeAll).primaryRole).toBeNull();

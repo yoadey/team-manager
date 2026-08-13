@@ -24,7 +24,7 @@ import {
   DEMO_LOGIN_USER_ID,
   DEMO_SSO_PROVIDER_IDS,
 } from './db';
-import type { UserRow, TeamRow } from './db';
+import type { UserRow, TeamRow, StatsPresetRow } from './db';
 import type { RoleDto } from '@/types';
 import type { EventDto } from '@/features/events';
 import { isRsvpCutoffPassed } from '@/features/events/rsvpCutoff';
@@ -165,6 +165,7 @@ function toWireMember(m: (typeof db.memberships)[number]): S['Member'] {
     roles: roles.map(toWireRole),
     perms: mergePerms(roles),
     joinedAt: m.joinedAt,
+    excludeFromStats: m.excludeFromStats,
     ...opt('phone', u.phone || undefined),
     ...opt('birthday', u.birthday || undefined),
     ...opt('address', u.address || undefined),
@@ -213,7 +214,28 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     ...opt('startTime', e.startTime ?? undefined),
     ...opt('endTime', e.endTime ?? undefined),
     ...opt('cancelLeadMinutes', e.cancelLeadMinutes ?? undefined),
+    excludeFromStats: e.excludeFromStats,
   };
+}
+
+// The scalar (non-date, non-nomination) fields of an UpdateEventRequest --
+// split out of applyEventPatch purely to keep that function's cyclomatic
+// complexity under the repo's eslint threshold; these fields are applied
+// unconditionally regardless of scope, mirroring the real backend's
+// buildEventUpdateSets (series-wide updates apply to every field except
+// date/multiDayEndDate).
+function applyEventScalarPatch(ev: EventDto, body: S['UpdateEventRequest']): void {
+  if (body.type !== undefined) ev.type = body.type;
+  if (body.title !== undefined) ev.title = body.title;
+  if (body.location !== undefined) ev.location = body.location;
+  if (body.note !== undefined) ev.note = body.note;
+  if (body.meetTimeMandatory !== undefined) ev.meetTimeMandatory = body.meetTimeMandatory;
+  if (body.responseMode !== undefined) ev.responseMode = body.responseMode;
+  if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
+  if (body.startTime !== undefined) ev.startTime = body.startTime || null;
+  if (body.endTime !== undefined) ev.endTime = body.endTime || null;
+  if (body.cancelLeadMinutes !== undefined) ev.cancelLeadMinutes = body.cancelLeadMinutes;
+  if (body.excludeFromStats !== undefined) ev.excludeFromStats = body.excludeFromStats;
 }
 
 // Applies an UpdateEventRequest patch to a single event row, mirroring
@@ -227,16 +249,7 @@ function applyEventPatch(ev: EventDto, body: S['UpdateEventRequest'], scope: 'si
     if (body.multiDayEndDate !== undefined) ev.multiDayEndDate = body.multiDayEndDate || null;
     if (body.clearMultiDayEndDate) ev.multiDayEndDate = null;
   }
-  if (body.type !== undefined) ev.type = body.type;
-  if (body.title !== undefined) ev.title = body.title;
-  if (body.location !== undefined) ev.location = body.location;
-  if (body.note !== undefined) ev.note = body.note;
-  if (body.meetTimeMandatory !== undefined) ev.meetTimeMandatory = body.meetTimeMandatory;
-  if (body.responseMode !== undefined) ev.responseMode = body.responseMode;
-  if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
-  if (body.startTime !== undefined) ev.startTime = body.startTime || null;
-  if (body.endTime !== undefined) ev.endTime = body.endTime || null;
-  if (body.cancelLeadMinutes !== undefined) ev.cancelLeadMinutes = body.cancelLeadMinutes;
+  applyEventScalarPatch(ev, body);
   if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
 }
 
@@ -288,6 +301,7 @@ function toWireAbsence(a: (typeof db.absences)[number], teamId: string): S['Abse
     from: a.from,
     to: a.to,
     createdAt: a.createdAt,
+    notRelevantForStats: a.notRelevantForStats,
     ...opt('reason', a.reason || undefined),
     ...opt('memberName', u?.name),
     ...opt('memberAvatarColor', u?.avatarColor),
@@ -691,7 +705,15 @@ export const handlers = [
     const [adminRole] = roles;
     db.roles.push(...roles);
     team.reasonVisibilityRoles = [adminRole.id];
-    db.memberships.push({ id: rid('mem'), teamId: team.id, userId: auth, roleIds: [adminRole.id], group: '', joinedAt: new Date().toISOString() });
+    db.memberships.push({
+      id: rid('mem'),
+      teamId: team.id,
+      userId: auth,
+      roleIds: [adminRole.id],
+      group: '',
+      joinedAt: new Date().toISOString(),
+      excludeFromStats: false,
+    });
     return HttpResponse.json(toWireTeamForUser(team, auth), { status: 201 });
   }),
 
@@ -779,7 +801,15 @@ export const handlers = [
       // (Kassenwart, Teamkapitän, ...) would otherwise risk handing a new
       // member a privileged role if the true default role were ever deleted.
       const memberRole = db.roles.find((r) => r.teamId === inv.teamId && r.name === DEFAULT_MEMBER_ROLE_NAME);
-      db.memberships.push({ id: rid('mem'), teamId: inv.teamId, userId: auth, roleIds: memberRole ? [memberRole.id] : [], group: '', joinedAt: new Date().toISOString() });
+      db.memberships.push({
+        id: rid('mem'),
+        teamId: inv.teamId,
+        userId: auth,
+        roleIds: memberRole ? [memberRole.id] : [],
+        group: '',
+        joinedAt: new Date().toISOString(),
+        excludeFromStats: false,
+      });
     }
     const t = db.teams.find((x) => x.id === inv.teamId)!;
     const body: S['AcceptInviteResponse'] = { ...toWireTeamForUser(t, auth), alreadyMember };
@@ -805,6 +835,7 @@ export const handlers = [
     if (body.birthday !== undefined) u.birthday = body.birthday;
     if (body.address !== undefined) u.address = body.address;
     if (body.group !== undefined) m.group = body.group;
+    if (body.excludeFromStats !== undefined) m.excludeFromStats = body.excludeFromStats;
     // An explicitly empty array clears all roles (matches the real backend's
     // SetRoles, only guarded by ErrLastSettingsAdmin server-side) — only an
     // absent field should be a no-op, not an empty one.
@@ -987,6 +1018,7 @@ export const handlers = [
       seriesId: null,
       status: 'active',
       cancelLeadMinutes: body.cancelLeadMinutes ?? null,
+      excludeFromStats: body.excludeFromStats ?? false,
       ...opt('nominatedRoleIds', body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined),
     });
     // endDate is the alternative to repeatWeeks for a recurring series (see
@@ -1247,7 +1279,15 @@ export const handlers = [
   http.post(P('/teams/:teamId/absences'), async ({ params, request }) => {
     await mockDelay();
     const body = (await request.json()) as S['CreateAbsenceRequest'];
-    const a = { id: rid('abs'), userId: body.userId, from: body.from, to: body.to, reason: body.reason || '', createdAt: new Date().toISOString() };
+    const a = {
+      id: rid('abs'),
+      userId: body.userId,
+      from: body.from,
+      to: body.to,
+      reason: body.reason || '',
+      createdAt: new Date().toISOString(),
+      notRelevantForStats: false,
+    };
     db.absences.push(a);
     const mem = db.memberships.find((m) => m.userId === body.userId && m.teamId === params.teamId);
     if (mem) pushNotif({ teamId: mem.teamId, type: 'absence', actorId: body.userId, title: a.reason });
@@ -1270,6 +1310,15 @@ export const handlers = [
     if (!db.absences.some((x) => x.id === params.absenceId)) return problem(404, 'Absence not found');
     db.absences = db.absences.filter((x) => x.id !== params.absenceId);
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.patch(P('/teams/:teamId/absences/:absenceId/stats-relevance'), async ({ params, request }) => {
+    await mockDelay();
+    const a = db.absences.find((x) => x.id === params.absenceId);
+    if (!a) return problem(404, 'Absence not found');
+    const body = (await request.json()) as S['SetAbsenceStatsRelevanceRequest'];
+    a.notRelevantForStats = body.notRelevantForStats;
+    return HttpResponse.json(toWireAbsence(a, params.teamId as string));
   }),
 
   // ---- news ----
@@ -1665,10 +1714,19 @@ export const handlers = [
     const today = todayLocalDate();
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
-    const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
-    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date));
+    // EventStats (below) is a per-event turnout number, so it must keep
+    // counting every current member including excluded ones -- only the
+    // per-member quota list drops excluded members from the roster
+    // entirely. Mirrors backend/internal/stats/repository.go's identical
+    // MemberStats-vs-EventStats asymmetry (see exclude-members-from-stats'
+    // design.md).
+    const allMemberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+    const statsMemberIds = db.memberships
+      .filter((m) => m.teamId === teamId && !m.excludeFromStats)
+      .map((m) => m.userId);
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats).sort((a, b) => a.date.localeCompare(b.date));
 
-    const memberStats: S['MemberStat'][] = memberIds
+    const memberStats: S['MemberStat'][] = statsMemberIds
       .map((uid) => {
         const u = requireUser(uid);
         let yes = 0, counted = 0;
@@ -1685,7 +1743,7 @@ export const handlers = [
 
     const eventStats: S['EventStat'][] = events.map((e) => {
       let yes = 0, counted = 0;
-      memberIds.forEach((uid) => {
+      allMemberIds.forEach((uid) => {
         const s = rawCountedStatus(e.id, uid);
         if (!s) return;
         counted++;
@@ -1699,20 +1757,31 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
-  http.get(P('/teams/:teamId/stats/members/:userId'), async ({ params }) => {
+  http.get(P('/teams/:teamId/stats/members/:userId'), async ({ params, request }) => {
     await mockDelay();
     const teamId = params.teamId as string;
     const userId = params.userId as string;
-    const to = todayLocalDate();
-    const from = threeMonthsBeforeLocal(to);
-    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to);
+    // Mirrors backend/internal/stats/repository.go's SingleMemberStats: 404
+    // only for a genuine non-member; an excluded member is not an invalid
+    // target and gets the same "no data" (all-zero) shape as a member with
+    // no events in range, per exclude-members-from-stats' design.md -- their
+    // real per-event responses (if any) must not leak through here either.
+    const membership = db.memberships.find((m) => m.teamId === teamId && m.userId === userId);
+    if (!membership) return problem(404, 'Member not found');
+    const url = new URL(request.url);
+    const today = todayLocalDate();
+    const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
+    const to = url.searchParams.get('to') || today;
     let yes = 0, counted = 0;
-    events.forEach((e) => {
-      const s = rawCountedStatus(e.id, userId);
-      if (!s) return;
-      counted++;
-      if (s === 'yes') yes++;
-    });
+    if (!membership.excludeFromStats) {
+      const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats);
+      events.forEach((e) => {
+        const s = rawCountedStatus(e.id, userId);
+        if (!s) return;
+        counted++;
+        if (s === 'yes') yes++;
+      });
+    }
     const body: S['MemberAttendanceStats'] = { quote: counted ? yes / counted : 0, counted, yes };
     return HttpResponse.json(body);
   }),
@@ -1728,9 +1797,11 @@ export const handlers = [
     const today = todayLocalDate();
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
-    const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+    const memberIds = db.memberships
+      .filter((m) => m.teamId === teamId && !m.excludeFromStats)
+      .map((m) => m.userId);
     const events = db.events
-      .filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to)
+      .filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats)
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
     const columns: S['AttendanceMatrixColumn'][] = events.map((e) => ({
@@ -1772,8 +1843,10 @@ export const handlers = [
     const today = todayLocalDate();
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
-    const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
-    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date));
+    const memberIds = db.memberships
+      .filter((m) => m.teamId === teamId && !m.excludeFromStats)
+      .map((m) => m.userId);
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats).sort((a, b) => a.date.localeCompare(b.date));
 
     const rows: S['AttendanceAbsenceRow'][] = [];
     events.forEach((e) => {
@@ -1786,5 +1859,92 @@ export const handlers = [
 
     const body: S['AttendanceAbsenceTable'] = { rows, from, to };
     return HttpResponse.json(body);
+  }),
+
+  http.get(P('/teams/:teamId/stats-preferences'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const sel = db.statsLastSelection[`${auth}:${params.teamId as string}`];
+    const body: S['StatsPreferences'] = sel
+      ? { from: sel.from, to: sel.to, ...(sel.presetId ? { presetId: sel.presetId } : {}) }
+      : {};
+    return HttpResponse.json(body);
+  }),
+
+  http.put(P('/teams/:teamId/stats-preferences'), async ({ params, request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const body = (await request.json()) as S['SetStatsPreferencesRequest'];
+    db.statsLastSelection[`${auth}:${params.teamId as string}`] = {
+      from: body.from,
+      to: body.to,
+      presetId: body.presetId ?? null,
+    };
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get(P('/teams/:teamId/stats-presets'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const teamId = params.teamId as string;
+    const items: S['StatsPreset'][] = db.statsPresets
+      .filter((p) => p.teamId === teamId && p.userId === auth)
+      .map((p) => ({ id: p.id, name: p.name, from: p.from, to: p.to }));
+    const body: { items: S['StatsPreset'][] } = { items };
+    return HttpResponse.json(body);
+  }),
+
+  // maxPresetsPerTeamUser mirrors backend/internal/statsprefs/model.go's
+  // identical constant -- a generous safety rail, not a real constraint.
+  http.post(P('/teams/:teamId/stats-presets'), async ({ params, request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const teamId = params.teamId as string;
+    const count = db.statsPresets.filter((p) => p.teamId === teamId && p.userId === auth).length;
+    if (count >= 20) return problem(400, 'maximum number of saved statistics presets reached');
+    const body = (await request.json()) as S['CreateStatsPresetRequest'];
+    const preset: StatsPresetRow = { id: crypto.randomUUID(), teamId, userId: auth, name: body.name, from: body.from, to: body.to };
+    db.statsPresets.push(preset);
+    const resp: S['StatsPreset'] = { id: preset.id, name: preset.name, from: preset.from, to: preset.to };
+    return HttpResponse.json(resp, { status: 201 });
+  }),
+
+  http.patch(P('/teams/:teamId/stats-presets/:presetId'), async ({ params, request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const preset = db.statsPresets.find(
+      (p) => p.id === params.presetId && p.teamId === (params.teamId as string) && p.userId === auth,
+    );
+    if (!preset) return problem(404, 'Preset not found');
+    const body = (await request.json()) as S['UpdateStatsPresetRequest'];
+    if (body.name !== undefined) preset.name = body.name;
+    if (body.from !== undefined) preset.from = body.from;
+    if (body.to !== undefined) preset.to = body.to;
+    const resp: S['StatsPreset'] = { id: preset.id, name: preset.name, from: preset.from, to: preset.to };
+    return HttpResponse.json(resp);
+  }),
+
+  // Idempotent, and clears the presetId of a last-selection that pointed at
+  // the deleted preset -- mirrors the backend's ON DELETE SET NULL foreign
+  // key on stats_last_selection.preset_id.
+  http.delete(P('/teams/:teamId/stats-presets/:presetId'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const teamId = params.teamId as string;
+    db.statsPresets = db.statsPresets.filter(
+      (p) => !(p.id === params.presetId && p.teamId === teamId && p.userId === auth),
+    );
+    const key = `${auth}:${teamId}`;
+    const sel = db.statsLastSelection[key];
+    if (sel && sel.presetId === params.presetId) {
+      db.statsLastSelection[key] = { ...sel, presetId: null };
+    }
+    return new HttpResponse(null, { status: 204 });
   }),
 ];

@@ -235,6 +235,136 @@ func TestAbsenceRepository_Update(t *testing.T) {
 	assert.Equal(t, &newReason, updated.Reason)
 }
 
+func TestAbsenceRepository_GetOwner(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Owner User', 'owner@example.com', '#bbbbbb')`, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Owner Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	ab, err := repo.Create(ctx, teamID, userID, "2025-03-01", "2025-03-07", nil)
+	require.NoError(t, err)
+
+	owner, err := repo.GetOwner(ctx, ab.Id, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, userID, owner)
+}
+
+func TestAbsenceRepository_GetOwner_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	otherTid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Owner Cross User', 'ownercross@example.com', '#cccccc')`, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Owner Cross Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Owner Cross Other Team')`, otherTid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	ab, err := repo.Create(ctx, teamID, userID, "2025-03-01", "2025-03-07", nil)
+	require.NoError(t, err)
+
+	_, err = repo.GetOwner(ctx, ab.Id, uuid.MustParse(otherTid))
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+func TestAbsenceRepository_SetStatsRelevance(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	setterID := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Relevance User', 'relevance@example.com', '#dddddd')`, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Relevance Setter', 'setter@example.com', '#eeeeee')`, setterID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Relevance Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	setBy := uuid.MustParse(setterID)
+	ab, err := repo.Create(ctx, teamID, userID, "2025-03-01", "2025-03-07", nil)
+	require.NoError(t, err)
+	require.False(t, ab.NotRelevantForStats)
+
+	updated, err := repo.SetStatsRelevance(ctx, ab.Id, teamID, true, setBy)
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.True(t, updated.NotRelevantForStats)
+	require.NotNil(t, updated.NotRelevantSetBy)
+	assert.Equal(t, setBy, *updated.NotRelevantSetBy)
+}
+
+func TestAbsenceRepository_SetStatsRelevance_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	otherTid := uuid.New().String()
+	setterID := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Relevance Cross User', 'relcross@example.com', '#f0f0f0')`, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Relevance Cross Setter', 'relcrosssetter@example.com', '#0f0f0f')`, setterID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Relevance Cross Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Relevance Cross Other Team')`, otherTid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	setBy := uuid.MustParse(setterID)
+	ab, err := repo.Create(ctx, teamID, userID, "2025-03-01", "2025-03-07", nil)
+	require.NoError(t, err)
+
+	_, err = repo.SetStatsRelevance(ctx, ab.Id, uuid.MustParse(otherTid), true, setBy)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
 // TestAbsenceRepository_Update_PartialPatch_RejectsExcessiveSpan regression-tests
 // a gap where UpdateAbsence's maxAbsenceSpanDays check only ran when a PATCH
 // supplied both from/to in the same request -- a PATCH supplying only `to`

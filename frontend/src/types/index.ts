@@ -64,6 +64,7 @@ export interface Membership {
   roleIds: string[];
   group: string;
   joinedAt: string;
+  excludeFromStats: boolean;
 }
 
 export interface MemberStat {
@@ -167,6 +168,23 @@ export interface Invite {
 export interface DateRange {
   from: string | null;
   to: string | null;
+}
+
+/** A member's own last-selected statistics date range for a team, restored
+ * on the next visit to the Stats page. `range`/`presetId` are both null when
+ * nothing has been saved yet. */
+export interface StatsPreferences {
+  range: DateRange | null;
+  presetId: string | null;
+}
+
+/** A named, reusable statistics date range a member saved for themselves
+ * (e.g. "Saison 2026/27"), private to the creator. */
+export interface StatsPreset {
+  id: string;
+  name: string;
+  from: string;
+  to: string;
 }
 
 /** A subscriber's calendar feed content selection -- which event types the

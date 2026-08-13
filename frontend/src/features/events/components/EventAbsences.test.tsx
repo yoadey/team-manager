@@ -32,6 +32,7 @@ function makeAbsence(overrides: Record<string, unknown> = {}) {
     from: '2099-01-10',
     to: '2099-01-20',
     reason: 'Urlaub',
+    notRelevantForStats: false,
     ...overrides,
   };
 }
@@ -47,8 +48,10 @@ function makeApp(overrides: Record<string, unknown> = {}) {
       user: { id: 'u1' },
       ...stateOverrides,
     },
+    can: vi.fn().mockReturnValue(false),
     openAbsenceForm: vi.fn(),
     removeAbsence: vi.fn(),
+    setAbsenceStatsRelevance: vi.fn(),
   };
 }
 
@@ -134,13 +137,8 @@ describe('EventAbsences', () => {
     const app = makeApp({ absences: [myAbsence] });
     mockUseApp.mockReturnValue(app as never);
     render(<EventAbsences />);
-    const buttons = document.querySelectorAll('button');
-    // Find the edit button (first icon button in the absence row)
-    const absenceRowBtns = Array.from(buttons).filter((b) => !b.textContent?.includes('Abwesenheit'));
-    if (absenceRowBtns.length > 0) {
-      await userEvent.click(absenceRowBtns[0]!);
-      expect(app.openAbsenceForm).toHaveBeenCalledWith(myAbsence);
-    }
+    await userEvent.click(screen.getByLabelText('Abwesenheit bearbeiten'));
+    expect(app.openAbsenceForm).toHaveBeenCalledWith(myAbsence);
   });
 
   it('clicking remove button on own absence calls removeAbsence', async () => {
@@ -148,12 +146,34 @@ describe('EventAbsences', () => {
     const app = makeApp({ absences: [myAbsence] });
     mockUseApp.mockReturnValue(app as never);
     render(<EventAbsences />);
-    const buttons = document.querySelectorAll('button');
-    // The remove button follows the edit button in the DOM
-    const absenceRowBtns = Array.from(buttons).filter((b) => !b.textContent?.includes('Abwesenheit'));
-    if (absenceRowBtns.length > 1) {
-      await userEvent.click(absenceRowBtns[1]!);
-      expect(app.removeAbsence).toHaveBeenCalledWith('ab1');
-    }
+    await userEvent.click(screen.getByLabelText('Abwesenheit löschen'));
+    expect(app.removeAbsence).toHaveBeenCalledWith('ab1');
+  });
+
+  it('shows the stats-relevance toggle for own absence and toggles it on click', async () => {
+    const myAbsence = makeAbsence({ userId: 'u1' });
+    const app = makeApp({ absences: [myAbsence] });
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventAbsences />);
+    const toggle = screen.getByLabelText('Als nicht statistikrelevant markieren');
+    await userEvent.click(toggle);
+    expect(app.setAbsenceStatsRelevance).toHaveBeenCalledWith('abs1', true);
+  });
+
+  it('shows the stats-relevance toggle for another member when the viewer holds events:write', () => {
+    const otherAbsence = makeAbsence({ userId: 'u2' });
+    const app = makeApp({ absences: [otherAbsence] });
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventAbsences />);
+    expect(screen.getByLabelText('Als nicht statistikrelevant markieren')).toBeTruthy();
+  });
+
+  it('hides the stats-relevance toggle for another member without events:write', () => {
+    const otherAbsence = makeAbsence({ userId: 'u2' });
+    const app = makeApp({ absences: [otherAbsence] });
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventAbsences />);
+    expect(screen.queryByLabelText('Als nicht statistikrelevant markieren')).toBeNull();
   });
 });

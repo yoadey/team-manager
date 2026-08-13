@@ -36,6 +36,10 @@ type EventRow struct {
 	// non-privileged member can no longer change their attendance response
 	// for this event (see Service.SetAttendance).
 	CancelLeadMinutes *int
+	// ExcludeFromStats removes this event from every attendance-statistics
+	// computation while leaving it otherwise fully functional (RSVP,
+	// comments, notifications, cancellation are all unaffected).
+	ExcludeFromStats bool
 }
 
 // EventSeriesRow mirrors the event_series DB table.
@@ -61,7 +65,10 @@ type EventSeriesRow struct {
 	// CancelLeadMinutes is the template value each generated occurrence's
 	// own EventRow.CancelLeadMinutes is seeded from.
 	CancelLeadMinutes *int
-	CreatedAt         time.Time
+	// ExcludeFromStats is the template value each generated occurrence's own
+	// EventRow.ExcludeFromStats is seeded from (see CancelLeadMinutes).
+	ExcludeFromStats bool
+	CreatedAt        time.Time
 }
 
 // AttendanceDBRow is the DB representation of the attendance table.
@@ -181,6 +188,9 @@ type CreateEventParams struct {
 	// set on the created event (or seeded onto every occurrence of a
 	// created series).
 	CancelLeadMinutes *int
+	// ExcludeFromStats is set on the created event (or the created series'
+	// template, seeded onto every generated occurrence).
+	ExcludeFromStats bool
 }
 
 // UpdateEventParams holds the fields used to update an event.
@@ -205,4 +215,5 @@ type UpdateEventParams struct {
 	ResponseMode      *string
 	NominatedRoleIds  []uuid.UUID
 	CancelLeadMinutes *int
+	ExcludeFromStats  *bool
 }

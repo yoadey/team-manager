@@ -459,4 +459,19 @@ describe('MemberFormSheet', () => {
       expect(phoneInput.getAttribute('aria-invalid')).toBe('true');
     });
   });
+
+  it('hides the exclude-from-stats toggle for a caller without members:write', () => {
+    const app = makeFormApp(false);
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    expect(screen.queryByRole('checkbox', { name: 'Von Statistik ausschließen' })).toBeNull();
+  });
+
+  it('shows the exclude-from-stats toggle for a caller with members:write and toggles it on click', () => {
+    const app = makeFormApp(true);
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ excludeFromStats: false })} />);
+    const toggle = screen.getByRole('checkbox', { name: 'Von Statistik ausschließen' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+  });
 });

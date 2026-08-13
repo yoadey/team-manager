@@ -1403,6 +1403,38 @@ paths:
         "204":
           description: No Content
 
+  /teams/{teamId}/absences/{absenceId}/stats-relevance:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: absenceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [absences]
+      operationId: setAbsenceStatsRelevance
+      x-rbac-module: public
+      summary: >-
+        Mark an absence as (not) relevant for attendance statistics. The
+        absence's own owner may always set this; setting it on another
+        member's absence additionally requires events:write, enforced in the
+        service layer (this route carries no module-level write gate).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetAbsenceStatsRelevanceRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Absence"
+
   # ── News ────────────────────────────────────────────────────────────────────
 
   /teams/{teamId}/news:
@@ -1954,6 +1986,17 @@ paths:
       operationId: getMemberStats
       x-rbac-module: events
       summary: Individual member attendance statistics
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
       responses:
         "200":
           description: OK
@@ -1988,6 +2031,114 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AttendanceAbsenceTable"
+
+  /teams/{teamId}/stats-preferences:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [stats]
+      operationId: getStatsPreferences
+      x-rbac-module: public
+      summary: >-
+        Get the caller's last-selected statistics date range for this team.
+        Empty properties mean nothing has been saved yet.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsPreferences"
+    put:
+      tags: [stats]
+      operationId: setStatsPreferences
+      x-rbac-module: public
+      summary: Save the caller's last-selected statistics date range for this team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetStatsPreferencesRequest"
+      responses:
+        "204":
+          description: No Content
+
+  /teams/{teamId}/stats-presets:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [stats]
+      operationId: listStatsPresets
+      x-rbac-module: public
+      summary: List the caller's saved statistics date-range presets for this team
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StatsPreset"
+    post:
+      tags: [stats]
+      operationId: createStatsPreset
+      x-rbac-module: public
+      summary: Save a new statistics date-range preset (e.g. "Saison 2026/27")
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStatsPresetRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsPreset"
+
+  /teams/{teamId}/stats-presets/{presetId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: presetId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [stats]
+      operationId: updateStatsPreset
+      x-rbac-module: public
+      summary: Rename or reschedule a saved statistics date-range preset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateStatsPresetRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsPreset"
+    delete:
+      tags: [stats]
+      operationId: deleteStatsPreset
+      x-rbac-module: public
+      summary: Delete a saved statistics date-range preset
+      responses:
+        "204":
+          description: No Content
 
 # ─── Components ───────────────────────────────────────────────────────────────
 components:
@@ -2489,7 +2640,8 @@ components:
 
     Member:
       type: object
-      required: [membershipId, userId, name, email, avatarColor, roles, joinedAt]
+      required:
+        [membershipId, userId, name, email, avatarColor, roles, joinedAt, excludeFromStats]
       properties:
         membershipId:
           type: string
@@ -2526,6 +2678,13 @@ components:
         joinedAt:
           type: string
           format: date-time
+        excludeFromStats:
+          type: boolean
+          description: >-
+            When true, this member is omitted from personal-quota-oriented
+            attendance statistics (overview, single-member view, attendance
+            matrix), while their historical event-level responses still
+            count toward per-event turnout aggregates.
 
     UpdateMemberRequest:
       type: object
@@ -2549,6 +2708,8 @@ components:
             format: uuid
         group:
           type: string
+        excludeFromStats:
+          type: boolean
 
     SetRolesRequest:
       type: object
@@ -2583,7 +2744,8 @@ components:
 
     TeamEvent:
       type: object
-      required: [id, teamId, type, title, date, status, recurring, summary]
+      required:
+        [id, teamId, type, title, date, status, recurring, summary, excludeFromStats]
       properties:
         id:
           type: string
@@ -2650,6 +2812,12 @@ components:
             Optional cutoff, expressed as minutes before the event's start,
             after which a non-privileged member can no longer change their
             attendance response for this event.
+        excludeFromStats:
+          type: boolean
+          description: >-
+            When true, this event is left out of every attendance-statistics
+            computation while remaining otherwise fully functional (RSVP,
+            comments, notifications, cancellation are all unaffected).
 
     CreateEventRequest:
       type: object
@@ -2717,6 +2885,13 @@ components:
             generated occurrence's own cancelLeadMinutes, with each
             occurrence computing its own effective cutoff from its own
             start.
+        excludeFromStats:
+          type: boolean
+          default: false
+          description: >-
+            When true, excludes this event from every attendance-statistics
+            computation. For a recurring series, seeds every generated
+            occurrence's own excludeFromStats.
 
     UpdateEventRequest:
       type: object
@@ -2776,6 +2951,13 @@ components:
             Optional cutoff, expressed as minutes before the event's start,
             after which a non-privileged member can no longer change their
             attendance response.
+        excludeFromStats:
+          type: boolean
+          description: >-
+            When true, excludes this event from every attendance-statistics
+            computation. With scope=series, applies to every occurrence of
+            the series; with scope=single, applies only to the targeted
+            occurrence.
 
     SetEventStatusRequest:
       type: object
@@ -2914,7 +3096,7 @@ components:
 
     Absence:
       type: object
-      required: [id, userId, from, to, createdAt]
+      required: [id, userId, from, to, createdAt, notRelevantForStats]
       properties:
         id:
           type: string
@@ -2946,6 +3128,20 @@ components:
           type: string
         roleName:
           type: string
+        notRelevantForStats:
+          type: boolean
+          description: >-
+            When true, the event dates this absence covers are excluded
+            entirely from this member's attendance statistics (neither
+            counted as attending nor as absent), instead of counting as
+            absent like a normal absence.
+
+    SetAbsenceStatsRelevanceRequest:
+      type: object
+      required: [notRelevantForStats]
+      properties:
+        notRelevantForStats:
+          type: boolean
 
     CreateAbsenceRequest:
       type: object
@@ -3920,6 +4116,84 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AttendanceAbsenceRow"
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+
+    StatsPreferences:
+      type: object
+      description: >-
+        The caller's last-selected statistics date range for a team. All
+        properties are absent when nothing has been saved yet.
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        presetId:
+          type: string
+          format: uuid
+          description: >-
+            Set when the last selection was a saved preset (see
+            StatsPreset) rather than an ad-hoc custom range.
+
+    SetStatsPreferencesRequest:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        presetId:
+          type: string
+          format: uuid
+
+    StatsPreset:
+      type: object
+      required: [id, name, from, to]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+
+    CreateStatsPresetRequest:
+      type: object
+      required: [name, from, to]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+
+    UpdateStatsPresetRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
         from:
           type: string
           format: date

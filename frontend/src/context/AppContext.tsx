@@ -408,6 +408,7 @@ export interface AppContextValue {
   openAbsenceForm: (absence?: Absence | null) => void;
   saveAbsence: (f: AbsenceFormValues) => Promise<void>;
   removeAbsence: (id: string) => void;
+  setAbsenceStatsRelevance: (id: string, notRelevantForStats: boolean) => void;
   // calendar export
   openCalExport: () => void;
   downloadIcs: () => void;
@@ -1238,6 +1239,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openAbsenceForm,
     saveAbsence,
     removeAbsence,
+    setAbsenceStatsRelevance,
     openCalExport,
     downloadIcs,
     copyCalUrl,
@@ -1515,6 +1517,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openAbsenceForm,
       saveAbsence,
       removeAbsence,
+      setAbsenceStatsRelevance,
       openCalExport,
       downloadIcs,
       copyCalUrl,
@@ -1625,6 +1628,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openAbsenceForm,
       saveAbsence,
       removeAbsence,
+      setAbsenceStatsRelevance,
       openCalExport,
       downloadIcs,
       copyCalUrl,

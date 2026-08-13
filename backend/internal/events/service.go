@@ -292,6 +292,9 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 	if body.NominatedRoleIds != nil {
 		params.NominatedRoleIds = *body.NominatedRoleIds
 	}
+	if body.ExcludeFromStats != nil {
+		params.ExcludeFromStats = *body.ExcludeFromStats
+	}
 
 	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {
 		return nil, err
@@ -359,6 +362,7 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		EndTime:           body.EndTime,
 		MeetTimeMandatory: body.MeetTimeMandatory,
 		CancelLeadMinutes: body.CancelLeadMinutes,
+		ExcludeFromStats:  body.ExcludeFromStats,
 	}
 	if body.Type != nil {
 		t := string(*body.Type)
@@ -829,6 +833,7 @@ func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 		EndTime:           row.EndTime,
 		MeetTimeMandatory: row.MeetTimeMandatory,
 		CancelLeadMinutes: row.CancelLeadMinutes,
+		ExcludeFromStats:  row.ExcludeFromStats,
 	}
 
 	if row.SeriesId != nil {

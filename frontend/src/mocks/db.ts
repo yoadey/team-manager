@@ -233,6 +233,27 @@ export interface DemoDb {
    * customized" -- defaults to every category enabled, mirroring
    * push.DefaultCategoryPreferences. */
   pushPreferences: Record<string, PushCategoryPreferences>;
+  /** "userId:teamId" -> last-selected statistics date range, mock equivalent
+   * of the backend's stats_last_selection table. Missing entry means "never
+   * saved". */
+  statsLastSelection: Record<string, StatsLastSelectionRow>;
+  /** Mock equivalent of the backend's stats_view_presets table. */
+  statsPresets: StatsPresetRow[];
+}
+
+export interface StatsLastSelectionRow {
+  from: string;
+  to: string;
+  presetId: string | null;
+}
+
+export interface StatsPresetRow {
+  id: string;
+  teamId: string;
+  userId: string;
+  name: string;
+  from: string;
+  to: string;
 }
 
 export interface PushCategoryPreferences {
@@ -307,6 +328,8 @@ export function createSeedData(): DemoDb {
     calendarFeedSettings: {},
     calendarShares: [],
     pushPreferences: {},
+    statsLastSelection: {},
+    statsPresets: [],
   };
 
   const U = (id: string, name: string, email: string, phone: string, color: string): UserRow => ({
@@ -384,6 +407,7 @@ export function createSeedData(): DemoDb {
     roleIds,
     group,
     joinedAt: iso(new Date(Date.now() - 200 * DAY)),
+    excludeFromStats: false,
   });
   db.memberships = [
     M('t_a', 'u1', [RA('Admin / Trainer'), RA('Tänzer / Mitglied')], 'A-Formation'),
@@ -423,6 +447,7 @@ export function createSeedData(): DemoDb {
         seriesId: null,
         cancelLeadMinutes: null,
         multiDayEndDate: null,
+        excludeFromStats: false,
       },
       o,
     ) as EventDto;
@@ -552,6 +577,7 @@ export function createSeedData(): DemoDb {
       to: plusDays(12),
       reason: 'Urlaub (Italien)',
       createdAt: iso(new Date()),
+      notRelevantForStats: false,
     },
     {
       id: rid('abs'),
@@ -560,6 +586,7 @@ export function createSeedData(): DemoDb {
       to: plusDays(3),
       reason: 'Klassenfahrt',
       createdAt: iso(new Date()),
+      notRelevantForStats: false,
     },
     {
       id: rid('abs'),
@@ -568,6 +595,7 @@ export function createSeedData(): DemoDb {
       to: plusDays(27),
       reason: 'Urlaub',
       createdAt: iso(new Date()),
+      notRelevantForStats: false,
     },
   ];
 

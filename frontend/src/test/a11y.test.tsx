@@ -67,6 +67,22 @@ vi.mock('@/pages/hooks/useStatsQueries', () => ({
   useAbsenceTableQuery: vi.fn().mockReturnValue({ data: undefined }),
 }));
 
+// Same rationale as useStatsQueries above -- the real hook calls
+// useQuery/useMutation and this test renders <Stats /> without a
+// QueryClientProvider.
+vi.mock('@/pages/hooks/useStatsPreferencesActions', () => ({
+  useStatsPreferencesActions: vi.fn().mockReturnValue({
+    preferences: undefined,
+    preferencesLoaded: false,
+    presets: [],
+    saveSelection: vi.fn(),
+    createPreset: vi.fn(),
+    creatingPreset: false,
+    renamePreset: vi.fn(),
+    deletePreset: vi.fn(),
+  }),
+}));
+
 // FinancesPage.tsx imports useFinanceOverviewQuery via this exact relative
 // path (see the identical pattern in FinancesPage.test.tsx).
 vi.mock('@/features/finances/hooks/useFinanceQueries', () => ({

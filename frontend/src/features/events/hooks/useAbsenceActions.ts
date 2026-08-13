@@ -5,7 +5,11 @@ import { todayStr } from '@/styles/tokens';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 import type { AbsenceFormValues } from '../components/absenceFormSchema';
-import { useDeleteAbsenceMutation, useSaveAbsenceMutation } from './useAbsenceMutations';
+import {
+  useDeleteAbsenceMutation,
+  useSaveAbsenceMutation,
+  useSetAbsenceStatsRelevanceMutation,
+} from './useAbsenceMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -44,6 +48,7 @@ export function useAbsenceActions({
 }: AbsenceDeps) {
   const { mutateAsync: saveAbsenceAsync, isPending: savingAbsence } = useSaveAbsenceMutation(api, teamId);
   const { mutateAsync: deleteAbsenceAsync } = useDeleteAbsenceMutation(api);
+  const { mutateAsync: setStatsRelevanceAsync } = useSetAbsenceStatsRelevanceMutation(api);
 
   const openAbsenceForm = useCallback(
     (absence?: { id: string; from: string; to: string; reason: string } | null) => {
@@ -102,5 +107,14 @@ export function useAbsenceActions({
     [askConfirm, deleteAbsenceAsync, loadNotifications, setState, teamId, toastMsg, logout],
   );
 
-  return { openAbsenceForm, saveAbsence, removeAbsence, savingAbsence };
+  const setAbsenceStatsRelevance = useCallback(
+    (id: string, notRelevantForStats: boolean) => {
+      setStatsRelevanceAsync({ id, teamId: teamId!, notRelevantForStats }).catch((err: unknown) => {
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      });
+    },
+    [setStatsRelevanceAsync, teamId, setState, toastMsg, logout],
+  );
+
+  return { openAbsenceForm, saveAbsence, removeAbsence, savingAbsence, setAbsenceStatsRelevance };
 }

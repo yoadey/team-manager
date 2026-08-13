@@ -356,6 +356,104 @@ func TestEventRepository_CreateSeries_SeedsCancelLeadMinutesPerOccurrence(t *tes
 	assert.Equal(t, leadMinutes, storedLeadMinutes)
 }
 
+func TestEventRepository_CreateSeries_SeedsExcludeFromStatsPerOccurrence(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Exclude Stats Series Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := events.CreateEventParams{
+		Type:             "training",
+		Title:            "GL Training Series",
+		Date:             startDate,
+		Recurring:        true,
+		RepeatWeeks:      3,
+		ExcludeFromStats: true,
+	}
+
+	eventRows, err := repo.CreateSeries(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	require.Len(t, eventRows, 3)
+
+	for i, e := range eventRows {
+		assert.True(t, e.ExcludeFromStats, "occurrence %d should have exclude_from_stats seeded from the series", i)
+	}
+
+	var storedFlag bool
+	err = pool.QueryRow(ctx, `SELECT exclude_from_stats FROM event_series WHERE id = $1`, eventRows[0].SeriesId).Scan(&storedFlag)
+	require.NoError(t, err)
+	assert.True(t, storedFlag)
+}
+
+// A scope="series" edit of exclude_from_stats must apply to every occurrence
+// of the series (mirroring cancel_lead_minutes's existing series-wide-update
+// behavior, with no date filtering), while a subsequent scope="single" edit
+// on one occurrence overrides only that occurrence.
+func TestEventRepository_UpdateEvent_ExcludeFromStats_SeriesThenSingleOverride(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Exclude Stats Update Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 3,
+	}
+	rows, err := repo.CreateSeries(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	for _, e := range rows {
+		require.False(t, e.ExcludeFromStats, "sanity check: series created without the flag")
+	}
+
+	exclude := true
+	updated, err := repo.UpdateEvent(ctx, rows[0].Id.String(), teamID, &events.UpdateEventParams{
+		ExcludeFromStats: &exclude,
+	}, "series")
+	require.NoError(t, err)
+	assert.True(t, updated.ExcludeFromStats)
+
+	all, err := repo.ListEvents(ctx, teamID, gen.All, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	for _, e := range all {
+		assert.True(t, e.ExcludeFromStats, "series-scoped edit must apply to every occurrence")
+	}
+
+	// Now override just one occurrence back off.
+	include := false
+	single, err := repo.UpdateEvent(ctx, rows[1].Id.String(), teamID, &events.UpdateEventParams{
+		ExcludeFromStats: &include,
+	}, "single")
+	require.NoError(t, err)
+	assert.False(t, single.ExcludeFromStats)
+
+	all, err = repo.ListEvents(ctx, teamID, gen.All, 50, nil)
+	require.NoError(t, err)
+	for _, e := range all {
+		if e.Id == rows[1].Id {
+			assert.False(t, e.ExcludeFromStats, "single-scoped edit must override just the targeted occurrence")
+		} else {
+			assert.True(t, e.ExcludeFromStats, "other occurrences must be unaffected by the single-scoped edit")
+		}
+	}
+}
+
 // Regression test: CreateEvent/CreateSeries/UpdateEvent must validate
 // nominated_role_ids against the roles table inside their own transaction
 // (holding the same pg_advisory_xact_lock key roles.DeleteRole uses), not

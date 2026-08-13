@@ -223,6 +223,32 @@ func TestMembersRepository_UpdateMember(t *testing.T) {
 	assert.Equal(t, &grp, updated.Group)
 }
 
+func TestMembersRepository_UpdateMember_ExcludeFromStats(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	m := seedMember(t, pool, teamID, "Exclude Stats Member", "exclude-stats@example.com")
+	require.False(t, m.ExcludeFromStats, "sanity check: defaults to false")
+
+	exclude := true
+	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String(), members.MemberPatch{
+		ExcludeFromStats: &exclude,
+	})
+	require.NoError(t, err)
+	assert.True(t, updated.ExcludeFromStats)
+
+	include := false
+	updated, err = repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String(), members.MemberPatch{
+		ExcludeFromStats: &include,
+	})
+	require.NoError(t, err)
+	assert.False(t, updated.ExcludeFromStats)
+}
+
 // Regression test: UpdateMember must map a users.email UNIQUE violation to a
 // clean ErrEmailTaken instead of letting a raw wrapped Postgres error fall
 // through when a member's email is changed to one already used by a

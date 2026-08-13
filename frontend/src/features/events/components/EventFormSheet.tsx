@@ -173,12 +173,22 @@ function DurationPartField({
   );
 }
 
-function MeetTimeToggle({ checked, tk, onToggle }: { checked: boolean; tk: Tokens; onToggle: () => void }) {
+function CheckboxToggle({
+  checked,
+  tk,
+  label,
+  onToggle,
+}: {
+  checked: boolean;
+  tk: Tokens;
+  label: string;
+  onToggle: () => void;
+}) {
   return (
     <ButtonBase
       role="checkbox"
       aria-checked={checked}
-      aria-label={t('events.meetTimeMandatory')}
+      aria-label={label}
       onClick={onToggle}
       sx={{
         display: 'flex',
@@ -210,7 +220,7 @@ function MeetTimeToggle({ checked, tk, onToggle }: { checked: boolean; tk: Token
         {checked ? <Sym name="check" size={16} color="#fff" /> : null}
       </Box>
       <Box component="span" sx={{ flex: 1, textAlign: 'left', fontSize: '14px', fontWeight: 500 }}>
-        {t('events.meetTimeMandatory')}
+        {label}
       </Box>
     </ButtonBase>
   );
@@ -497,6 +507,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
   const type = watch('type');
   const responseMode = watch('responseMode');
   const meetTimeMandatory = watch('meetTimeMandatory');
+  const excludeFromStats = watch('excludeFromStats');
   const recurring = watch('recurring');
   const repeatMode = watch('repeatMode') || 'weeks';
   const nominatedRoleIds = watch('nominatedRoleIds') || [];
@@ -550,6 +561,12 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         <Box sx={labelSx}>{t('events.eventType')}</Box>
         <EventTypeSelector type={type} onSelect={(tp) => setValue('type', tp, { shouldValidate: true })} />
       </Box>
+      <CheckboxToggle
+        checked={!!excludeFromStats}
+        tk={tk}
+        label={t('events.excludeFromStats')}
+        onToggle={() => setValue('excludeFromStats', !excludeFromStats, { shouldValidate: true })}
+      />
       <Field label={t('events.fieldTitle')} required error={!!errors.title} errorText={errors.title?.message}>
         <TextInput placeholder={t('events.fieldTitlePlaceholder')} maxLength={255} {...register('title')} />
       </Field>
@@ -578,9 +595,10 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           <TextInput type="time" {...register('endT')} />
         </Field>
       </Box>
-      <MeetTimeToggle
+      <CheckboxToggle
         checked={!!meetTimeMandatory}
         tk={tk}
+        label={t('events.meetTimeMandatory')}
         onToggle={() => setValue('meetTimeMandatory', !meetTimeMandatory, { shouldValidate: true })}
       />
       <Box>

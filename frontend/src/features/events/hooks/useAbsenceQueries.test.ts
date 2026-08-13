@@ -12,6 +12,7 @@ function makeAbsence(overrides: Partial<Absence> = {}): Absence {
     to: '2026-01-05',
     reason: 'Urlaub',
     createdAt: '2026-01-01',
+    notRelevantForStats: false,
     ...overrides,
   };
 }

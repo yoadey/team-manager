@@ -15,6 +15,13 @@ type AbsenceRow struct {
 	ToDate    time.Time
 	Reason    *string
 	CreatedAt time.Time
+	// NotRelevantForStats excludes this absence's covered event dates from
+	// the owner's attendance statistics entirely, instead of counting them
+	// as absent.
+	NotRelevantForStats bool
+	// NotRelevantSetBy is who last set NotRelevantForStats -- nil if it has
+	// never been touched (still at its false default).
+	NotRelevantSetBy *uuid.UUID
 	// Joined from users
 	MemberName        *string
 	MemberAvatarColor *string

@@ -13,14 +13,16 @@ import (
 )
 
 type Absence struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	TeamID    uuid.UUID
-	FromDate  pgtype.Date
-	ToDate    pgtype.Date
-	Reason    pgtype.Text
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                  uuid.UUID
+	UserID              uuid.UUID
+	TeamID              uuid.UUID
+	FromDate            pgtype.Date
+	ToDate              pgtype.Date
+	Reason              pgtype.Text
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	NotRelevantForStats bool
+	NotRelevantSetBy    *uuid.UUID
 }
 
 type Attendance struct {
@@ -103,6 +105,7 @@ type Event struct {
 	UpdatedAt         time.Time
 	CancelLeadMinutes pgtype.Int4
 	EndDate           pgtype.Date
+	ExcludeFromStats  bool
 }
 
 type EventComment struct {
@@ -136,6 +139,7 @@ type EventSeries struct {
 	CreatedAt         time.Time
 	RepeatEndDate     pgtype.Date
 	CancelLeadMinutes pgtype.Int4
+	ExcludeFromStats  bool
 }
 
 type Invite struct {
@@ -147,12 +151,13 @@ type Invite struct {
 }
 
 type Membership struct {
-	ID        uuid.UUID
-	TeamID    uuid.UUID
-	UserID    uuid.UUID
-	Group     pgtype.Text
-	JoinedAt  time.Time
-	UpdatedAt time.Time
+	ID               uuid.UUID
+	TeamID           uuid.UUID
+	UserID           uuid.UUID
+	Group            pgtype.Text
+	JoinedAt         time.Time
+	UpdatedAt        time.Time
+	ExcludeFromStats bool
 }
 
 type MembershipRole struct {
@@ -290,6 +295,25 @@ type Session struct {
 	TokenHash string
 	Provider  string
 	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+type StatsLastSelection struct {
+	TeamID    uuid.UUID
+	UserID    uuid.UUID
+	FromDate  pgtype.Date
+	ToDate    pgtype.Date
+	PresetID  *uuid.UUID
+	UpdatedAt time.Time
+}
+
+type StatsViewPreset struct {
+	ID        uuid.UUID
+	TeamID    uuid.UUID
+	UserID    uuid.UUID
+	Name      string
+	FromDate  pgtype.Date
+	ToDate    pgtype.Date
 	CreatedAt time.Time
 }
 

@@ -43,6 +43,7 @@ function buildBasePayload(f: EventFormValues) {
     endT: f.endT || '',
     nominatedRoleIds: f.nominatedRoleIds || [],
     cancelLeadMinutes: combineCancelLeadMinutes(f),
+    excludeFromStats: !!f.excludeFromStats,
   };
 }
 
@@ -95,6 +96,7 @@ export function useEventFormActions({
             repeatEndDate: '',
             cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
             cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
+            excludeFromStats: !!event.excludeFromStats,
           }
         : {
             type: 'training',
@@ -115,6 +117,7 @@ export function useEventFormActions({
             repeatEndDate: '',
             cancelLeadHours: 0,
             cancelLeadMinutes: 0,
+            excludeFromStats: false,
           };
       setState((st) => ({
         sheet: {
@@ -168,6 +171,7 @@ export function useEventFormActions({
         repeatEndDate: '',
         cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
         cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
+        excludeFromStats: !!event.excludeFromStats,
       };
       setState((st) => ({
         sheet: {

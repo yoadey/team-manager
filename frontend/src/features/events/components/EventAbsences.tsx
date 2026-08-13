@@ -20,6 +20,7 @@ export function EventAbsences() {
 
   const rows = list.map((a) => {
     const isMe = a.userId === state.user!.id;
+    const canToggleRelevance = isMe || app.can('events', 'write');
     return (
       <Box
         key={a.id}
@@ -47,6 +48,25 @@ export function EventAbsences() {
           component="span"
           sx={{ width: '10px', height: '10px', borderRadius: '50%', background: a.roleColor, flex: '0 0 auto' }}
         />
+        {canToggleRelevance ? (
+          <ButtonBase
+            onClick={() => app.setAbsenceStatsRelevance(a.id, !a.notRelevantForStats)}
+            aria-pressed={a.notRelevantForStats}
+            aria-label={a.notRelevantForStats ? t('events.absenceMarkRelevant') : t('events.absenceMarkNotRelevant')}
+            title={a.notRelevantForStats ? t('events.absenceMarkRelevant') : t('events.absenceMarkNotRelevant')}
+            sx={{
+              width: '34px',
+              height: '34px',
+              borderRadius: '50%',
+              border: 'none',
+              background: a.notRelevantForStats ? tk.primaryContainer : NEUTRAL.sidebar,
+              color: a.notRelevantForStats ? tk.primary : NEUTRAL.onSurfaceVariant,
+              flex: '0 0 auto',
+            }}
+          >
+            <Sym name="insights" size={18} color={a.notRelevantForStats ? tk.primary : NEUTRAL.onSurfaceVariant} />
+          </ButtonBase>
+        ) : null}
         {isMe ? (
           <ButtonBase
             onClick={() => app.openAbsenceForm(a)}

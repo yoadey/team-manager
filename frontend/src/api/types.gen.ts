@@ -837,6 +837,26 @@ export interface paths {
         patch: operations["updateAbsence"];
         trace?: never;
     };
+    "/teams/{teamId}/absences/{absenceId}/stats-relevance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                absenceId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Mark an absence as (not) relevant for attendance statistics. The absence's own owner may always set this; setting it on another member's absence additionally requires events:write, enforced in the service layer (this route carries no module-level write gate). */
+        patch: operations["setAbsenceStatsRelevance"];
+        trace?: never;
+    };
     "/teams/{teamId}/news": {
         parameters: {
             query?: never;
@@ -1241,6 +1261,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{teamId}/stats-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Get the caller's last-selected statistics date range for this team. Empty properties mean nothing has been saved yet. */
+        get: operations["getStatsPreferences"];
+        /** Save the caller's last-selected statistics date range for this team */
+        put: operations["setStatsPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/stats-presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List the caller's saved statistics date-range presets for this team */
+        get: operations["listStatsPresets"];
+        put?: never;
+        /** Save a new statistics date-range preset (e.g. "Saison 2026/27") */
+        post: operations["createStatsPreset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/stats-presets/{presetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                presetId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a saved statistics date-range preset */
+        delete: operations["deleteStatsPreset"];
+        options?: never;
+        head?: never;
+        /** Rename or reschedule a saved statistics date-range preset */
+        patch: operations["updateStatsPreset"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1432,6 +1513,8 @@ export interface components {
             perms?: components["schemas"]["Permissions"];
             /** Format: date-time */
             joinedAt: string;
+            /** @description When true, this member is omitted from personal-quota-oriented attendance statistics (overview, single-member view, attendance matrix), while their historical event-level responses still count toward per-event turnout aggregates. */
+            excludeFromStats: boolean;
         };
         UpdateMemberRequest: {
             name?: string;
@@ -1443,6 +1526,7 @@ export interface components {
             address?: string;
             roleIds?: string[];
             group?: string;
+            excludeFromStats?: boolean;
         };
         SetRolesRequest: {
             roleIds: string[];
@@ -1492,6 +1576,8 @@ export interface components {
             myReason?: string;
             /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response for this event. */
             cancelLeadMinutes?: number;
+            /** @description When true, this event is left out of every attendance-statistics computation while remaining otherwise fully functional (RSVP, comments, notifications, cancellation are all unaffected). */
+            excludeFromStats: boolean;
         };
         CreateEventRequest: {
             type: components["schemas"]["EventType"];
@@ -1520,6 +1606,11 @@ export interface components {
             endDate?: string;
             /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own cancelLeadMinutes, with each occurrence computing its own effective cutoff from its own start. */
             cancelLeadMinutes?: number;
+            /**
+             * @description When true, excludes this event from every attendance-statistics computation. For a recurring series, seeds every generated occurrence's own excludeFromStats.
+             * @default false
+             */
+            excludeFromStats: boolean;
         };
         UpdateEventRequest: {
             type?: components["schemas"]["EventType"];
@@ -1543,6 +1634,8 @@ export interface components {
             nominatedRoleIds?: string[];
             /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. */
             cancelLeadMinutes?: number;
+            /** @description When true, excludes this event from every attendance-statistics computation. With scope=series, applies to every occurrence of the series; with scope=single, applies only to the targeted occurrence. */
+            excludeFromStats?: boolean;
         };
         SetEventStatusRequest: {
             status: components["schemas"]["EventStatus"];
@@ -1632,6 +1725,11 @@ export interface components {
             memberMembershipId?: string;
             roleColor?: string;
             roleName?: string;
+            /** @description When true, the event dates this absence covers are excluded entirely from this member's attendance statistics (neither counted as attending nor as absent), instead of counting as absent like a normal absence. */
+            notRelevantForStats: boolean;
+        };
+        SetAbsenceStatsRelevanceRequest: {
+            notRelevantForStats: boolean;
         };
         CreateAbsenceRequest: {
             /** Format: uuid */
@@ -2150,6 +2248,49 @@ export interface components {
             from: string;
             /** Format: date */
             to: string;
+        };
+        /** @description The caller's last-selected statistics date range for a team. All properties are absent when nothing has been saved yet. */
+        StatsPreferences: {
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to?: string;
+            /**
+             * Format: uuid
+             * @description Set when the last selection was a saved preset (see StatsPreset) rather than an ad-hoc custom range.
+             */
+            presetId?: string;
+        };
+        SetStatsPreferencesRequest: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** Format: uuid */
+            presetId?: string;
+        };
+        StatsPreset: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
+        CreateStatsPresetRequest: {
+            name: string;
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
+        UpdateStatsPresetRequest: {
+            name?: string;
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to?: string;
         };
     };
     responses: {
@@ -3803,6 +3944,33 @@ export interface operations {
             };
         };
     };
+    setAbsenceStatsRelevance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                absenceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAbsenceStatsRelevanceRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Absence"];
+                };
+            };
+        };
+    };
     listNews: {
         parameters: {
             query?: {
@@ -4426,7 +4594,10 @@ export interface operations {
     };
     getMemberStats: {
         parameters: {
-            query?: never;
+            query?: {
+                from?: string;
+                to?: string;
+            };
             header?: never;
             path: {
                 teamId: components["parameters"]["teamId"];
@@ -4468,6 +4639,150 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendanceAbsenceTable"];
+                };
+            };
+        };
+    };
+    getStatsPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsPreferences"];
+                };
+            };
+        };
+    };
+    setStatsPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetStatsPreferencesRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listStatsPresets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["StatsPreset"][];
+                    };
+                };
+            };
+        };
+    };
+    createStatsPreset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateStatsPresetRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsPreset"];
+                };
+            };
+        };
+    };
+    deleteStatsPreset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                presetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateStatsPreset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                presetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStatsPresetRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsPreset"];
                 };
             };
         };

@@ -29,6 +29,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "POST", Segments: []string{"finances", "penalty-assignments"}, Module: "finances", SelfService: false},                     // createPenaltyAssignment
 	{Method: "POST", Segments: []string{"polls"}, Module: "polls", SelfService: false},                                                  // createPoll
 	{Method: "POST", Segments: []string{"roles"}, Module: "settings", SelfService: false},                                               // createRole
+	{Method: "POST", Segments: []string{"stats-presets"}, Module: "public", SelfService: false},                                         // createStatsPreset
 	{Method: "POST", Segments: []string{"finances", "transactions"}, Module: "finances", SelfService: false},                            // createTransaction
 	{Method: "DELETE", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                             // deleteAbsence
 	{Method: "DELETE", Segments: []string{"calendar-shares", "{viewerTeamId}"}, Module: "settings", SelfService: false},                 // deleteCalendarShare
@@ -40,6 +41,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "DELETE", Segments: []string{"finances", "penalty-assignments", "{assignmentId}"}, Module: "finances", SelfService: false}, // deletePenaltyAssignment
 	{Method: "DELETE", Segments: []string{"polls", "{pollId}"}, Module: "polls", SelfService: false},                                    // deletePoll
 	{Method: "DELETE", Segments: []string{"roles", "{roleId}"}, Module: "settings", SelfService: false},                                 // deleteRole
+	{Method: "DELETE", Segments: []string{"stats-presets", "{presetId}"}, Module: "public", SelfService: false},                         // deleteStatsPreset
 	{Method: "DELETE", Segments: []string{"logo"}, Module: "settings", SelfService: false},                                              // deleteTeamLogo
 	{Method: "DELETE", Segments: []string{"photo"}, Module: "settings", SelfService: false},                                             // deleteTeamPhoto
 	{Method: "DELETE", Segments: []string{"finances", "transactions", "{transactionId}"}, Module: "finances", SelfService: false},       // deleteTransaction
@@ -52,6 +54,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "GET", Segments: []string{"push-preferences"}, Module: "public", SelfService: false},                                       // getPushPreferences
 	{Method: "GET", Segments: []string{"stats", "absences"}, Module: "events", SelfService: false},                                      // getStatsAbsences
 	{Method: "GET", Segments: []string{"stats"}, Module: "events", SelfService: false},                                                  // getStatsOverview
+	{Method: "GET", Segments: []string{"stats-preferences"}, Module: "public", SelfService: false},                                      // getStatsPreferences
 	{Method: "GET", Segments: nil, Module: "public", SelfService: false},                                                                // getTeam
 	{Method: "GET", Segments: []string{"logo"}, Module: "public", SelfService: false},                                                   // getTeamLogo
 	{Method: "GET", Segments: []string{"photo"}, Module: "public", SelfService: false},                                                  // getTeamPhoto
@@ -69,15 +72,18 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "GET", Segments: []string{"roles"}, Module: "settings", SelfService: false},                                                // listRoles
 	{Method: "GET", Segments: []string{"shared-calendars", "{ownerTeamId}", "events"}, Module: "public", SelfService: false},            // listSharedCalendarEvents
 	{Method: "GET", Segments: []string{"shared-calendars"}, Module: "public", SelfService: false},                                       // listSharedCalendarSources
+	{Method: "GET", Segments: []string{"stats-presets"}, Module: "public", SelfService: false},                                          // listStatsPresets
 	{Method: "GET", Segments: []string{"finances", "transactions"}, Module: "finances", SelfService: false},                             // listTransactions
 	{Method: "POST", Segments: []string{"notifications", "seen"}, Module: "public", SelfService: false},                                 // markNotificationsSeen
 	{Method: "DELETE", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                          // removeMember
 	{Method: "DELETE", Segments: []string{"calendar-feed", "token"}, Module: "events", SelfService: true},                               // revokeCalendarFeedToken
+	{Method: "PATCH", Segments: []string{"absences", "{absenceId}", "stats-relevance"}, Module: "public", SelfService: false},           // setAbsenceStatsRelevance
 	{Method: "POST", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: true},                      // setAttendance
 	{Method: "POST", Segments: []string{"events", "{eventId}", "status"}, Module: "events", SelfService: false},                         // setEventStatus
 	{Method: "PUT", Segments: []string{"members", "{membershipId}", "roles"}, Module: "settings", SelfService: false},                   // setMemberRoles
 	{Method: "PUT", Segments: []string{"events", "{eventId}", "attendance", "nominations"}, Module: "events", SelfService: false},       // setNomination
 	{Method: "PUT", Segments: []string{"push-preferences"}, Module: "public", SelfService: false},                                       // setPushPreferences
+	{Method: "PUT", Segments: []string{"stats-preferences"}, Module: "public", SelfService: false},                                      // setStatsPreferences
 	{Method: "PATCH", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                              // updateAbsence
 	{Method: "PUT", Segments: []string{"calendar-feed", "settings"}, Module: "events", SelfService: true},                               // updateCalendarFeedSettings
 	{Method: "PATCH", Segments: []string{"finances", "contributions", "{contributionId}"}, Module: "finances", SelfService: false},      // updateContribution
@@ -86,6 +92,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "PATCH", Segments: []string{"news", "{newsId}"}, Module: "news", SelfService: false},                                       // updateNews
 	{Method: "PATCH", Segments: []string{"finances", "penalties", "{penaltyId}"}, Module: "finances", SelfService: false},               // updatePenalty
 	{Method: "PATCH", Segments: []string{"roles", "{roleId}"}, Module: "settings", SelfService: false},                                  // updateRole
+	{Method: "PATCH", Segments: []string{"stats-presets", "{presetId}"}, Module: "public", SelfService: false},                          // updateStatsPreset
 	{Method: "PATCH", Segments: nil, Module: "settings", SelfService: false},                                                            // updateTeam
 	{Method: "PATCH", Segments: []string{"finances", "transactions", "{transactionId}"}, Module: "finances", SelfService: false},        // updateTransaction
 	{Method: "PUT", Segments: []string{"logo"}, Module: "settings", SelfService: false},                                                 // uploadTeamLogo

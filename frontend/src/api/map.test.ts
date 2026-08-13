@@ -16,6 +16,8 @@ import {
   mapAttendanceMatrix,
   mapAttendanceAbsenceRow,
   mapAttendanceAbsenceTable,
+  mapStatsPreferences,
+  mapStatsPreset,
   mapAttendanceRow,
   mapEventComment,
   mapAbsence,
@@ -179,6 +181,7 @@ describe('mapUser / mapTeam resolve hasPhoto/hasLogo to a display URL', () => {
     avatarColor: '#000',
     roles: [],
     joinedAt: '2025-01-01T00:00:00Z',
+    excludeFromStats: false,
   };
 
   it('mapMember returns null photo when hasPhoto is false or absent', () => {
@@ -221,7 +224,14 @@ describe('person-photo mappers build a member photo URL from membershipId', () =
   });
 
   it('mapAbsence builds a photo URL from memberMembershipId/hasPhoto', () => {
-    const base = { id: 'a1', userId: 'u1', from: '2025-01-01', to: '2025-01-02', createdAt: '2025-01-01T00:00:00Z' };
+    const base = {
+      id: 'a1',
+      userId: 'u1',
+      from: '2025-01-01',
+      to: '2025-01-02',
+      createdAt: '2025-01-01T00:00:00Z',
+      notRelevantForStats: false,
+    };
     expect(mapAbsence(base, 't1').photo).toBeNull();
     expect(mapAbsence({ ...base, memberMembershipId: 'm1', hasPhoto: true }, 't1').photo).toMatch(
       /^.*\/api\/v1\/teams\/t1\/members\/m1\/photo\?v=\d+$/,
@@ -386,6 +396,28 @@ describe('attendance absence table mappers pass fields through unchanged', () =>
     expect(m.members[0]!.name).toBe('Peter');
     expect(m.members[0]!.photo).toBeNull();
     expect(m.members[0]!.cells).toEqual({ e1: 'yes', e2: 'pending' });
+  });
+});
+
+describe('stats preferences/preset mappers', () => {
+  it('mapStatsPreferences maps a saved range and presetId', () => {
+    expect(mapStatsPreferences({ from: '2026-01-01', to: '2026-06-30', presetId: 'p1' })).toEqual({
+      range: { from: '2026-01-01', to: '2026-06-30' },
+      presetId: 'p1',
+    });
+  });
+
+  it('mapStatsPreferences maps an empty response (nothing saved yet) to a null range/presetId', () => {
+    expect(mapStatsPreferences({})).toEqual({ range: null, presetId: null });
+  });
+
+  it('mapStatsPreset maps every field', () => {
+    expect(mapStatsPreset({ id: 'p1', name: 'Saison 2026/27', from: '2026-08-01', to: '2027-05-31' })).toEqual({
+      id: 'p1',
+      name: 'Saison 2026/27',
+      from: '2026-08-01',
+      to: '2027-05-31',
+    });
   });
 });
 

@@ -190,6 +190,7 @@ export const eventFormSchema = z
     repeatEndDate: z.string().trim().optional().or(z.literal('')),
     cancelLeadHours: z.coerce.number().min(0).optional(),
     cancelLeadMinutes: z.coerce.number().min(0).max(59).optional(),
+    excludeFromStats: z.boolean().optional(),
     seriesId: z.string().optional().nullable(),
   })
   .superRefine((data, ctx) => {

@@ -24,6 +24,7 @@ type absenceService interface {
 	Create(ctx context.Context, teamID uuid.UUID, body *gen.CreateAbsenceRequest) (gen.Absence, error)
 	Update(ctx context.Context, id, teamID, userID uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error)
 	Delete(ctx context.Context, id, teamID, userID uuid.UUID) error
+	SetStatsRelevance(ctx context.Context, id, teamID, callerID uuid.UUID, notRelevant bool) (gen.Absence, error)
 }
 
 // Handler implements the absence-related methods of gen.StrictServerInterface.
@@ -219,4 +220,30 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 	}
 	metrics.TeamEvents.WithLabelValues("absence", "update").Inc()
 	return gen.UpdateAbsence200JSONResponse(absence), nil
+}
+
+// SetAbsenceStatsRelevance marks an absence as (not) relevant for attendance
+// statistics. The absence's own owner may always set this; setting it on
+// another member's absence additionally requires events:write (checked in
+// the service layer -- this route carries no module-level write gate).
+func (h *Handler) SetAbsenceStatsRelevance(ctx context.Context, req gen.SetAbsenceStatsRelevanceRequestObject) (gen.SetAbsenceStatsRelevanceResponseObject, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if req.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+	absence, err := h.svc.SetStatsRelevance(ctx, req.AbsenceId, req.TeamId, user.Id, req.Body.NotRelevantForStats)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("absence not found")
+		}
+		if errors.Is(err, ErrForbiddenStatsRelevance) {
+			return nil, apierror.Forbidden(ErrForbiddenStatsRelevance.Error())
+		}
+		h.logger.ErrorContext(ctx, "SetAbsenceStatsRelevance failed", "err", err)
+		return nil, apierror.Internal("failed to set absence stats relevance")
+	}
+	return gen.SetAbsenceStatsRelevance200JSONResponse(absence), nil
 }

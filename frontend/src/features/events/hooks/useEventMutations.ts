@@ -20,6 +20,7 @@ type EventPayload = {
   nominatedRoleIds?: string[];
   /** Minutes before the event's start, or undefined for "no cutoff". */
   cancelLeadMinutes?: number | undefined;
+  excludeFromStats?: boolean | undefined;
 };
 
 /**

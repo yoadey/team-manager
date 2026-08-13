@@ -165,6 +165,7 @@ func validateMemberPatch(body *gen.UpdateMemberJSONRequestBody) (MemberPatch, er
 		}
 		patch.Group = body.Group
 	}
+	patch.ExcludeFromStats = body.ExcludeFromStats
 	return patch, nil
 }
 
