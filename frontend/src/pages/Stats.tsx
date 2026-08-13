@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtDate, NEUTRAL, statusMeta, todayStr, typeMeta } from '@/styles/tokens';
 import { ALL_TIME_FROM_DATE, monthsAgoLocal } from '@/utils/date';
-import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, inputSx } from '@/components/ui';
+import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, TextInput, inputSx } from '@/components/ui';
 import { t as tr } from '@/i18n';
 import type {
   AttendanceAbsenceTable,
@@ -13,8 +13,10 @@ import type {
   DateRange,
   EventType,
   StatsOverview,
+  StatsPreset,
 } from '@/types';
 import { useAbsenceTableQuery, useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
+import { useStatsPreferencesActions } from './hooks/useStatsPreferencesActions';
 
 type StatsTab = 'quota' | 'matrix' | 'absences';
 
@@ -45,6 +47,37 @@ export function Stats() {
   const { data: st } = useStatsQuery(app.api, state.activeTeamId, state.statsRange);
   const { data: mx } = useAttendanceMatrixQuery(app.api, state.activeTeamId, state.statsRange, tab === 'matrix');
   const { data: absenceTable } = useAbsenceTableQuery(app.api, state.activeTeamId, state.statsRange);
+  const {
+    preferences,
+    preferencesLoaded,
+    presets: savedPresets,
+    saveSelection,
+    createPreset,
+    renamePreset,
+    deletePreset,
+  } = useStatsPreferencesActions(app.api, state.activeTeamId, app.toastMsg);
+  const [presetForm, setPresetForm] = useState<{ id: string | null; name: string } | null>(null);
+
+  // Restore the caller's last-saved range once, the first time it loads --
+  // only when nothing has been selected yet this session (state.statsRange
+  // is still null), so it never overwrites a choice already made after
+  // navigating to this page.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current || !preferencesLoaded) return;
+    hydratedRef.current = true;
+    if (!state.statsRange && preferences?.range) app.setStatsRange(preferences.range);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preferencesLoaded]);
+
+  // Applies a selection everywhere it needs to land: local UI state
+  // immediately, and (once both ends of the range are known) persisted as
+  // the caller's new last selection -- presetId is set when rng came from a
+  // fixed or saved preset, null for a manually-typed custom range.
+  const selectRange = (rng: DateRange, presetId: string | null) => {
+    app.setStatsRange(rng);
+    if (rng.from && rng.to) saveSelection(rng, presetId);
+  };
 
   const today = todayStr();
   const ago = (months: number) => monthsAgoLocal(today, months);
@@ -69,53 +102,119 @@ export function Stats() {
       : (presets.find((p) => p[2] && p[2].from === R.from && p[2].to === R.to) || ['custom'])[0];
 
   const dateInput: React.CSSProperties = { ...inputSx, padding: '7px 9px', fontSize: '12px', width: 'auto' };
+  const activeCustomPresetId = savedPresets.find((p) => p.from === R.from && p.to === R.to)?.id ?? null;
+  const canSaveAsPreset = !!R.from && !!R.to;
+
+  const openCreatePresetForm = () => setPresetForm({ id: null, name: '' });
+  const openRenamePresetForm = (id: string, name: string) => setPresetForm({ id, name });
+  const closePresetForm = () => setPresetForm(null);
+
+  const submitPresetForm = async () => {
+    if (!presetForm) return;
+    const name = presetForm.name.trim();
+    if (!name) return;
+    if (presetForm.id) {
+      await renamePreset(presetForm.id, name);
+    } else if (R.from && R.to) {
+      const created = await createPreset(name, { from: R.from, to: R.to });
+      selectRange({ from: R.from, to: R.to }, created.id);
+    }
+    closePresetForm();
+  };
 
   const filterBar = (
-    <Box key="flt" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', mb: '16px' }}>
-      {presets.map(([k, l, rng]) => {
-        const sel = activeKey === k;
-        return (
-          <ButtonBase
-            key={k}
-            onClick={() => app.setStatsRange(rng)}
-            sx={{
-              p: '8px 14px',
-              borderRadius: '999px',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              border: '1.5px solid ' + (sel ? t.primary : NEUTRAL.inputBorder),
-              background: sel ? t.primaryContainer : NEUTRAL.card,
-              color: sel ? t.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
-            }}
-          >
-            {l}
-          </ButtonBase>
-        );
-      })}
-      <Box key="cust" sx={{ display: 'flex', alignItems: 'center', gap: '6px', ml: 'auto' }}>
-        <input
-          key="f"
-          type="date"
-          aria-label={tr('stats.rangeFrom')}
-          value={R.from || ''}
-          max={R.to || today}
-          onChange={(e) => app.setStatsRange({ ...R, from: e.target.value || null })}
-          style={dateInput}
+    <Box key="flt" sx={{ display: 'flex', flexDirection: 'column', gap: '10px', mb: '16px' }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+        {presets.map(([k, l, rng]) => {
+          const sel = activeKey === k;
+          return (
+            <ButtonBase
+              key={k}
+              onClick={() => rng && selectRange(rng, null)}
+              sx={{
+                p: '8px 14px',
+                borderRadius: '999px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                border: '1.5px solid ' + (sel ? t.primary : NEUTRAL.inputBorder),
+                background: sel ? t.primaryContainer : NEUTRAL.card,
+                color: sel ? t.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+              }}
+            >
+              {l}
+            </ButtonBase>
+          );
+        })}
+        <SavedPresetChips
+          presets={savedPresets}
+          activeId={activeCustomPresetId}
+          t={t}
+          onSelect={(p) => selectRange({ from: p.from, to: p.to }, p.id)}
+          onRename={(p) => openRenamePresetForm(p.id, p.name)}
+          onDelete={(p) =>
+            app.askConfirm({
+              title: tr('stats.presetDeleteTitle'),
+              message: tr('stats.presetDeleteMessage', { name: p.name }),
+              confirmLabel: tr('common.delete'),
+              danger: true,
+              onConfirm: () => deletePreset(p.id),
+            })
+          }
         />
-        <Box component="span" sx={{ color: NEUTRAL.faint, fontSize: '13px' }}>
-          –
+        <ButtonBase
+          onClick={openCreatePresetForm}
+          disabled={!canSaveAsPreset}
+          sx={{
+            p: '8px 14px',
+            borderRadius: '999px',
+            fontSize: '13px',
+            fontWeight: 600,
+            cursor: canSaveAsPreset ? 'pointer' : 'default',
+            opacity: canSaveAsPreset ? 1 : 0.5,
+            border: '1.5px dashed ' + NEUTRAL.inputBorder,
+            color: NEUTRAL.onSurfaceVariant,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+        >
+          <Sym name="add" size={16} color={NEUTRAL.onSurfaceVariant} />
+          {tr('stats.presetNew')}
+        </ButtonBase>
+        <Box key="cust" sx={{ display: 'flex', alignItems: 'center', gap: '6px', ml: 'auto' }}>
+          <input
+            key="f"
+            type="date"
+            aria-label={tr('stats.rangeFrom')}
+            value={R.from || ''}
+            max={R.to || today}
+            onChange={(e) => selectRange({ ...R, from: e.target.value || null }, null)}
+            style={dateInput}
+          />
+          <Box component="span" sx={{ color: NEUTRAL.faint, fontSize: '13px' }}>
+            –
+          </Box>
+          <input
+            key="t"
+            type="date"
+            aria-label={tr('stats.rangeTo')}
+            value={R.to || ''}
+            min={R.from || ''}
+            onChange={(e) => selectRange({ ...R, to: e.target.value || null }, null)}
+            style={dateInput}
+          />
         </Box>
-        <input
-          key="t"
-          type="date"
-          aria-label={tr('stats.rangeTo')}
-          value={R.to || ''}
-          min={R.from || ''}
-          onChange={(e) => app.setStatsRange({ ...R, to: e.target.value || null })}
-          style={dateInput}
-        />
       </Box>
+      {presetForm ? (
+        <PresetForm
+          value={presetForm.name}
+          onChange={(name) => setPresetForm({ ...presetForm, name })}
+          onSubmit={() => void submitPresetForm()}
+          onCancel={closePresetForm}
+          t={t}
+        />
+      ) : null}
     </Box>
   );
 
@@ -193,6 +292,135 @@ export function Stats() {
       ) : (
         <AbsenceTableView table={absenceTable as AttendanceAbsenceTable} />
       )}
+    </Box>
+  );
+}
+
+/** Chip per saved preset, each with inline rename/delete affordances --
+ * split out from Stats() to keep its render function's branching complexity
+ * within lint limits. */
+function SavedPresetChips({
+  presets,
+  activeId,
+  t,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  presets: StatsPreset[];
+  activeId: string | null;
+  t: ReturnType<typeof buildTokens>;
+  onSelect: (p: StatsPreset) => void;
+  onRename: (p: StatsPreset) => void;
+  onDelete: (p: StatsPreset) => void;
+}) {
+  if (presets.length === 0) return null;
+  return (
+    <>
+      <Box component="span" sx={{ width: '1px', height: '20px', background: NEUTRAL.line, mx: '2px' }} />
+      {presets.map((p) => {
+        const sel = activeId === p.id;
+        const onColor = sel ? t.onPrimaryContainer : NEUTRAL.faint;
+        return (
+          <Box
+            key={p.id}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              borderRadius: '999px',
+              border: '1.5px solid ' + (sel ? t.primary : NEUTRAL.inputBorder),
+              background: sel ? t.primaryContainer : NEUTRAL.card,
+              overflow: 'hidden',
+            }}
+          >
+            <ButtonBase
+              onClick={() => onSelect(p)}
+              sx={{
+                p: '8px 6px 8px 14px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                color: sel ? t.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+              }}
+            >
+              {p.name}
+            </ButtonBase>
+            <ButtonBase
+              onClick={() => onRename(p)}
+              aria-label={tr('stats.presetRename', { name: p.name })}
+              sx={{ width: '26px', height: '26px', borderRadius: '50%', color: onColor }}
+            >
+              <Sym name="edit" size={14} color={onColor} />
+            </ButtonBase>
+            <ButtonBase
+              onClick={() => onDelete(p)}
+              aria-label={tr('stats.presetDelete', { name: p.name })}
+              sx={{ width: '26px', height: '26px', borderRadius: '50%', mr: '4px', color: onColor }}
+            >
+              <Sym name="close" size={14} color={onColor} />
+            </ButtonBase>
+          </Box>
+        );
+      })}
+    </>
+  );
+}
+
+/** Inline "name this range" row shown while creating or renaming a preset --
+ * split out from Stats() for the same reason as SavedPresetChips. */
+function PresetForm({
+  value,
+  onChange,
+  onSubmit,
+  onCancel,
+  t,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  t: ReturnType<typeof buildTokens>;
+}) {
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        background: NEUTRAL.card,
+        border: `1px solid ${NEUTRAL.line}`,
+        borderRadius: '14px',
+        p: '10px 12px',
+      }}
+    >
+      <TextInput
+        name="presetName"
+        placeholder={tr('stats.presetNamePlaceholder')}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ ...inputSx, flex: 1 }}
+      />
+      <ButtonBase
+        onClick={onSubmit}
+        disabled={!value.trim()}
+        sx={{
+          p: '7px 14px',
+          borderRadius: '999px',
+          fontSize: '13px',
+          fontWeight: 700,
+          opacity: value.trim() ? 1 : 0.5,
+          background: t.primaryContainer,
+          color: t.onPrimaryContainer,
+        }}
+      >
+        {tr('common.save')}
+      </ButtonBase>
+      <ButtonBase
+        onClick={onCancel}
+        sx={{ p: '7px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: 600, color: NEUTRAL.faint }}
+      >
+        {tr('common.cancel')}
+      </ButtonBase>
     </Box>
   );
 }

@@ -28,6 +28,8 @@ import {
   mapStatsOverview,
   mapAttendanceMatrix,
   mapAttendanceAbsenceTable,
+  mapStatsPreferences,
+  mapStatsPreset,
   mapCalendarShare,
   mapSharedCalendarSource,
   mapSharedCalendarEvent,
@@ -44,6 +46,8 @@ import type {
   StatsOverview,
   AttendanceMatrix,
   AttendanceAbsenceTable,
+  StatsPreferences,
+  StatsPreset,
   CalendarFeedSettings,
   CalendarShare,
   SharedCalendarSource,
@@ -1139,9 +1143,13 @@ export const realApi = {
     async attendanceFor(
       teamId: string,
       userId: string,
+      range?: DateRange | null,
     ): Promise<{ quote: number | null; counted: number; yes: number }> {
       const res = await apiClient.GET('/teams/{teamId}/stats/members/{userId}', {
-        params: { path: { teamId, userId } },
+        params: {
+          path: { teamId, userId },
+          query: { ...opt('from', range?.from ?? undefined), ...opt('to', range?.to ?? undefined) },
+        },
       });
       const s = await check(res);
       // s.quote is a 0-1 fraction (see api/map.ts's fractionToPercent doc
@@ -1176,6 +1184,63 @@ export const realApi = {
       });
       const t = await check(res);
       return mapAttendanceAbsenceTable(t);
+    },
+  },
+
+  statsPrefs: {
+    async getPreferences(teamId: string): Promise<StatsPreferences> {
+      const res = await apiClient.GET('/teams/{teamId}/stats-preferences', { params: { path: { teamId } } });
+      const p = await check(res);
+      return mapStatsPreferences(p);
+    },
+
+    async setPreferences(teamId: string, range: DateRange, presetId: string | null): Promise<void> {
+      if (!range.from || !range.to) throw new Error('setPreferences requires both from and to');
+      const res = await apiClient.PUT('/teams/{teamId}/stats-preferences', {
+        params: { path: { teamId } },
+        body: { from: range.from, to: range.to, ...opt('presetId', presetId ?? undefined) },
+      });
+      await checkOk(res);
+    },
+
+    async listPresets(teamId: string): Promise<StatsPreset[]> {
+      const res = await apiClient.GET('/teams/{teamId}/stats-presets', { params: { path: { teamId } } });
+      const r = await check(res);
+      return r.items.map(mapStatsPreset);
+    },
+
+    async createPreset(teamId: string, name: string, range: DateRange): Promise<StatsPreset> {
+      if (!range.from || !range.to) throw new Error('createPreset requires both from and to');
+      const res = await apiClient.POST('/teams/{teamId}/stats-presets', {
+        params: { path: { teamId } },
+        body: { name, from: range.from, to: range.to },
+      });
+      const p = await check(res);
+      return mapStatsPreset(p);
+    },
+
+    async updatePreset(
+      teamId: string,
+      presetId: string,
+      patch: { name?: string; range?: DateRange },
+    ): Promise<StatsPreset> {
+      const res = await apiClient.PATCH('/teams/{teamId}/stats-presets/{presetId}', {
+        params: { path: { teamId, presetId } },
+        body: {
+          ...opt('name', patch.name),
+          ...opt('from', patch.range?.from ?? undefined),
+          ...opt('to', patch.range?.to ?? undefined),
+        },
+      });
+      const p = await check(res);
+      return mapStatsPreset(p);
+    },
+
+    async deletePreset(teamId: string, presetId: string): Promise<void> {
+      const res = await apiClient.DELETE('/teams/{teamId}/stats-presets/{presetId}', {
+        params: { path: { teamId, presetId } },
+      });
+      await checkOk(res);
     },
   },
 

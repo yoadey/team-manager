@@ -24,7 +24,7 @@ import {
   DEMO_LOGIN_USER_ID,
   DEMO_SSO_PROVIDER_IDS,
 } from './db';
-import type { UserRow, TeamRow } from './db';
+import type { UserRow, TeamRow, StatsPresetRow } from './db';
 import type { RoleDto } from '@/types';
 import type { EventDto } from '@/features/events';
 import { isRsvpCutoffPassed } from '@/features/events/rsvpCutoff';
@@ -1757,7 +1757,7 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
-  http.get(P('/teams/:teamId/stats/members/:userId'), async ({ params }) => {
+  http.get(P('/teams/:teamId/stats/members/:userId'), async ({ params, request }) => {
     await mockDelay();
     const teamId = params.teamId as string;
     const userId = params.userId as string;
@@ -1767,8 +1767,10 @@ export const handlers = [
     // there is no separate "empty stats" response shape for the latter.
     const membership = db.memberships.find((m) => m.teamId === teamId && m.userId === userId);
     if (!membership || membership.excludeFromStats) return problem(404, 'Member not found');
-    const to = todayLocalDate();
-    const from = threeMonthsBeforeLocal(to);
+    const url = new URL(request.url);
+    const today = todayLocalDate();
+    const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
+    const to = url.searchParams.get('to') || today;
     const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats);
     let yes = 0, counted = 0;
     events.forEach((e) => {
@@ -1854,5 +1856,92 @@ export const handlers = [
 
     const body: S['AttendanceAbsenceTable'] = { rows, from, to };
     return HttpResponse.json(body);
+  }),
+
+  http.get(P('/teams/:teamId/stats-preferences'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const sel = db.statsLastSelection[`${auth}:${params.teamId as string}`];
+    const body: S['StatsPreferences'] = sel
+      ? { from: sel.from, to: sel.to, ...(sel.presetId ? { presetId: sel.presetId } : {}) }
+      : {};
+    return HttpResponse.json(body);
+  }),
+
+  http.put(P('/teams/:teamId/stats-preferences'), async ({ params, request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const body = (await request.json()) as S['SetStatsPreferencesRequest'];
+    db.statsLastSelection[`${auth}:${params.teamId as string}`] = {
+      from: body.from,
+      to: body.to,
+      presetId: body.presetId ?? null,
+    };
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get(P('/teams/:teamId/stats-presets'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const teamId = params.teamId as string;
+    const items: S['StatsPreset'][] = db.statsPresets
+      .filter((p) => p.teamId === teamId && p.userId === auth)
+      .map((p) => ({ id: p.id, name: p.name, from: p.from, to: p.to }));
+    const body: { items: S['StatsPreset'][] } = { items };
+    return HttpResponse.json(body);
+  }),
+
+  // maxPresetsPerTeamUser mirrors backend/internal/statsprefs/model.go's
+  // identical constant -- a generous safety rail, not a real constraint.
+  http.post(P('/teams/:teamId/stats-presets'), async ({ params, request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const teamId = params.teamId as string;
+    const count = db.statsPresets.filter((p) => p.teamId === teamId && p.userId === auth).length;
+    if (count >= 20) return problem(400, 'maximum number of saved statistics presets reached');
+    const body = (await request.json()) as S['CreateStatsPresetRequest'];
+    const preset: StatsPresetRow = { id: crypto.randomUUID(), teamId, userId: auth, name: body.name, from: body.from, to: body.to };
+    db.statsPresets.push(preset);
+    const resp: S['StatsPreset'] = { id: preset.id, name: preset.name, from: preset.from, to: preset.to };
+    return HttpResponse.json(resp, { status: 201 });
+  }),
+
+  http.patch(P('/teams/:teamId/stats-presets/:presetId'), async ({ params, request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const preset = db.statsPresets.find(
+      (p) => p.id === params.presetId && p.teamId === (params.teamId as string) && p.userId === auth,
+    );
+    if (!preset) return problem(404, 'Preset not found');
+    const body = (await request.json()) as S['UpdateStatsPresetRequest'];
+    if (body.name !== undefined) preset.name = body.name;
+    if (body.from !== undefined) preset.from = body.from;
+    if (body.to !== undefined) preset.to = body.to;
+    const resp: S['StatsPreset'] = { id: preset.id, name: preset.name, from: preset.from, to: preset.to };
+    return HttpResponse.json(resp);
+  }),
+
+  // Idempotent, and clears the presetId of a last-selection that pointed at
+  // the deleted preset -- mirrors the backend's ON DELETE SET NULL foreign
+  // key on stats_last_selection.preset_id.
+  http.delete(P('/teams/:teamId/stats-presets/:presetId'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const teamId = params.teamId as string;
+    db.statsPresets = db.statsPresets.filter(
+      (p) => !(p.id === params.presetId && p.teamId === teamId && p.userId === auth),
+    );
+    const key = `${auth}:${teamId}`;
+    const sel = db.statsLastSelection[key];
+    if (sel && sel.presetId === params.presetId) {
+      db.statsLastSelection[key] = { ...sel, presetId: null };
+    }
+    return new HttpResponse(null, { status: 204 });
   }),
 ];

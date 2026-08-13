@@ -16,6 +16,8 @@ import {
   mapAttendanceMatrix,
   mapAttendanceAbsenceRow,
   mapAttendanceAbsenceTable,
+  mapStatsPreferences,
+  mapStatsPreset,
   mapAttendanceRow,
   mapEventComment,
   mapAbsence,
@@ -394,6 +396,28 @@ describe('attendance absence table mappers pass fields through unchanged', () =>
     expect(m.members[0]!.name).toBe('Peter');
     expect(m.members[0]!.photo).toBeNull();
     expect(m.members[0]!.cells).toEqual({ e1: 'yes', e2: 'pending' });
+  });
+});
+
+describe('stats preferences/preset mappers', () => {
+  it('mapStatsPreferences maps a saved range and presetId', () => {
+    expect(mapStatsPreferences({ from: '2026-01-01', to: '2026-06-30', presetId: 'p1' })).toEqual({
+      range: { from: '2026-01-01', to: '2026-06-30' },
+      presetId: 'p1',
+    });
+  });
+
+  it('mapStatsPreferences maps an empty response (nothing saved yet) to a null range/presetId', () => {
+    expect(mapStatsPreferences({})).toEqual({ range: null, presetId: null });
+  });
+
+  it('mapStatsPreset maps every field', () => {
+    expect(mapStatsPreset({ id: 'p1', name: 'Saison 2026/27', from: '2026-08-01', to: '2027-05-31' })).toEqual({
+      id: 'p1',
+      name: 'Saison 2026/27',
+      from: '2026-08-01',
+      to: '2027-05-31',
+    });
   });
 });
 

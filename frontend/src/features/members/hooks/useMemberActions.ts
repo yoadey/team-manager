@@ -62,7 +62,7 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
       // graceful empty state for that case; there's no stats to load.
       if (!m) return;
       try {
-        const stats = await api.stats.attendanceFor(S().activeTeamId!, m.userId);
+        const stats = await api.stats.attendanceFor(S().activeTeamId!, m.userId, S().statsRange);
         setState((s) =>
           s.sheet?.type === 'memberDetail' &&
           s.sheet.membershipId === membershipId &&

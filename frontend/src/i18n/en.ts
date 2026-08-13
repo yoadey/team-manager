@@ -893,5 +893,12 @@ export const en: Messages = {
     matrixCellAria: '{name} on {date}: {status}',
     absenceTableTitle: 'Absences per person',
     emptyAbsences: 'No absences in the selected range',
+    presetNew: 'New',
+    presetNamePlaceholder: 'e.g. Season 2026/27',
+    presetRename: 'Rename "{name}"',
+    presetDelete: 'Delete "{name}"',
+    presetDeleteTitle: 'Delete range',
+    presetDeleteMessage: 'Delete the saved range "{name}"?',
+    presetSaveFailed: 'Could not save the range',
   },
 };

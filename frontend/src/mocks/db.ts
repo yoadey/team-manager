@@ -233,6 +233,27 @@ export interface DemoDb {
    * customized" -- defaults to every category enabled, mirroring
    * push.DefaultCategoryPreferences. */
   pushPreferences: Record<string, PushCategoryPreferences>;
+  /** "userId:teamId" -> last-selected statistics date range, mock equivalent
+   * of the backend's stats_last_selection table. Missing entry means "never
+   * saved". */
+  statsLastSelection: Record<string, StatsLastSelectionRow>;
+  /** Mock equivalent of the backend's stats_view_presets table. */
+  statsPresets: StatsPresetRow[];
+}
+
+export interface StatsLastSelectionRow {
+  from: string;
+  to: string;
+  presetId: string | null;
+}
+
+export interface StatsPresetRow {
+  id: string;
+  teamId: string;
+  userId: string;
+  name: string;
+  from: string;
+  to: string;
 }
 
 export interface PushCategoryPreferences {
@@ -307,6 +328,8 @@ export function createSeedData(): DemoDb {
     calendarFeedSettings: {},
     calendarShares: [],
     pushPreferences: {},
+    statsLastSelection: {},
+    statsPresets: [],
   };
 
   const U = (id: string, name: string, email: string, phone: string, color: string): UserRow => ({

@@ -27,6 +27,8 @@ import type {
   AttendanceCellStatus,
   AttendanceAbsenceRow,
   AttendanceAbsenceTable,
+  StatsPreferences,
+  StatsPreset,
   Provider,
   CalendarShare,
   SharedCalendarSource,
@@ -574,4 +576,18 @@ export function mapAttendanceAbsenceTable(t: S['AttendanceAbsenceTable']): Atten
     from: t.from,
     to: t.to,
   };
+}
+
+// from/to are both present or both absent on the wire (see
+// SetStatsPreferencesRequest's required from/to) -- a member can never save
+// a range with just one bound.
+export function mapStatsPreferences(p: S['StatsPreferences']): StatsPreferences {
+  return {
+    range: p.from && p.to ? { from: p.from, to: p.to } : null,
+    presetId: p.presetId ?? null,
+  };
+}
+
+export function mapStatsPreset(p: S['StatsPreset']): StatsPreset {
+  return { id: p.id, name: p.name, from: p.from, to: p.to };
 }

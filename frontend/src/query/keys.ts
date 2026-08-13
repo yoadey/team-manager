@@ -38,6 +38,12 @@ export const queryKeys = {
   // varies by date range for the same reason.
   statsAbsences: (teamId: string, range: DateRange | null) =>
     ['teams', teamId, 'statsAbsences', range?.from ?? null, range?.to ?? null] as const,
+  // The caller's last-selected stats date range for the team -- not
+  // range-scoped itself (there is only ever one "current" selection per
+  // team+user).
+  statsPreferences: (teamId: string) => ['teams', teamId, 'statsPreferences'] as const,
+  // The caller's saved named stats date-range presets for the team.
+  statsPresets: (teamId: string) => ['teams', teamId, 'statsPresets'] as const,
   // Grants this team has made (owner-team perspective).
   calendarShares: (teamId: string) => ['teams', teamId, 'calendarShares'] as const,
   // Teams that have granted this team visibility (viewer-team perspective).

@@ -438,3 +438,61 @@ describe('per-team push-category preferences', () => {
     expect(reloaded).toEqual({ ...defaultPrefs, eventReminderEnabled: false, eventReminderHoursBefore: 24 });
   });
 });
+
+describe('per-team statistics view preferences and named presets', () => {
+  it('reports nothing saved before the caller ever selects a range', async () => {
+    const prefs = await api.statsPrefs.getPreferences('t_a');
+    expect(prefs).toEqual({ range: null, presetId: null });
+  });
+
+  it('persists a saved selection and reflects it on a later read', async () => {
+    await api.statsPrefs.setPreferences('t_a', { from: '2026-01-01', to: '2026-06-30' }, null);
+    const reloaded = await api.statsPrefs.getPreferences('t_a');
+    expect(reloaded).toEqual({ range: { from: '2026-01-01', to: '2026-06-30' }, presetId: null });
+  });
+
+  it('scopes a saved selection to the team it was saved for, not every team the caller belongs to', async () => {
+    // The demo user (u1) is a member of both t_a and t_b.
+    await api.statsPrefs.setPreferences('t_a', { from: '2026-01-01', to: '2026-06-30' }, null);
+    const otherTeamPrefs = await api.statsPrefs.getPreferences('t_b');
+    expect(otherTeamPrefs).toEqual({ range: null, presetId: null });
+  });
+
+  it('creates, lists, renames, and deletes a named preset', async () => {
+    const created = await api.statsPrefs.createPreset('t_a', 'Saison 2026/27', { from: '2026-08-01', to: '2027-05-31' });
+    expect(created.name).toBe('Saison 2026/27');
+
+    const listed = await api.statsPrefs.listPresets('t_a');
+    expect(listed.map((p) => p.id)).toContain(created.id);
+
+    const renamed = await api.statsPrefs.updatePreset('t_a', created.id, { name: 'Saison 2026/27 (final)' });
+    expect(renamed.name).toBe('Saison 2026/27 (final)');
+    expect(renamed.from).toBe(created.from);
+
+    await api.statsPrefs.deletePreset('t_a', created.id);
+    const afterDelete = await api.statsPrefs.listPresets('t_a');
+    expect(afterDelete.map((p) => p.id)).not.toContain(created.id);
+  });
+
+  it("does not list another team member's presets, even within the same team", async () => {
+    const mine = await api.statsPrefs.createPreset('t_a', 'Meins', { from: '2026-01-01', to: '2026-03-31' });
+    // Seed a preset directly for a different member of t_a (bypassing the
+    // API, which always acts as the logged-in caller -- u1 above) to verify
+    // listPresets is scoped per-caller, not just per-team.
+    db.statsPresets.push({ id: 'preset-other', teamId: 't_a', userId: 'u2', name: 'Nicht Meins', from: '2026-04-01', to: '2026-05-31' });
+
+    const listed = await api.statsPrefs.listPresets('t_a');
+    expect(listed.map((p) => p.id)).toEqual([mine.id]);
+  });
+
+  it('deleting the active preset clears presetId from the saved selection without erroring', async () => {
+    const preset = await api.statsPrefs.createPreset('t_a', 'Winterpause', { from: '2026-12-01', to: '2027-01-31' });
+    await api.statsPrefs.setPreferences('t_a', { from: preset.from, to: preset.to }, preset.id);
+
+    await api.statsPrefs.deletePreset('t_a', preset.id);
+
+    const reloaded = await api.statsPrefs.getPreferences('t_a');
+    expect(reloaded.presetId).toBeNull();
+    expect(reloaded.range).toEqual({ from: preset.from, to: preset.to });
+  });
+});

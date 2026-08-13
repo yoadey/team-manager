@@ -72,6 +72,8 @@ function makeApp(
       user: { id: 'u1', name: 'Test User', avatarColor: '#000', photo: null },
     },
     setStatsRange: mockSetStatsRange,
+    askConfirm: vi.fn(),
+    toastMsg: vi.fn(),
   };
 }
 
@@ -90,16 +92,36 @@ vi.mock('./hooks/useStatsQueries', () => ({
   useAbsenceTableQuery: vi.fn(),
 }));
 
+// Also mocked directly (not just a barrel re-export), same reasoning as
+// useStatsQueries above -- and it must be, since the real hook calls
+// useQuery/useMutation and this test file renders <Stats /> without a
+// QueryClientProvider.
+vi.mock('./hooks/useStatsPreferencesActions', () => ({
+  useStatsPreferencesActions: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
 import { useAbsenceTableQuery, useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
+import { useStatsPreferencesActions } from './hooks/useStatsPreferencesActions';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
 const mockUseMatrixQuery = useAttendanceMatrixQuery as ReturnType<typeof vi.fn>;
 const mockUseAbsenceTableQuery = useAbsenceTableQuery as ReturnType<typeof vi.fn>;
+const mockUseStatsPreferencesActions = useStatsPreferencesActions as ReturnType<typeof vi.fn>;
 
 describe('Stats', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseStatsPreferencesActions.mockReturnValue({
+      preferences: undefined,
+      preferencesLoaded: false,
+      presets: [],
+      saveSelection: vi.fn(),
+      createPreset: vi.fn(),
+      creatingPreset: false,
+      renamePreset: vi.fn(),
+      deletePreset: vi.fn(),
+    });
   });
 
   it('shows spinner when stats are null', () => {
@@ -310,5 +332,118 @@ describe('Stats', () => {
     mockUseApp.mockReturnValue(makeApp(makeStats()));
     render(<Stats />);
     expect(screen.getByText('Quote pro Person')).toBeTruthy();
+  });
+});
+
+describe('Stats saved presets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders a saved preset as a chip alongside the fixed presets', () => {
+    mockUseApp.mockReturnValue(makeApp(null));
+    mockUseStatsPreferencesActions.mockReturnValue({
+      preferences: undefined,
+      preferencesLoaded: false,
+      presets: [{ id: 'p1', name: 'Saison 2026/27', from: '2026-08-01', to: '2027-05-31' }],
+      saveSelection: vi.fn(),
+      createPreset: vi.fn(),
+      creatingPreset: false,
+      renamePreset: vi.fn(),
+      deletePreset: vi.fn(),
+    });
+    render(<Stats />);
+    expect(screen.getByText('Saison 2026/27')).toBeTruthy();
+  });
+
+  it('selecting a saved preset applies its range and persists it as the new selection', async () => {
+    const saveSelection = vi.fn();
+    mockUseApp.mockReturnValue(makeApp(null));
+    mockUseStatsPreferencesActions.mockReturnValue({
+      preferences: undefined,
+      preferencesLoaded: false,
+      presets: [{ id: 'p1', name: 'Saison 2026/27', from: '2026-08-01', to: '2027-05-31' }],
+      saveSelection,
+      createPreset: vi.fn(),
+      creatingPreset: false,
+      renamePreset: vi.fn(),
+      deletePreset: vi.fn(),
+    });
+    render(<Stats />);
+    await userEvent.click(screen.getByText('Saison 2026/27'));
+    expect(mockSetStatsRange).toHaveBeenCalledWith({ from: '2026-08-01', to: '2027-05-31' });
+    expect(saveSelection).toHaveBeenCalledWith({ from: '2026-08-01', to: '2027-05-31' }, 'p1');
+  });
+
+  it('clicking "Neu" then saving creates a preset from the currently selected range', async () => {
+    const createPreset = vi.fn().mockResolvedValue({ id: 'p2', name: 'Winterpause', from: '2026-01-01', to: '2026-03-01' });
+    mockUseApp.mockReturnValue(makeApp(null, { from: '2026-01-01', to: '2026-03-01' }));
+    mockUseStatsPreferencesActions.mockReturnValue({
+      preferences: undefined,
+      preferencesLoaded: false,
+      presets: [],
+      saveSelection: vi.fn(),
+      createPreset,
+      creatingPreset: false,
+      renamePreset: vi.fn(),
+      deletePreset: vi.fn(),
+    });
+    render(<Stats />);
+    await userEvent.click(screen.getByText('Neu'));
+    await userEvent.type(screen.getByPlaceholderText('z. B. Saison 2026/27'), 'Winterpause');
+    await userEvent.click(screen.getByText('Speichern'));
+    expect(createPreset).toHaveBeenCalledWith('Winterpause', { from: '2026-01-01', to: '2026-03-01' });
+  });
+
+  it('deleting a saved preset asks for confirmation before removing it', async () => {
+    const deletePreset = vi.fn();
+    const askConfirm = vi.fn(({ onConfirm }: { onConfirm: () => void }) => onConfirm());
+    mockUseApp.mockReturnValue({ ...makeApp(null), askConfirm });
+    mockUseStatsPreferencesActions.mockReturnValue({
+      preferences: undefined,
+      preferencesLoaded: false,
+      presets: [{ id: 'p1', name: 'Saison 2026/27', from: '2026-08-01', to: '2027-05-31' }],
+      saveSelection: vi.fn(),
+      createPreset: vi.fn(),
+      creatingPreset: false,
+      renamePreset: vi.fn(),
+      deletePreset,
+    });
+    render(<Stats />);
+    await userEvent.click(screen.getByLabelText('„Saison 2026/27" löschen'));
+    expect(askConfirm).toHaveBeenCalled();
+    expect(deletePreset).toHaveBeenCalledWith('p1');
+  });
+
+  it('hydrates the range from the caller last-saved preferences on first load', () => {
+    mockUseApp.mockReturnValue(makeApp(null, null));
+    mockUseStatsPreferencesActions.mockReturnValue({
+      preferences: { range: { from: '2026-02-01', to: '2026-04-01' }, presetId: null },
+      preferencesLoaded: true,
+      presets: [],
+      saveSelection: vi.fn(),
+      createPreset: vi.fn(),
+      creatingPreset: false,
+      renamePreset: vi.fn(),
+      deletePreset: vi.fn(),
+    });
+    render(<Stats />);
+    expect(mockSetStatsRange).toHaveBeenCalledWith({ from: '2026-02-01', to: '2026-04-01' });
+  });
+
+  it('does not overwrite an already-selected range with the saved preferences', () => {
+    mockUseApp.mockReturnValue(makeApp(null, { from: '2026-05-01', to: '2026-06-01' }));
+    mockUseStatsPreferencesActions.mockReturnValue({
+      preferences: { range: { from: '2026-02-01', to: '2026-04-01' }, presetId: null },
+      preferencesLoaded: true,
+      presets: [],
+      saveSelection: vi.fn(),
+      createPreset: vi.fn(),
+      creatingPreset: false,
+      renamePreset: vi.fn(),
+      deletePreset: vi.fn(),
+    });
+    render(<Stats />);
+    expect(mockSetStatsRange).not.toHaveBeenCalled();
   });
 });

@@ -902,5 +902,12 @@ export const de = {
     matrixCellAria: '{name} am {date}: {status}',
     absenceTableTitle: 'Fehlzeiten je Person',
     emptyAbsences: 'Keine Fehlzeiten im gewählten Zeitraum',
+    presetNew: 'Neu',
+    presetNamePlaceholder: 'z. B. Saison 2026/27',
+    presetRename: '„{name}" umbenennen',
+    presetDelete: '„{name}" löschen',
+    presetDeleteTitle: 'Zeitraum löschen',
+    presetDeleteMessage: 'Soll der gespeicherte Zeitraum „{name}" wirklich gelöscht werden?',
+    presetSaveFailed: 'Zeitraum konnte nicht gespeichert werden',
   },
 };

@@ -125,7 +125,7 @@ describe('useMemberActions', () => {
         sheet: expect.objectContaining({ type: 'memberDetail', membershipId: 'ms1' }),
       }),
     );
-    expect(api.stats.attendanceFor).toHaveBeenCalledWith('team1', 'u2');
+    expect(api.stats.attendanceFor).toHaveBeenCalledWith('team1', 'u2', null);
   });
 
   // Regression test: a membershipId not present in the local member list
