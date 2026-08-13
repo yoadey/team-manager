@@ -762,6 +762,13 @@ func TestStatsRepository_ExcludedMember_OmittedFromPersonalQuotas_ButCountedInEv
 
 	eventRows, err := repo.EventStats(ctx, teamID, from, to)
 	require.NoError(t, err)
-	require.Len(t, eventRows, 1)
-	assert.Equal(t, 2, eventRows[0].Yes, "excluded member's past response still counts toward this event's turnout")
+	require.Len(t, eventRows, 2)
+	var turnout *stats.EventStatRow
+	for i := range eventRows {
+		if eventRows[i].EventID.String() == eid {
+			turnout = &eventRows[i]
+		}
+	}
+	require.NotNil(t, turnout, "sanity check: the turnout event is still reported")
+	assert.Equal(t, 2, turnout.Yes, "excluded member's past response still counts toward this event's turnout")
 }
