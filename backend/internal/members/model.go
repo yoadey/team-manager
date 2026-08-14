@@ -20,8 +20,11 @@ type MemberRow struct {
 	AvatarColor  string
 	HasPhoto     bool
 	Group        *string
-	JoinedAt     time.Time
-	Roles        []teams.RoleRow
+	// Title is a short, self-service, purely cosmetic label (e.g.
+	// "Witzbeauftragter") -- display-only, never interpreted by RBAC.
+	Title    *string
+	JoinedAt time.Time
+	Roles    []teams.RoleRow
 	// ExcludeFromStats removes this member from personal-quota-oriented
 	// statistics views (overview, single-member, attendance matrix) while
 	// leaving event-level turnout aggregates unaffected -- see
@@ -38,5 +41,6 @@ type MemberPatch struct {
 	Birthday         *time.Time
 	Address          *string
 	Group            *string
+	Title            *string
 	ExcludeFromStats *bool
 }

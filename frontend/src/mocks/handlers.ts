@@ -170,6 +170,7 @@ function toWireMember(m: (typeof db.memberships)[number]): S['Member'] {
     ...opt('birthday', u.birthday || undefined),
     ...opt('address', u.address || undefined),
     ...opt('group', m.group || undefined),
+    ...opt('title', m.title || undefined),
     ...opt('primaryRole', pr ? toWireRole(pr) : undefined),
   };
 }
@@ -268,6 +269,7 @@ function toWireAttendanceRow(e: EventDto, m: (typeof db.memberships)[number]): S
     auto: es.auto,
     absent: es.absent,
     ...opt('group', m.group || undefined),
+    ...opt('title', m.title || undefined),
     ...opt('primaryRole', pr ? toWireRole(pr) : undefined),
     ...opt('reason', es.reason || undefined),
     ...opt('reasonId', es.reasonId ?? undefined),
@@ -711,6 +713,7 @@ export const handlers = [
       userId: auth,
       roleIds: [adminRole.id],
       group: '',
+      title: '',
       joinedAt: new Date().toISOString(),
       excludeFromStats: false,
     });
@@ -807,6 +810,7 @@ export const handlers = [
         userId: auth,
         roleIds: memberRole ? [memberRole.id] : [],
         group: '',
+        title: '',
         joinedAt: new Date().toISOString(),
         excludeFromStats: false,
       });
@@ -835,6 +839,7 @@ export const handlers = [
     if (body.birthday !== undefined) u.birthday = body.birthday;
     if (body.address !== undefined) u.address = body.address;
     if (body.group !== undefined) m.group = body.group;
+    if (body.title !== undefined) m.title = body.title;
     if (body.excludeFromStats !== undefined) m.excludeFromStats = body.excludeFromStats;
     // An explicitly empty array clears all roles (matches the real backend's
     // SetRoles, only guarded by ErrLastSettingsAdmin server-side) — only an
@@ -849,6 +854,21 @@ export const handlers = [
     if (!m) return problem(404, 'Member not found');
     const body = (await request.json()) as S['SetRolesRequest'];
     m.roleIds = body.roleIds;
+    return HttpResponse.json(toWireMember(m));
+  }),
+
+  // Self-service: mirrors backend/internal/members's SetMemberTitle -- a
+  // member can set/clear only their own title, regardless of members:write.
+  http.put(P('/teams/:teamId/members/:membershipId/title'), async ({ params, request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const m = db.memberships.find((x) => x.id === params.membershipId);
+    if (!m) return problem(404, 'Member not found');
+    if (m.userId !== auth) return problem(403, "Only a member can set or clear their own title");
+    const body = (await request.json()) as S['SetMemberTitleRequest'];
+    if (body.title.length > 40) return problem(400, 'title must be at most 40 characters');
+    m.title = body.title.trim();
     return HttpResponse.json(toWireMember(m));
   }),
 

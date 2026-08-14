@@ -361,6 +361,36 @@ describe('drift-bug fix: stats count only explicit attendance responses, not opt
   });
 });
 
+describe('member titles: self-service set/clear without members:write, admin path for others', () => {
+  it("lets the logged-in member set and clear their OWN title", async () => {
+    const members = await api.members.list('t_a');
+    const me = members.find((m) => m.userId === 'u1')!;
+
+    const updated = await api.members.setMyTitle(me.membershipId, 'Witzbeauftragter', 't_a');
+    expect(updated.title).toBe('Witzbeauftragter');
+
+    const cleared = await api.members.setMyTitle(me.membershipId, '', 't_a');
+    expect(cleared.title).toBe('');
+  });
+
+  it('rejects setting a title on a membership that is not the caller own', async () => {
+    const members = await api.members.list('t_a');
+    const other = members.find((m) => m.userId === 'u2')!;
+
+    await expect(api.members.setMyTitle(other.membershipId, 'Not mine', 't_a')).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+  });
+
+  it("lets a members:write holder set another member's title via the admin update path", async () => {
+    const members = await api.members.list('t_a');
+    const other = members.find((m) => m.userId === 'u4')!;
+
+    const updated = await api.members.update(other.membershipId, { title: 'Orgaente' }, 't_a');
+    expect(updated.title).toBe('Orgaente');
+  });
+});
+
 describe('drift-bug fix: an excluded member is not an invalid GetMemberStats target', () => {
   it("returns zero-value 'no data' stats (not a 404) for a member flagged excludeFromStats, without leaking their real response", async () => {
     const today = todayLocalDate();

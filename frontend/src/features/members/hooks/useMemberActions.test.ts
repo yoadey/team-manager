@@ -17,6 +17,7 @@ function makeMember(overrides: Partial<Member> = {}): Member {
     birthday: '',
     address: '',
     group: '',
+    title: '',
     photo: null,
     roles: [{ id: 'r1', name: 'Mitglied' }] as never,
     avatarColor: '#aaa',
@@ -61,6 +62,7 @@ function makeApi() {
       update: vi.fn().mockResolvedValue(undefined),
       setRoles: vi.fn().mockResolvedValue(undefined),
       remove: vi.fn().mockResolvedValue(undefined),
+      setMyTitle: vi.fn().mockResolvedValue(undefined),
     },
     auth: {
       currentUser: vi.fn().mockResolvedValue({ id: 'u1', name: 'Updated User' }),
@@ -197,7 +199,7 @@ describe('useMemberActions', () => {
   });
 
   it('openMemberForm sets memberForm sheet with member data', () => {
-    const member = makeMember();
+    const member = makeMember({ title: 'Witzbeauftragter' });
     const { result } = renderActions();
     act(() => {
       result.current.openMemberForm(member);
@@ -209,6 +211,7 @@ describe('useMemberActions', () => {
     expect((patch.sheet as never as { formInitial: unknown }).formInitial).toMatchObject({
       name: 'Alice',
       email: 'alice@test.com',
+      title: 'Witzbeauftragter',
     });
   });
 
@@ -223,11 +226,12 @@ describe('useMemberActions', () => {
         email: 'alice@test.com',
         membershipId: 'ms1',
         roleIds: ['r1'],
+        title: 'Witzbeauftragter',
       } as never);
     });
     expect(api.members.update).toHaveBeenCalledWith(
       'ms1',
-      expect.objectContaining({ name: 'Alice Updated' }),
+      expect.objectContaining({ name: 'Alice Updated', title: 'Witzbeauftragter' }),
       'team1',
     );
     expect(toastMsg).toHaveBeenCalledWith('Profil gespeichert');
@@ -530,6 +534,22 @@ describe('useMemberActions', () => {
   // flight (e.g. a real askConfirm flow clears the sheet immediately on
   // confirm, then the user opens something else before the delete
   // resolves).
+  it('setMyTitle calls the self-service endpoint with the trimmed title and shows a toast', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.setMyTitle('ms1', '  Witzbeauftragter  ');
+    });
+    expect(api.members.setMyTitle).toHaveBeenCalledWith('ms1', 'Witzbeauftragter', 'team1');
+    expect(toastMsg).toHaveBeenCalledWith('Profil gespeichert');
+  });
+
+  it('setMyTitle reports an error via reportActionError on failure', async () => {
+    api.members.setMyTitle = vi.fn().mockRejectedValue(new Error('nope'));
+    const { result } = renderActions();
+    await expect(result.current.setMyTitle('ms1', 'Orgaente')).rejects.toThrow();
+    expect(toastMsg).toHaveBeenCalled();
+  });
+
   it('removeMember onConfirm does not touch the sheet if the user opened something else while the delete was in flight', async () => {
     let resolveRemove!: () => void;
     api.members.remove = vi.fn(() => new Promise<void>((resolve) => (resolveRemove = resolve)));

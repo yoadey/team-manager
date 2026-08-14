@@ -708,6 +708,38 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /teams/{teamId}/members/{membershipId}/title:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/membershipId"
+    put:
+      tags: [members]
+      operationId: setMemberTitle
+      x-rbac-module: members
+      x-rbac-self-service: true
+      summary: Set or clear your own member title
+      description: >-
+        Lets a member set or clear (empty string) a short, purely cosmetic
+        title on their own membership, without requiring members:write.
+        Rejected if membershipId is not the caller's own membership.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetMemberTitleRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Member"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /teams/{teamId}/members/{membershipId}/roles:
     parameters:
       - $ref: "#/components/parameters/teamId"
@@ -2667,6 +2699,12 @@ components:
           type: boolean
         group:
           type: string
+        title:
+          type: string
+          maxLength: 40
+          description: >-
+            A short, self-chosen, purely cosmetic label (e.g.
+            "Witzbeauftragter"). Display-only -- never interpreted by RBAC.
         roles:
           type: array
           items:
@@ -2708,8 +2746,20 @@ components:
             format: uuid
         group:
           type: string
+        title:
+          type: string
+          maxLength: 40
         excludeFromStats:
           type: boolean
+
+    SetMemberTitleRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          maxLength: 40
+          description: Empty string clears the title.
 
     SetRolesRequest:
       type: object
@@ -3048,6 +3098,9 @@ components:
           type: boolean
         group:
           type: string
+        title:
+          type: string
+          maxLength: 40
         primaryRole:
           $ref: "#/components/schemas/Role"
         status:

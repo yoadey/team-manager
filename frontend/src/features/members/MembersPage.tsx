@@ -61,6 +61,23 @@ export function MembersPage() {
             </Box>
             {isMe ? <Chip label={t('members.meLabel')} color={tk.primary} bg={tk.primaryContainer} /> : null}
           </Box>
+          {m.title ? (
+            <Box
+              component="span"
+              sx={{
+                display: 'block',
+                fontSize: '11px',
+                fontStyle: 'italic',
+                color: NEUTRAL.faint,
+                mt: '1px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {m.title}
+            </Box>
+          ) : null}
           <Box
             sx={{
               fontSize: '12px',

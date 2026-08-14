@@ -21,6 +21,7 @@ export const memberFormSchema = z
     // record -- not user input, so no validation beyond being a string.
     membershipId: z.string().optional(),
     group: z.string().optional(),
+    title: z.string().trim().max(40, { message: t('members.fieldTitleError') }).optional().or(z.literal('')),
     excludeFromStats: z.boolean().optional(),
     name: z
       .string()

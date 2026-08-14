@@ -20,6 +20,7 @@ type memberRepo interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cur *ListCursor) ([]MemberRow, error)
 	GetMemberPhotoKey(ctx context.Context, teamID, membershipID string) (string, error)
 	UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*MemberRow, error)
+	SetMemberTitle(ctx context.Context, membershipID, teamID, callerUserID string, title *string) (*MemberRow, error)
 	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*MemberRow, error)
 	RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
@@ -130,6 +131,22 @@ func (s *Service) UpdateMember(ctx context.Context, membershipID, teamID, caller
 	return &m, nil
 }
 
+// SetMemberTitle sets or clears the caller's own title on membershipID.
+func (s *Service) SetMemberTitle(ctx context.Context, membershipID, teamID, callerUserID string, title *string) (*gen.Member, error) {
+	mr, err := s.repo.SetMemberTitle(ctx, membershipID, teamID, callerUserID, title)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		if errors.Is(err, ErrCannotSetOthersTitle) {
+			return nil, ErrCannotSetOthersTitle
+		}
+		return nil, fmt.Errorf("members.Service.SetMemberTitle: %w", err)
+	}
+	m := toGenMember(*mr)
+	return &m, nil
+}
+
 // SetRoles replaces the member's role assignments. callerUserID is the
 // acting user, used to enforce that they cannot grant a permission level
 // they do not themselves hold (see enforceNoPermissionEscalation).
@@ -202,6 +219,7 @@ func toGenMember(mr MemberRow) gen.Member {
 		AvatarColor:      mr.AvatarColor,
 		HasPhoto:         &hasPhoto,
 		Group:            mr.Group,
+		Title:            mr.Title,
 		JoinedAt:         mr.JoinedAt,
 		Roles:            genRoles,
 		PrimaryRole:      primaryRole,

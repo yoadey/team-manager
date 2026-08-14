@@ -158,6 +158,7 @@ type Membership struct {
 	JoinedAt         time.Time
 	UpdatedAt        time.Time
 	ExcludeFromStats bool
+	Title            pgtype.Text
 }
 
 type MembershipRole struct {

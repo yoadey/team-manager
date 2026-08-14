@@ -203,6 +203,7 @@ func TestMembersRepository_UpdateMember(t *testing.T) {
 	newAddr := "123 Main St"
 	bday := time.Date(1990, 5, 15, 0, 0, 0, 0, time.UTC)
 	grp := "seniors"
+	title := "Witzbeauftragter"
 
 	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String(), members.MemberPatch{
 		Name:     &newName,
@@ -211,6 +212,7 @@ func TestMembersRepository_UpdateMember(t *testing.T) {
 		Address:  &newAddr,
 		Birthday: &bday,
 		Group:    &grp,
+		Title:    &title,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, updated)
@@ -221,6 +223,7 @@ func TestMembersRepository_UpdateMember(t *testing.T) {
 	require.NotNil(t, updated.Birthday)
 	assert.Equal(t, bday.Format("2006-01-02"), updated.Birthday.Format("2006-01-02"))
 	assert.Equal(t, &grp, updated.Group)
+	assert.Equal(t, &title, updated.Title)
 }
 
 func TestMembersRepository_UpdateMember_ExcludeFromStats(t *testing.T) {
@@ -455,6 +458,76 @@ func TestMembersRepository_UpdateMember_ChangeOwnEmail_Allowed(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "self-editor-new@example.com", updated.Email)
+}
+
+func TestMembersRepository_SetMemberTitle_Self(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	m := seedMember(t, pool, teamID, "Self Titler", "self-titler@example.com")
+
+	title := "Witzbeauftragter"
+	updated, err := repo.SetMemberTitle(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String(), &title)
+	require.NoError(t, err)
+	assert.Equal(t, &title, updated.Title)
+}
+
+func TestMembersRepository_SetMemberTitle_Clear(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	m := seedMember(t, pool, teamID, "Clear Titler", "clear-titler@example.com")
+
+	title := "Orgaente"
+	_, err := repo.SetMemberTitle(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String(), &title)
+	require.NoError(t, err)
+
+	cleared, err := repo.SetMemberTitle(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String(), nil)
+	require.NoError(t, err)
+	assert.Nil(t, cleared.Title)
+}
+
+func TestMembersRepository_SetMemberTitle_OtherMember_ReturnsErrCannotSetOthersTitle(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	target := seedMember(t, pool, teamID, "Target Member", "target-title@example.com")
+	otherUserID := uuid.New()
+
+	title := "Not mine to set"
+	_, err := repo.SetMemberTitle(ctx, target.MembershipID.String(), teamID.String(), otherUserID.String(), &title)
+	require.ErrorIs(t, err, members.ErrCannotSetOthersTitle)
+}
+
+func TestMembersRepository_SetMemberTitle_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	otherTeamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Team')`, otherTeamID)
+	require.NoError(t, err)
+
+	m := seedMember(t, pool, teamID, "Cross Team Titler", "crossteam-titler@example.com")
+
+	title := "Doesn't matter"
+	_, err = repo.SetMemberTitle(ctx, m.MembershipID.String(), otherTeamID.String(), m.UserID.String(), &title)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
 func TestMembersRepository_SetRoles(t *testing.T) {

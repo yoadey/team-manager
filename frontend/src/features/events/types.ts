@@ -111,6 +111,7 @@ export interface AttendanceRow {
   avatarColor: string;
   photo: string | null;
   group: string;
+  title: string;
   primaryRole: Role | null;
   status: AttendanceStatus;
   reason: string;

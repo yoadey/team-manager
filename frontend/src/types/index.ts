@@ -63,6 +63,7 @@ export interface Membership {
   userId: string;
   roleIds: string[];
   group: string;
+  title: string;
   joinedAt: string;
   excludeFromStats: boolean;
 }

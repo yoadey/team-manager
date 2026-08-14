@@ -12,6 +12,8 @@ export interface MemberDto {
   avatarColor: string;
   photo: string | null;
   group: string;
+  /** Short, self-service, purely cosmetic label (e.g. "Witzbeauftragter"). Display-only. */
+  title: string;
   roles: RoleDto[];
   joinedAt: string;
   /** When true, this member is omitted from personal-quota-oriented attendance statistics. */
@@ -34,6 +36,7 @@ export interface MemberFormValues extends Record<string, unknown> {
   address: string;
   roleIds: string[];
   group: string;
+  title: string;
   photo: string | null;
   excludeFromStats: boolean;
 }

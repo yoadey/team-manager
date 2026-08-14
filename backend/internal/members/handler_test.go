@@ -32,6 +32,7 @@ type mockMemberService struct {
 	getMemberPhoto      func(ctx context.Context, teamID, membershipID string) (string, error)
 	getMemberPhotoBytes func(ctx context.Context, teamID, membershipID string) (io.ReadCloser, string, error)
 	updateMember        func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error)
+	setMemberTitle      func(ctx context.Context, membershipID, teamID, callerUserID string, title *string) (*gen.Member, error)
 	setRoles            func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
 	removeMember        func(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
@@ -56,6 +57,10 @@ func (m *mockMemberService) GetMemberPhotoBytes(ctx context.Context, teamID, mem
 
 func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error) {
 	return m.updateMember(ctx, membershipID, teamID, callerUserID, patch)
+}
+
+func (m *mockMemberService) SetMemberTitle(ctx context.Context, membershipID, teamID, callerUserID string, title *string) (*gen.Member, error) {
+	return m.setMemberTitle(ctx, membershipID, teamID, callerUserID, title)
 }
 
 func (m *mockMemberService) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error) {
@@ -234,6 +239,108 @@ func TestMemberHandler_UpdateMember_CannotChangeOthersEmail_Returns403(t *testin
 	apiErr, ok := err.(*apierror.APIError)
 	require.True(t, ok, "expected *apierror.APIError, got %T", err)
 	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
+func TestMemberHandler_UpdateMember_TitleTooLong_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	longTitle := strings.Repeat("t", 41)
+	body := &gen.UpdateMemberJSONRequestBody{Title: &longTitle}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+func TestMemberHandler_SetMemberTitle_TooLong_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Member", Email: "m@x.c"})
+	longTitle := strings.Repeat("t", 41)
+	_, err := h.SetMemberTitle(ctx, gen.SetMemberTitleRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.SetMemberTitleJSONRequestBody{Title: longTitle},
+	})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+}
+
+func TestMemberHandler_SetMemberTitle_TrimsWhitespaceAndClearsOnEmpty(t *testing.T) {
+	t.Parallel()
+
+	var capturedTitle *string
+	svc := &mockMemberService{
+		setMemberTitle: func(_ context.Context, _, _, _ string, title *string) (*gen.Member, error) {
+			capturedTitle = title
+			return &gen.Member{}, nil
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Member", Email: "m@x.c"})
+
+	_, err := h.SetMemberTitle(ctx, gen.SetMemberTitleRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.SetMemberTitleJSONRequestBody{Title: "  Witzbeauftragter  "},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedTitle)
+	assert.Equal(t, "Witzbeauftragter", *capturedTitle)
+
+	_, err = h.SetMemberTitle(ctx, gen.SetMemberTitleRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.SetMemberTitleJSONRequestBody{Title: "   "},
+	})
+	require.NoError(t, err)
+	assert.Nil(t, capturedTitle, "whitespace-only title must clear (nil), not store blank spaces")
+}
+
+func TestMemberHandler_SetMemberTitle_CannotSetOthersTitle_Returns403(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		setMemberTitle: func(context.Context, string, string, string, *string) (*gen.Member, error) {
+			return nil, members.ErrCannotSetOthersTitle
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Member", Email: "m@x.c"})
+
+	_, err := h.SetMemberTitle(ctx, gen.SetMemberTitleRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.SetMemberTitleJSONRequestBody{Title: "Not mine"},
+	})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
+func TestMemberHandler_SetMemberTitle_NotFound_Returns404(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		setMemberTitle: func(context.Context, string, string, string, *string) (*gen.Member, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Member", Email: "m@x.c"})
+
+	_, err := h.SetMemberTitle(ctx, gen.SetMemberTitleRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.SetMemberTitleJSONRequestBody{Title: "Anything"},
+	})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
 }
 
 func TestMemberHandler_SetMemberRoles_LastSettingsAdmin_Returns409(t *testing.T) {

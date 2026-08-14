@@ -542,6 +542,10 @@ func (s *Server) UpdateMember(ctx context.Context, req gen.UpdateMemberRequestOb
 	return s.Members.UpdateMember(ctx, req)
 }
 
+func (s *Server) SetMemberTitle(ctx context.Context, req gen.SetMemberTitleRequestObject) (gen.SetMemberTitleResponseObject, error) {
+	return s.Members.SetMemberTitle(ctx, req)
+}
+
 func (s *Server) SetMemberRoles(ctx context.Context, req gen.SetMemberRolesRequestObject) (gen.SetMemberRolesResponseObject, error) {
 	return s.Members.SetMemberRoles(ctx, req)
 }

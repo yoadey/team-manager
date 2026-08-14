@@ -19,6 +19,7 @@ export interface SaveMemberInput {
     birthday: string;
     address: string;
     group: string;
+    title: string;
     excludeFromStats?: boolean;
   };
   roleIds: string[];
@@ -74,6 +75,18 @@ export function useSaveMemberMutation(
       await refreshTeams();
       return { member, user };
     },
+    onSuccess: () => invalidate(),
+  });
+}
+
+// Self-service: calls the dedicated PUT .../title endpoint (no members:write
+// required), unlike the rest of the member profile which goes through
+// useSaveMemberMutation's members:write-gated PATCH.
+export function useSetMyTitleMutation(api: typeof defaultApi, teamId: string | null) {
+  const invalidate = useInvalidateMembers(teamId);
+  return useMutation({
+    mutationFn: ({ membershipId, title }: { membershipId: string; title: string }) =>
+      api.members.setMyTitle(membershipId, title, teamId!),
     onSuccess: () => invalidate(),
   });
 }
