@@ -74,11 +74,12 @@ export function perms(overrides: Partial<Permissions> = {}): Permissions {
     news: 'none',
     polls: 'none',
     settings: 'none',
+    stats: 'none',
     ...overrides,
   };
 }
 
-export const MODULES: ModuleKey[] = ['events', 'members', 'finances', 'news', 'polls', 'settings'];
+export const MODULES: ModuleKey[] = ['events', 'members', 'finances', 'news', 'polls', 'settings', 'stats'];
 const LEVEL: Record<PermLevel, number> = { none: 0, read: 1, write: 2 };
 
 export function mergePerms(roles: RoleDto[]): Permissions {
@@ -117,6 +118,7 @@ function defaultRoles(teamId: string): RoleDto[] {
         news: 'write',
         polls: 'write',
         settings: 'write',
+        stats: 'write',
       }),
     },
     {
@@ -125,7 +127,14 @@ function defaultRoles(teamId: string): RoleDto[] {
       name: DEFAULT_MEMBER_ROLE_NAME,
       system: true,
       color: '#5B6470',
-      permissions: perms({ events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read' }),
+      permissions: perms({
+        events: 'read',
+        members: 'read',
+        finances: 'read',
+        news: 'read',
+        polls: 'read',
+        stats: 'read',
+      }),
     },
     {
       id: rid('role'),

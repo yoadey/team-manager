@@ -185,56 +185,6 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 	return out, rows.Err()
 }
 
-// AbsenceStats returns one row per (member, event) pair in the date range
-// where the member's effective attendance status is absent ("no") -- reuses
-// the same roster-driven join and attendance.EffectiveStatusExpr as
-// MemberStats/EventStats (so a covering planned absence or an explicit "no"
-// response both count, matching the event summary), scoped to the same
-// team + date range the quota view's active filter already applies.
-func (r *Repository) AbsenceStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]AbsenceRow, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	rows, err := r.db.Query(ctx, `
-		SELECT user_id, name, event_id, title, date
-		FROM (
-			SELECT
-				u.id           AS user_id,
-				u.name         AS name,
-				e.id           AS event_id,
-				e.title        AS title,
-				e.date::text   AS date,
-				CASE
-					WHEN a.status IS NULL AND `+attendance.NotRelevantAbsenceCoversExpr+` THEN 'excluded'
-					ELSE `+attendance.EffectiveStatusExpr+`
-				END AS eff
-			FROM memberships m
-			JOIN users u ON u.id = m.user_id
-			JOIN events e ON e.team_id = m.team_id
-				AND e.date BETWEEN $2 AND $3
-				AND e.status = 'active'
-				AND e.exclude_from_stats = false
-			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
-			WHERE m.team_id = $1 AND m.exclude_from_stats = false
-		) sub
-		WHERE eff = 'no'
-		ORDER BY date, name
-	`, teamID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("stats.Repository.AbsenceStats: %w", err)
-	}
-	defer rows.Close()
-
-	var out []AbsenceRow
-	for rows.Next() {
-		var a AbsenceRow
-		if err := rows.Scan(&a.UserID, &a.Name, &a.EventID, &a.EventTitle, &a.Date); err != nil {
-			return nil, fmt.Errorf("stats.Repository.AbsenceStats scan: %w", err)
-		}
-		out = append(out, a)
-	}
-	return out, rows.Err()
-}
-
 // SingleMemberStats returns attendance aggregations for one member in the date range.
 func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*MemberStatRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)

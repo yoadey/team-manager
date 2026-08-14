@@ -11,6 +11,7 @@ const writeAll: Permissions = {
   news: 'write',
   polls: 'write',
   settings: 'write',
+  stats: 'write',
 };
 
 const adminRole: Role = {

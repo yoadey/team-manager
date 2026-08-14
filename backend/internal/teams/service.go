@@ -494,6 +494,7 @@ func ToGenRole(r RoleRow) gen.Role {
 			News:     gen.PermLevel(r.Permissions.News),
 			Polls:    gen.PermLevel(r.Permissions.Polls),
 			Settings: gen.PermLevel(r.Permissions.Settings),
+			Stats:    gen.PermLevel(r.Permissions.Stats),
 		},
 	}
 }

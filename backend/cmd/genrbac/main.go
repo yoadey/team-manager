@@ -36,7 +36,7 @@ var httpMethods = []string{"get", "put", "post", "delete", "options", "head", "p
 // "public" sentinel meaning "membership is sufficient, no module gate".
 var validModules = map[string]bool{
 	"public": true, "events": true, "members": true, "finances": true,
-	"news": true, "polls": true, "settings": true,
+	"news": true, "polls": true, "settings": true, "stats": true,
 }
 
 type routeEntry struct {

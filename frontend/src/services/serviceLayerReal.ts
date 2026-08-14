@@ -27,7 +27,6 @@ import {
   mapContribution,
   mapStatsOverview,
   mapAttendanceMatrix,
-  mapAttendanceAbsenceTable,
   mapStatsPreferences,
   mapStatsPreset,
   mapCalendarShare,
@@ -45,7 +44,6 @@ import type {
   DateRange,
   StatsOverview,
   AttendanceMatrix,
-  AttendanceAbsenceTable,
   StatsPreferences,
   StatsPreset,
   CalendarFeedSettings,
@@ -1177,13 +1175,6 @@ export const realApi = {
       });
       const m = await check(res);
       return mapAttendanceMatrix(m);
-    },
-    async absenceTable(teamId: string, range?: DateRange | null): Promise<AttendanceAbsenceTable> {
-      const res = await apiClient.GET('/teams/{teamId}/stats/absences', {
-        params: { path: { teamId }, query: { ...opt('from', range?.from ?? undefined), ...opt('to', range?.to ?? undefined) } },
-      });
-      const t = await check(res);
-      return mapAttendanceAbsenceTable(t);
     },
   },
 

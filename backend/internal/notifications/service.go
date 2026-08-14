@@ -88,7 +88,7 @@ func NotificationModule(notifType gen.NotificationType) string {
 
 // HasReadAccess reports whether p grants at least "read" on module. An empty
 // module (self-standing notification types, e.g. "absence") is always
-// visible. Every other module string must match one of PermissionsJSON's six
+// visible. Every other module string must match one of PermissionsJSON's
 // fields explicitly and fail CLOSED on anything else -- unlike
 // NotificationModule's callers-are-trusted default, this function is the
 // actual gate deciding whether a notification is shown, so an unrecognized
@@ -96,7 +96,7 @@ func NotificationModule(notifType gen.NotificationType) string {
 // "finances"/"settings" for a new notification type, without a matching case
 // added here too) must not silently grant access, mirroring
 // middleware/authz.go's hasWritePermission/hasAnyPermission, which fail
-// closed on the same six module names for the identical reason.
+// closed on the same module names for the identical reason.
 //
 // Exported for the same reason NotificationModule is -- internal/jobs
 // applies it before enqueuing a Web Push delivery.
@@ -118,6 +118,8 @@ func HasReadAccess(p teams.PermissionsJSON, module string) bool {
 		level = p.Polls
 	case "settings":
 		level = p.Settings
+	case "stats":
+		level = p.Stats
 	default:
 		return false
 	}

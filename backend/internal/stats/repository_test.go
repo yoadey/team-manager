@@ -328,199 +328,6 @@ func TestStatsRepository_SingleMemberStats_NonMemberBlocked(t *testing.T) {
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
-func TestStatsRepository_AbsenceStats_ExplicitNo(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := stats.NewRepository(pool)
-	ctx := context.Background()
-
-	uid := uuid.New().String()
-	tid := uuid.New().String()
-
-	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Absent Explicit', 'absentexp@example.com', '#112233')`, uid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Absence Stats Team')`, tid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
-	require.NoError(t, err)
-
-	today := time.Now().UTC().Format("2006-01-02")
-	var eid string
-	err = pool.QueryRow(ctx,
-		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Missed Training', $2, 'active') RETURNING id`,
-		tid, today).Scan(&eid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx,
-		`INSERT INTO attendance (event_id, user_id, status) VALUES ($1, $2, 'no')`, eid, uid)
-	require.NoError(t, err)
-
-	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
-	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
-
-	rows, err := repo.AbsenceStats(ctx, uuid.MustParse(tid), from, to)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, "Absent Explicit", rows[0].Name)
-	assert.Equal(t, "Missed Training", rows[0].EventTitle)
-	assert.Equal(t, today, rows[0].Date)
-	assert.Equal(t, eid, rows[0].EventID.String())
-}
-
-// A covering planned absence must also surface as a row here, matching the
-// "no" default MemberStats already applies via attendance.EffectiveStatusExpr.
-func TestStatsRepository_AbsenceStats_CoveringPlannedAbsence(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := stats.NewRepository(pool)
-	ctx := context.Background()
-
-	uid := uuid.New().String()
-	tid := uuid.New().String()
-
-	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Absent Planned', 'absentplanned@example.com', '#223344')`, uid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Absence Planned Team')`, tid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
-	require.NoError(t, err)
-
-	today := time.Now().UTC().Format("2006-01-02")
-	_, err = pool.Exec(ctx,
-		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Covered Training', $2, 'active')`,
-		tid, today)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx,
-		`INSERT INTO absences (team_id, user_id, from_date, to_date) VALUES ($1, $2, $3, $3)`, tid, uid, today)
-	require.NoError(t, err)
-
-	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
-	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
-
-	rows, err := repo.AbsenceStats(ctx, uuid.MustParse(tid), from, to)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, "Covered Training", rows[0].EventTitle)
-}
-
-// A member who attended ('yes') must not show up in the absence table.
-func TestStatsRepository_AbsenceStats_ExcludesAttended(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := stats.NewRepository(pool)
-	ctx := context.Background()
-
-	uid := uuid.New().String()
-	tid := uuid.New().String()
-
-	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Attended User', 'attended@example.com', '#334455')`, uid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Attended Team')`, tid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
-	require.NoError(t, err)
-
-	today := time.Now().UTC().Format("2006-01-02")
-	var eid string
-	err = pool.QueryRow(ctx,
-		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Attended Training', $2, 'active') RETURNING id`,
-		tid, today).Scan(&eid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx,
-		`INSERT INTO attendance (event_id, user_id, status) VALUES ($1, $2, 'yes')`, eid, uid)
-	require.NoError(t, err)
-
-	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
-	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
-
-	rows, err := repo.AbsenceStats(ctx, uuid.MustParse(tid), from, to)
-	require.NoError(t, err)
-	assert.Empty(t, rows)
-}
-
-// An event outside the [from, to] date range must not contribute a row, even
-// though it would otherwise be an absence.
-func TestStatsRepository_AbsenceStats_RespectsDateRange(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := stats.NewRepository(pool)
-	ctx := context.Background()
-
-	uid := uuid.New().String()
-	tid := uuid.New().String()
-
-	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Out Of Range', 'outofrange@example.com', '#445566')`, uid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Out Of Range Team')`, tid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
-	require.NoError(t, err)
-
-	farPast := time.Now().UTC().AddDate(-1, 0, 0).Format("2006-01-02")
-	var eid string
-	err = pool.QueryRow(ctx,
-		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Old Training', $2, 'active') RETURNING id`,
-		tid, farPast).Scan(&eid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx,
-		`INSERT INTO attendance (event_id, user_id, status) VALUES ($1, $2, 'no')`, eid, uid)
-	require.NoError(t, err)
-
-	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
-	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
-
-	rows, err := repo.AbsenceStats(ctx, uuid.MustParse(tid), from, to)
-	require.NoError(t, err)
-	assert.Empty(t, rows, "an absence for an event outside the date range must not be returned")
-}
-
-// A team-scoping guard: absences for a different team's member/event must
-// never leak into this team's absence table.
-func TestStatsRepository_AbsenceStats_TeamScoped(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := stats.NewRepository(pool)
-	ctx := context.Background()
-
-	uid := uuid.New().String()
-	tid := uuid.New().String()
-	otherTid := uuid.New().String()
-
-	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Other Team Member', 'otherteam@example.com', '#556677')`, uid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Scoped Team')`, tid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Scoped Team')`, otherTid)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, otherTid, uid)
-	require.NoError(t, err)
-
-	today := time.Now().UTC().Format("2006-01-02")
-	_, err = pool.Exec(ctx,
-		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Other Team Training', $2, 'active')`,
-		otherTid, today)
-	require.NoError(t, err)
-	// No attendance row -> would default per opt_out/pending rules, but since
-	// the member isn't in tid's roster at all, tid's absence table must be
-	// empty regardless.
-
-	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
-	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
-
-	rows, err := repo.AbsenceStats(ctx, uuid.MustParse(tid), from, to)
-	require.NoError(t, err)
-	assert.Empty(t, rows, "another team's events/members must not leak into this team's absence table")
-}
-
 // An event flagged exclude_from_stats must be completely absent from every
 // statistics view (member quotas, per-event stats, the attendance matrix) --
 // as if it didn't exist for statistics purposes -- while a normal event in
@@ -663,11 +470,6 @@ func TestStatsRepository_NotRelevantAbsence_ExcludedFromStats(t *testing.T) {
 	require.Len(t, eventRows, 1)
 	assert.Equal(t, 1, eventRows[0].Counted, "only the normal absence counts toward this event's turnout")
 
-	absenceRows, err := repo.AbsenceStats(ctx, teamID, from, to)
-	require.NoError(t, err)
-	require.Len(t, absenceRows, 1, "the not-relevant absence must not appear in the absence table")
-	assert.Equal(t, normalUID, absenceRows[0].UserID.String())
-
 	_, cells, err := repo.AttendanceMatrix(ctx, teamID, from, to)
 	require.NoError(t, err)
 	byUser := map[string]stats.MatrixCellRow{}
@@ -776,8 +578,8 @@ func TestStatsRepository_ExcludedMember_OmittedFromPersonalQuotas_ButCountedInEv
 	require.NoError(t, err)
 
 	// A second event both members miss via a covering planned absence (no
-	// explicit response), to exercise AbsenceStats' own exclude_from_stats
-	// filter.
+	// explicit response), to exercise EventStats' own exclude_from_stats
+	// filter across more than one event.
 	var missedID string
 	err = pool.QueryRow(ctx,
 		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Missed Training', $2, 'active') RETURNING id`,
@@ -811,13 +613,6 @@ func TestStatsRepository_ExcludedMember_OmittedFromPersonalQuotas_ButCountedInEv
 	for _, c := range cells {
 		assert.NotEqual(t, excludedUID, c.UserID.String(), "excluded member must have no matrix row")
 	}
-
-	absenceRows, err := repo.AbsenceStats(ctx, teamID, from, to)
-	require.NoError(t, err)
-	for _, a := range absenceRows {
-		assert.NotEqual(t, excludedUID, a.UserID.String(), "excluded member must have no absence-table row")
-	}
-	require.NotEmpty(t, absenceRows, "sanity check: the included member's absence is still reported")
 
 	eventRows, err := repo.EventStats(ctx, teamID, from, to)
 	require.NoError(t, err)

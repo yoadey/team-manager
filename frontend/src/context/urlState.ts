@@ -39,12 +39,12 @@ export const ALL_ROUTES: Route[] = [
  * rail/bottom nav, NavSheets' MoreSheet, Home's cross-links) so the two
  * can't drift apart the way they did before this map existed.
  */
-export const ROUTE_MODULE: Record<Route, 'events' | 'members' | 'finances' | 'news' | 'polls' | null> = {
+export const ROUTE_MODULE: Record<Route, 'events' | 'members' | 'finances' | 'news' | 'polls' | 'stats' | null> = {
   home: null,
   events: 'events',
   members: 'members',
   finances: 'finances',
-  stats: 'events',
+  stats: 'stats',
   news: 'news',
   polls: 'polls',
   team: 'members',

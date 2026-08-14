@@ -699,8 +699,8 @@ export const handlers = [
     // under noUncheckedIndexedAccess -- this is always exactly these two seeded
     // roles, never an arbitrary-length array.
     const roles: [RoleDto, RoleDto] = [
-      { id: rid('role'), teamId: team.id, name: 'Admin / Trainer', system: true, color: '#1565C0', permissions: { events: 'write', members: 'write', finances: 'write', news: 'write', polls: 'write', settings: 'write' } },
-      { id: rid('role'), teamId: team.id, name: 'Mitglied', system: true, color: '#5B6470', permissions: { events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read', settings: 'none' } },
+      { id: rid('role'), teamId: team.id, name: 'Admin / Trainer', system: true, color: '#1565C0', permissions: { events: 'write', members: 'write', finances: 'write', news: 'write', polls: 'write', settings: 'write', stats: 'write' } },
+      { id: rid('role'), teamId: team.id, name: 'Mitglied', system: true, color: '#5B6470', permissions: { events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read', settings: 'none', stats: 'read' } },
     ];
     const [adminRole] = roles;
     db.roles.push(...roles);
@@ -1833,31 +1833,6 @@ export const handlers = [
       .sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name, 'de'));
 
     const body: S['AttendanceMatrix'] = { from, to, events: columns, members };
-    return HttpResponse.json(body);
-  }),
-
-  http.get(P('/teams/:teamId/stats/absences'), async ({ params, request }) => {
-    await mockDelay();
-    const teamId = params.teamId as string;
-    const url = new URL(request.url);
-    const today = todayLocalDate();
-    const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
-    const to = url.searchParams.get('to') || today;
-    const memberIds = db.memberships
-      .filter((m) => m.teamId === teamId && !m.excludeFromStats)
-      .map((m) => m.userId);
-    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to && !e.excludeFromStats).sort((a, b) => a.date.localeCompare(b.date));
-
-    const rows: S['AttendanceAbsenceRow'][] = [];
-    events.forEach((e) => {
-      memberIds.forEach((uid) => {
-        if (rawCountedStatus(e.id, uid) !== 'no') return;
-        const u = requireUser(uid);
-        rows.push({ userId: u.id, memberName: u.name, eventId: e.id, eventTitle: e.title, eventDate: e.date });
-      });
-    });
-
-    const body: S['AttendanceAbsenceTable'] = { rows, from, to };
     return HttpResponse.json(body);
   }),
 

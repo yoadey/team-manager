@@ -85,6 +85,7 @@ const Permissions = z
     news: PermLevel,
     polls: PermLevel,
     settings: PermLevel,
+    stats: PermLevel,
   })
   .passthrough();
 const Role = z
@@ -710,22 +711,6 @@ const MemberAttendanceStats = z
     yes: z.number().int(),
   })
   .passthrough();
-const AttendanceAbsenceRow = z
-  .object({
-    userId: z.string().uuid(),
-    memberName: z.string(),
-    eventId: z.string().uuid(),
-    eventTitle: z.string(),
-    eventDate: z.string(),
-  })
-  .passthrough();
-const AttendanceAbsenceTable = z
-  .object({
-    rows: z.array(AttendanceAbsenceRow),
-    from: z.string(),
-    to: z.string(),
-  })
-  .passthrough();
 const StatsPreferences = z
   .object({ from: z.string(), to: z.string(), presetId: z.string().uuid() })
   .partial()
@@ -855,8 +840,6 @@ export const schemas = {
   AttendanceMatrixRow,
   AttendanceMatrix,
   MemberAttendanceStats,
-  AttendanceAbsenceRow,
-  AttendanceAbsenceTable,
   StatsPreferences,
   SetStatsPreferencesRequest,
   StatsPreset,
@@ -2838,30 +2821,6 @@ const endpoints = makeApi([
       },
     ],
     response: z.void(),
-  },
-  {
-    method: "get",
-    path: "/teams/:teamId/stats/absences",
-    alias: "getStatsAbsences",
-    requestFormat: "json",
-    parameters: [
-      {
-        name: "teamId",
-        type: "Path",
-        schema: z.string().uuid(),
-      },
-      {
-        name: "from",
-        type: "Query",
-        schema: z.string().optional(),
-      },
-      {
-        name: "to",
-        type: "Query",
-        schema: z.string().optional(),
-      },
-    ],
-    response: AttendanceAbsenceTable,
   },
   {
     method: "get",

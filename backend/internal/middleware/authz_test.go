@@ -90,7 +90,7 @@ func TestRequireMembership_NonMember_Forbidden(t *testing.T) {
 func allWritePerms() teams.PermissionsJSON {
 	return teams.PermissionsJSON{
 		Events: "write", Members: "write", Finances: "write",
-		News: "write", Polls: "write", Settings: "write",
+		News: "write", Polls: "write", Settings: "write", Stats: "write",
 	}
 }
 
@@ -98,7 +98,7 @@ func allWritePerms() teams.PermissionsJSON {
 func allReadPerms() teams.PermissionsJSON {
 	return teams.PermissionsJSON{
 		Events: "read", Members: "read", Finances: "read",
-		News: "read", Polls: "read", Settings: "read",
+		News: "read", Polls: "read", Settings: "read", Stats: "read",
 	}
 }
 
@@ -151,28 +151,39 @@ func TestRequirePermission_GET_UnrestrictedPaths_AlwaysPass(t *testing.T) {
 	}
 }
 
-// Regression test: /stats has no write routes of its own, but its GET
-// responses (event titles/types/dates, per-member attendance breakdowns) are
-// exactly the data the "events" module's "none" is meant to hide -- gate
-// reads behind events:read, the same as the events module itself.
-func TestRequirePermission_GET_Stats_RequiresEventsReadPermission(t *testing.T) {
+// /stats has no write routes of its own, but its GET responses (event
+// titles/types/dates, per-member attendance breakdowns) are exactly the
+// data the "stats" module's "none" is meant to hide -- gate reads behind
+// stats:read, independent of the events module (a team may show event
+// details to everyone while restricting attendance statistics to coaches).
+func TestRequirePermission_GET_Stats_RequiresStatsReadPermission(t *testing.T) {
 	paths := []string{
 		"/api/v1/teams/" + testTeamID.String() + "/stats",
 		"/api/v1/teams/" + testTeamID.String() + "/stats/members/" + uuid.New().String(),
+		"/api/v1/teams/" + testTeamID.String() + "/stats/attendance-matrix",
 	}
 
-	readPerms := &mockPermissionChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	statsReadPerms := &mockPermissionChecker{perms: teams.PermissionsJSON{Stats: "read"}}
 	for _, p := range paths {
 		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
-		rec := applyPermMW(readPerms, req)
-		assert.Equal(t, http.StatusOK, rec.Code, "GET %s with events:read should pass", p)
+		rec := applyPermMW(statsReadPerms, req)
+		assert.Equal(t, http.StatusOK, rec.Code, "GET %s with stats:read should pass", p)
+	}
+
+	// events:read alone must NOT be sufficient -- stats is gated by its own
+	// module, independent of events, since this change split them apart.
+	eventsReadOnlyPerms := &mockPermissionChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	for _, p := range paths {
+		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
+		rec := applyPermMW(eventsReadOnlyPerms, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code, "GET %s with only events:read (no stats) should be forbidden", p)
 	}
 
 	nonePerms := &mockPermissionChecker{perms: teams.PermissionsJSON{}}
 	for _, p := range paths {
 		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
 		rec := applyPermMW(nonePerms, req)
-		assert.Equal(t, http.StatusForbidden, rec.Code, "GET %s with events:none should be forbidden", p)
+		assert.Equal(t, http.StatusForbidden, rec.Code, "GET %s with stats:none should be forbidden", p)
 	}
 }
 
@@ -328,6 +339,48 @@ func TestRequirePermission_Mutations(t *testing.T) {
 			"notifications seen self-service ok with all modules none", http.MethodPost,
 			"/api/v1/teams/" + tid + "/notifications/seen",
 			teams.PermissionsJSON{},
+			http.StatusOK,
+		},
+		// self-service: saving the caller's last-selected stats range only
+		// requires stats:read, never stats:write -- it's an automatic side
+		// effect of viewing, not "defining a preset".
+		{
+			"set stats preferences self-service ok (stats:read)", http.MethodPut,
+			"/api/v1/teams/" + tid + "/stats-preferences",
+			teams.PermissionsJSON{Stats: "read"},
+			http.StatusOK,
+		},
+		{
+			"set stats preferences denied with stats:none", http.MethodPut,
+			"/api/v1/teams/" + tid + "/stats-preferences",
+			teams.PermissionsJSON{},
+			http.StatusForbidden,
+		},
+		// Defining a personal stats preset (create/rename/delete) is NOT
+		// self-service -- it requires stats:write, unlike the read-gated
+		// preferences PUT above.
+		{
+			"create stats preset requires stats:write, not self-service (stats:read denied)", http.MethodPost,
+			"/api/v1/teams/" + tid + "/stats-presets",
+			teams.PermissionsJSON{Stats: "read"},
+			http.StatusForbidden,
+		},
+		{
+			"create stats preset write ok", http.MethodPost,
+			"/api/v1/teams/" + tid + "/stats-presets",
+			teams.PermissionsJSON{Stats: "write"},
+			http.StatusOK,
+		},
+		{
+			"delete stats preset requires stats:write (stats:read denied)", http.MethodDelete,
+			"/api/v1/teams/" + tid + "/stats-presets/" + uuid.New().String(),
+			teams.PermissionsJSON{Stats: "read"},
+			http.StatusForbidden,
+		},
+		{
+			"delete stats preset write ok", http.MethodDelete,
+			"/api/v1/teams/" + tid + "/stats-presets/" + uuid.New().String(),
+			teams.PermissionsJSON{Stats: "write"},
 			http.StatusOK,
 		},
 	}

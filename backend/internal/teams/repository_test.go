@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 	"github.com/yoadey/team-manager/backend/internal/testutil"
 )
@@ -114,7 +115,47 @@ func TestTeamRepository_CreateTeam_DefaultMemberRoleCanReadRosterAndRoleCatalog(
 	assert.Equal(t, "read", perms.Events)
 	assert.Equal(t, "read", perms.News)
 	assert.Equal(t, "read", perms.Polls)
+	assert.Equal(t, "read", perms.Stats, "ordinary members can see attendance statistics by default")
 	assert.Equal(t, "none", perms.Finances, "financial data stays admin-only by default")
+}
+
+// The default Admin role must grant write on every module, including the
+// stats module, matching every other module it already holds "write" on.
+func TestTeamRepository_CreateTeam_DefaultAdminRoleHasStatsWrite(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	userID := insertUser(t, pool, "admin-stats@example.com")
+	repo := teams.NewRepository(pool)
+	tr, err := repo.CreateTeam(ctx, "Admin Stats Team", userID, nil, nil, nil)
+	require.NoError(t, err)
+
+	var permsJSON []byte
+	err = pool.QueryRow(ctx, `
+		SELECT permissions FROM roles WHERE team_id = $1 AND system = true AND name = 'Admin'
+	`, tr.Id).Scan(&permsJSON)
+	require.NoError(t, err)
+
+	var perms teams.PermissionsJSON
+	require.NoError(t, json.Unmarshal(permsJSON, &perms))
+	assert.Equal(t, "write", perms.Stats)
+}
+
+// Regression test for the runtime fallback the 00032_stats_rbac_module.sql
+// backfill migration exists to avoid relying on: a role row whose
+// permissions JSONB predates the "stats" module (no "stats" key at all)
+// must merge to "none" for stats, not error or panic -- json.Unmarshal
+// leaves PermissionsJSON.Stats as the Go zero value "", and MergePermissions
+// must treat that the same as an explicit "none".
+func TestTeamRepository_MergePermissions_MissingStatsKeyDefaultsToNone(t *testing.T) {
+	t.Parallel()
+
+	preMigrationRole := teams.RoleRow{
+		Permissions: teams.PermissionsJSON{Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write"},
+	}
+	merged := teams.MergePermissions([]teams.RoleRow{preMigrationRole})
+	assert.Equal(t, gen.PermLevel("none"), merged.Stats, "a role row missing the stats key must merge to none, not panic or leak an empty string")
+	assert.Equal(t, gen.PermLevel("write"), merged.Events, "every other module on the same role is unaffected")
 }
 
 func TestTeamRepository_ListForUser(t *testing.T) {

@@ -220,8 +220,12 @@ func enforceNoRoleEscalation(ctx context.Context, qtx *dbgen.Queries, teamID uui
 		foldMax(callerPerms.News, currentPerms.News),
 		foldMax(callerPerms.Polls, currentPerms.Polls),
 		foldMax(callerPerms.Settings, currentPerms.Settings),
+		foldMax(callerPerms.Stats, currentPerms.Stats),
 	}
-	granted := []string{newPerms.Events, newPerms.Members, newPerms.Finances, newPerms.News, newPerms.Polls, newPerms.Settings}
+	granted := []string{
+		newPerms.Events, newPerms.Members, newPerms.Finances, newPerms.News,
+		newPerms.Polls, newPerms.Settings, newPerms.Stats,
+	}
 	for i, level := range granted {
 		if permLevelRank(level) > permLevelRank(ceilings[i]) {
 			return ErrInsufficientPermissionToGrant
@@ -236,7 +240,7 @@ func enforceNoRoleEscalation(ctx context.Context, qtx *dbgen.Queries, teamID uui
 // exported cross-package) since it's a small, self-contained query and the
 // two packages otherwise have no dependency on each other.
 func getEffectivePermissionsByUserQ(ctx context.Context, qtx *dbgen.Queries, teamID, userID uuid.UUID) (teams.PermissionsJSON, error) {
-	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none"}
+	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none", Stats: "none"}
 	perms, err := qtx.GetEffectivePermissionsForUser(ctx, dbgen.GetEffectivePermissionsForUserParams{TeamID: teamID, UserID: userID})
 	if err != nil {
 		return eff, fmt.Errorf("getEffectivePermissionsByUserQ: %w", err)
@@ -256,6 +260,7 @@ func foldPermissions(a, b teams.PermissionsJSON) teams.PermissionsJSON {
 		News:     foldMax(a.News, b.News),
 		Polls:    foldMax(a.Polls, b.Polls),
 		Settings: foldMax(a.Settings, b.Settings),
+		Stats:    foldMax(a.Stats, b.Stats),
 	}
 }
 

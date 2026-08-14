@@ -42,6 +42,7 @@ const MOCK_ROLES = [
       news: 'write',
       polls: 'read',
       settings: 'none',
+      stats: 'read',
     },
   },
   {
@@ -56,6 +57,7 @@ const MOCK_ROLES = [
       news: 'none',
       polls: 'none',
       settings: 'none',
+      stats: 'none',
     },
   },
 ];
@@ -235,7 +237,15 @@ describe('RoleFormSheet', () => {
       type: 'roleForm',
       formInitial: {
         name: '',
-        perms: { events: 'none', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' },
+        perms: {
+          events: 'none',
+          members: 'none',
+          finances: 'none',
+          news: 'none',
+          polls: 'none',
+          settings: 'none',
+          stats: 'none',
+        },
         ...formOverrides,
       },
     } as never;
@@ -293,7 +303,15 @@ describe('RoleFormSheet', () => {
     const app = makeFormApp();
     const sheet = makeFormSheet({
       name: 'Trainer',
-      perms: { events: 'write', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' },
+      perms: {
+        events: 'write',
+        members: 'none',
+        finances: 'none',
+        news: 'none',
+        polls: 'none',
+        settings: 'none',
+        stats: 'none',
+      },
     });
     render(<RoleFormSheet app={app as never} sheet={sheet} />);
     const noneButton = screen.getAllByText('—')[0]!.closest('button')!;

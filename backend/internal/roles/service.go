@@ -111,5 +111,6 @@ func toInternalPermissions(p gen.Permissions) teams.PermissionsJSON {
 		News:     string(p.News),
 		Polls:    string(p.Polls),
 		Settings: string(p.Settings),
+		Stats:    string(p.Stats),
 	}
 }

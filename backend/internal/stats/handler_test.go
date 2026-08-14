@@ -28,7 +28,6 @@ type mockStatsService struct {
 	getOverview      func(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error)
 	getMemberStats   func(ctx context.Context, teamID, userID uuid.UUID, from, to *openapi_types.Date) (*gen.MemberAttendanceStats, error)
 	getAttendanceMat func(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceMatrix, error)
-	getAbsences      func(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceAbsenceTable, error)
 }
 
 func (m *mockStatsService) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error) {
@@ -41,10 +40,6 @@ func (m *mockStatsService) GetMemberStats(ctx context.Context, teamID, userID uu
 
 func (m *mockStatsService) GetAttendanceMatrix(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceMatrix, error) {
 	return m.getAttendanceMat(ctx, teamID, from, to)
-}
-
-func (m *mockStatsService) GetAbsences(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceAbsenceTable, error) {
-	return m.getAbsences(ctx, teamID, from, to)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -211,61 +206,6 @@ func TestHandler_GetMemberStats_ForwardsFromTo(t *testing.T) {
 	require.NotNil(t, gotTo)
 	assert.True(t, from.Equal(gotFrom.Time))
 	assert.True(t, to.Equal(gotTo.Time))
-}
-
-func TestHandler_GetStatsAbsences_Unauthenticated(t *testing.T) {
-	t.Parallel()
-	h := stats.NewHandler(&mockStatsService{}, slog.Default())
-	_, err := h.GetStatsAbsences(context.Background(), gen.GetStatsAbsencesRequestObject{TeamId: statsTeamID})
-	require.Error(t, err)
-}
-
-func TestHandler_GetStatsAbsences_Success(t *testing.T) {
-	t.Parallel()
-
-	table := &gen.AttendanceAbsenceTable{
-		Rows: []gen.AttendanceAbsenceRow{
-			{
-				UserId:     statsUserID,
-				MemberName: "Erin",
-				EventId:    uuid.New(),
-				EventTitle: "Training",
-				EventDate:  openapi_types.Date{Time: time.Now()},
-			},
-		},
-		From: openapi_types.Date{Time: time.Now().AddDate(0, -3, 0)},
-		To:   openapi_types.Date{Time: time.Now()},
-	}
-	svc := &mockStatsService{
-		getAbsences: func(_ context.Context, _ uuid.UUID, _, _ *openapi_types.Date) (*gen.AttendanceAbsenceTable, error) {
-			return table, nil
-		},
-	}
-	h := stats.NewHandler(svc, slog.Default())
-
-	resp, err := h.GetStatsAbsences(statsAuthedCtx(), gen.GetStatsAbsencesRequestObject{TeamId: statsTeamID})
-	require.NoError(t, err)
-
-	w := httptest.NewRecorder()
-	require.NoError(t, resp.VisitGetStatsAbsencesResponse(w))
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	var result gen.AttendanceAbsenceTable
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
-	require.Len(t, result.Rows, 1)
-	assert.Equal(t, "Erin", result.Rows[0].MemberName)
-}
-
-func TestHandler_GetStatsAbsences_ServiceError(t *testing.T) {
-	t.Parallel()
-	svc := &mockStatsService{
-		getAbsences: func(_ context.Context, _ uuid.UUID, _, _ *openapi_types.Date) (*gen.AttendanceAbsenceTable, error) {
-			return nil, errors.New("db error")
-		},
-	}
-	h := stats.NewHandler(svc, slog.Default())
-	_, err := h.GetStatsAbsences(statsAuthedCtx(), gen.GetStatsAbsencesRequestObject{TeamId: statsTeamID})
-	require.Error(t, err)
 }
 
 func TestHandler_GetMemberStats_NonMemberReturnsNotFound(t *testing.T) {

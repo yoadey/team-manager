@@ -6,19 +6,11 @@ import { buildTokens, fmtDate, NEUTRAL, statusMeta, todayStr, typeMeta } from '@
 import { ALL_TIME_FROM_DATE, monthsAgoLocal } from '@/utils/date';
 import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, TextInput, inputSx } from '@/components/ui';
 import { t as tr } from '@/i18n';
-import type {
-  AttendanceAbsenceTable,
-  AttendanceCellStatus,
-  AttendanceMatrix,
-  DateRange,
-  EventType,
-  StatsOverview,
-  StatsPreset,
-} from '@/types';
-import { useAbsenceTableQuery, useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
+import type { AttendanceCellStatus, AttendanceMatrix, DateRange, EventType, StatsOverview, StatsPreset } from '@/types';
+import { useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
 import { useStatsPreferencesActions } from './hooks/useStatsPreferencesActions';
 
-type StatsTab = 'quota' | 'matrix' | 'absences';
+type StatsTab = 'quota' | 'matrix';
 
 // Glyph + colour for each matrix cell state: ✓ ja (grün), ? vielleicht
 // (orange), ✗ nein (rot), – unbekannt (grau).
@@ -46,7 +38,7 @@ export function Stats() {
   const [types, setTypes] = useState<Set<EventType>>(() => new Set(MATRIX_TYPES));
   const { data: st } = useStatsQuery(app.api, state.activeTeamId, state.statsRange);
   const { data: mx } = useAttendanceMatrixQuery(app.api, state.activeTeamId, state.statsRange, tab === 'matrix');
-  const { data: absenceTable } = useAbsenceTableQuery(app.api, state.activeTeamId, state.statsRange);
+  const canDefinePresets = app.can('stats', 'write');
   const {
     preferences,
     preferencesLoaded,
@@ -150,6 +142,7 @@ export function Stats() {
           presets={savedPresets}
           activeId={activeCustomPresetId}
           t={t}
+          canManage={canDefinePresets}
           onSelect={(p) => selectRange({ from: p.from, to: p.to }, p.id)}
           onRename={(p) => openRenamePresetForm(p.id, p.name)}
           onDelete={(p) =>
@@ -162,26 +155,28 @@ export function Stats() {
             })
           }
         />
-        <ButtonBase
-          onClick={openCreatePresetForm}
-          disabled={!canSaveAsPreset}
-          sx={{
-            p: '8px 14px',
-            borderRadius: '999px',
-            fontSize: '13px',
-            fontWeight: 600,
-            cursor: canSaveAsPreset ? 'pointer' : 'default',
-            opacity: canSaveAsPreset ? 1 : 0.5,
-            border: '1.5px dashed ' + NEUTRAL.inputBorder,
-            color: NEUTRAL.onSurfaceVariant,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-          }}
-        >
-          <Sym name="add" size={16} color={NEUTRAL.onSurfaceVariant} />
-          {tr('stats.presetNew')}
-        </ButtonBase>
+        {canDefinePresets ? (
+          <ButtonBase
+            onClick={openCreatePresetForm}
+            disabled={!canSaveAsPreset}
+            sx={{
+              p: '8px 14px',
+              borderRadius: '999px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: canSaveAsPreset ? 'pointer' : 'default',
+              opacity: canSaveAsPreset ? 1 : 0.5,
+              border: '1.5px dashed ' + NEUTRAL.inputBorder,
+              color: NEUTRAL.onSurfaceVariant,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <Sym name="add" size={16} color={NEUTRAL.onSurfaceVariant} />
+            {tr('stats.presetNew')}
+          </ButtonBase>
+        ) : null}
         <Box key="cust" sx={{ display: 'flex', alignItems: 'center', gap: '6px', ml: 'auto' }}>
           <input
             key="f"
@@ -221,7 +216,6 @@ export function Stats() {
   const tabs: [StatsTab, string][] = [
     ['quota', tr('stats.tabQuota')],
     ['matrix', tr('stats.tabMatrix')],
-    ['absences', tr('stats.tabAbsences')],
   ];
   const tabBar = (
     <Box key="tabs" role="tablist" aria-label={tr('stats.tabsAria')} sx={{ display: 'flex', gap: '8px', mb: '16px' }}>
@@ -273,8 +267,7 @@ export function Stats() {
     );
   }
 
-  const loading = tab === 'quota' ? !st : !absenceTable;
-  if (loading)
+  if (!st)
     return (
       <Box sx={{ maxWidth: '760px' }}>
         {filterBar}
@@ -287,11 +280,7 @@ export function Stats() {
     <Box sx={{ maxWidth: '760px' }}>
       {filterBar}
       {tabBar}
-      {tab === 'quota' ? (
-        <QuotaView st={st as StatsOverview} t={t} />
-      ) : (
-        <AbsenceTableView table={absenceTable as AttendanceAbsenceTable} />
-      )}
+      <QuotaView st={st} t={t} />
     </Box>
   );
 }
@@ -303,6 +292,7 @@ function SavedPresetChips({
   presets,
   activeId,
   t,
+  canManage,
   onSelect,
   onRename,
   onDelete,
@@ -310,6 +300,7 @@ function SavedPresetChips({
   presets: StatsPreset[];
   activeId: string | null;
   t: ReturnType<typeof buildTokens>;
+  canManage: boolean;
   onSelect: (p: StatsPreset) => void;
   onRename: (p: StatsPreset) => void;
   onDelete: (p: StatsPreset) => void;
@@ -336,7 +327,7 @@ function SavedPresetChips({
             <ButtonBase
               onClick={() => onSelect(p)}
               sx={{
-                p: '8px 6px 8px 14px',
+                p: canManage ? '8px 6px 8px 14px' : '8px 14px',
                 fontSize: '13px',
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -345,20 +336,24 @@ function SavedPresetChips({
             >
               {p.name}
             </ButtonBase>
-            <ButtonBase
-              onClick={() => onRename(p)}
-              aria-label={tr('stats.presetRename', { name: p.name })}
-              sx={{ width: '26px', height: '26px', borderRadius: '50%', color: onColor }}
-            >
-              <Sym name="edit" size={14} color={onColor} />
-            </ButtonBase>
-            <ButtonBase
-              onClick={() => onDelete(p)}
-              aria-label={tr('stats.presetDelete', { name: p.name })}
-              sx={{ width: '26px', height: '26px', borderRadius: '50%', mr: '4px', color: onColor }}
-            >
-              <Sym name="close" size={14} color={onColor} />
-            </ButtonBase>
+            {canManage ? (
+              <>
+                <ButtonBase
+                  onClick={() => onRename(p)}
+                  aria-label={tr('stats.presetRename', { name: p.name })}
+                  sx={{ width: '26px', height: '26px', borderRadius: '50%', color: onColor }}
+                >
+                  <Sym name="edit" size={14} color={onColor} />
+                </ButtonBase>
+                <ButtonBase
+                  onClick={() => onDelete(p)}
+                  aria-label={tr('stats.presetDelete', { name: p.name })}
+                  sx={{ width: '26px', height: '26px', borderRadius: '50%', mr: '4px', color: onColor }}
+                >
+                  <Sym name="close" size={14} color={onColor} />
+                </ButtonBase>
+              </>
+            ) : null}
           </Box>
         );
       })}
@@ -586,50 +581,6 @@ function QuotaView({ st, t }: { st: StatsOverview; t: ReturnType<typeof buildTok
       {memberBars}
       {eventsSec}
     </>
-  );
-}
-
-function AbsenceTableView({ table }: { table: AttendanceAbsenceTable }) {
-  return (
-    <Box key="abs">
-      <SectionTitle>{tr('stats.absenceTableTitle')}</SectionTitle>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {table.rows.length ? (
-          table.rows.map((r) => (
-            <Box
-              key={r.userId + '_' + r.eventId}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                background: NEUTRAL.card,
-                border: `1px solid ${NEUTRAL.line}`,
-                borderRadius: '14px',
-                p: '11px 14px',
-              }}
-            >
-              <Av name={r.memberName} photo={null} color={NEUTRAL.faint} size={36} />
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Box sx={{ fontSize: '14px', fontWeight: 600 }}>{r.memberName}</Box>
-                <Box
-                  sx={{
-                    fontSize: '12px',
-                    color: NEUTRAL.faint,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {r.eventTitle + ' · ' + fmtDate(r.eventDate)}
-                </Box>
-              </Box>
-            </Box>
-          ))
-        ) : (
-          <EmptyState icon="event_busy" text={tr('stats.emptyAbsences')} />
-        )}
-      </Box>
-    </Box>
   );
 }
 

@@ -331,10 +331,6 @@ func (StrictUnimplemented) UpdateCalendarFeedSettings(_ context.Context, _ gen.U
 	return nil, errNotImplemented
 }
 
-func (StrictUnimplemented) GetStatsAbsences(_ context.Context, _ gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
-	return nil, errNotImplemented
-}
-
 // ─── Server ──────────────────────────────────────────────────────────────────
 
 // Server implements gen.StrictServerInterface by composing feature handlers.
@@ -818,10 +814,6 @@ func (s *Server) GetCalendarFeedSettings(ctx context.Context, req gen.GetCalenda
 
 func (s *Server) UpdateCalendarFeedSettings(ctx context.Context, req gen.UpdateCalendarFeedSettingsRequestObject) (gen.UpdateCalendarFeedSettingsResponseObject, error) {
 	return s.CalendarFeed.UpdateCalendarFeedSettings(ctx, req)
-}
-
-func (s *Server) GetStatsAbsences(ctx context.Context, req gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
-	return s.Stats.GetStatsAbsences(ctx, req)
 }
 
 // ─── Calendar share delegations ───────────────────────────────────────────────
