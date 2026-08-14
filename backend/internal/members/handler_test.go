@@ -251,6 +251,9 @@ func TestMemberHandler_UpdateMember_TitleTooLong_Returns400(t *testing.T) {
 	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
 
 	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 }
 
 func TestMemberHandler_SetMemberTitle_TooLong_Returns400(t *testing.T) {

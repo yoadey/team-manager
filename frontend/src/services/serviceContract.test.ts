@@ -389,6 +389,20 @@ describe('member titles: self-service set/clear without members:write, admin pat
     const updated = await api.members.update(other.membershipId, { title: 'Orgaente' }, 't_a');
     expect(updated.title).toBe('Orgaente');
   });
+
+  // Regression: the length limit must apply to the TRIMMED title, matching
+  // the real backend's `strings.TrimSpace` -> `validate.MaxLen` order
+  // (backend/internal/members/handler.go's SetMemberTitle). A title that is
+  // only over 40 chars because of leading/trailing whitespace must be
+  // accepted, not rejected on its raw (untrimmed) length.
+  it('accepts a title whose trimmed length is within the limit even if the raw length is not', async () => {
+    const members = await api.members.list('t_a');
+    const me = members.find((m) => m.userId === 'u1')!;
+    const padded = '   ' + 'a'.repeat(39) + '   '; // 45 raw chars, 39 trimmed
+
+    const updated = await api.members.setMyTitle(me.membershipId, padded, 't_a');
+    expect(updated.title).toBe('a'.repeat(39));
+  });
 });
 
 describe('drift-bug fix: an excluded member is not an invalid GetMemberStats target', () => {

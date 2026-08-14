@@ -867,8 +867,9 @@ export const handlers = [
     if (!m) return problem(404, 'Member not found');
     if (m.userId !== auth) return problem(403, "Only a member can set or clear their own title");
     const body = (await request.json()) as S['SetMemberTitleRequest'];
-    if (body.title.length > 40) return problem(400, 'title must be at most 40 characters');
-    m.title = body.title.trim();
+    const trimmed = body.title.trim();
+    if (trimmed.length > 40) return problem(400, 'title must be at most 40 characters');
+    m.title = trimmed;
     return HttpResponse.json(toWireMember(m));
   }),
 
