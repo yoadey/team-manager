@@ -224,6 +224,8 @@ func hasWritePermission(p teams.PermissionsJSON, module string) bool {
 		level = p.Polls
 	case "settings":
 		level = p.Settings
+	case "stats":
+		level = p.Stats
 	default:
 		return false
 	}
@@ -247,6 +249,8 @@ func hasAnyPermission(p teams.PermissionsJSON, module string) bool {
 		level = p.Polls
 	case "settings":
 		level = p.Settings
+	case "stats":
+		level = p.Stats
 	default:
 		return false
 	}

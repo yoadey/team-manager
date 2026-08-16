@@ -52,7 +52,6 @@ vi.mock('@/api/map', () => {
     mapContribution: tag('contribution'),
     mapStatsOverview: tag('statsOverview'),
     mapAttendanceMatrix: tag('attendanceMatrix'),
-    mapAttendanceAbsenceTable: tag('attendanceAbsenceTable'),
     mapCalendarShare: tag('calendarShare'),
     mapSharedCalendarSource: tag('sharedCalendarSource'),
     mapSharedCalendarEvent: tag('sharedCalendarEvent'),
@@ -943,16 +942,6 @@ describe('stats', () => {
       expect.objectContaining({ params: { path: { teamId: 't1' }, query: { from: '2026-01-01', to: '2026-02-01' } } }),
     );
     expect(res).toMatchObject({ __mapped: 'attendanceMatrix' });
-  });
-
-  it('absenceTable forwards the date range and maps the response', async () => {
-    client.GET.mockResolvedValueOnce(ok({ rows: [] }));
-    const result = await realApi.stats.absenceTable('t1', { from: '2026-01-01', to: '2026-02-01' });
-    expect(client.GET).toHaveBeenCalledWith(
-      '/teams/{teamId}/stats/absences',
-      expect.objectContaining({ params: { path: { teamId: 't1' }, query: { from: '2026-01-01', to: '2026-02-01' } } }),
-    );
-    expect(result).toMatchObject({ __mapped: 'attendanceAbsenceTable' });
   });
 });
 

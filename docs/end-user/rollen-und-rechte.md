@@ -15,6 +15,7 @@ Rechte-Modell (RBAC).
 | Finanzen | Umsätze, Strafen, Beiträge |
 | News | Neuigkeiten |
 | Umfragen | Umfragen & Abstimmungen |
+| Statistik | Anwesenheitsstatistik, eigene gespeicherte Zeiträume |
 | Einstellungen | Team-Einstellungen, Rollenverwaltung, Einladungen |
 
 ## Die drei Berechtigungsstufen

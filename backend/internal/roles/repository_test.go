@@ -672,6 +672,41 @@ func TestRolesRepository_UpdateRole_EscalationBeyondCallersOwnPermissions_Blocke
 	}
 }
 
+// Regression test for the "stats" module's addition to
+// enforceNoRoleEscalation's ceilings/granted slices: a caller holding only
+// settings:write must not be able to grant a role stats:write, the same
+// escalation guard already exercised above for finances.
+func TestRolesRepository_UpdateRole_EscalationStatsBeyondCallersOwnPermissions_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	callerUID := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Stats Escalation Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Settings Only Stats Caller', 'settings-only-stats@example.com', '#555555')`, callerUID)
+	require.NoError(t, err)
+	var callerMid string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, callerUID).Scan(&callerMid))
+
+	settingsOnlyPerms := teams.PermissionsJSON{Settings: "write"}
+	settingsOnlyRole, err := repo.CreateRole(ctx, tid, "Settings Only", nil, settingsOnlyPerms)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, callerMid, settingsOnlyRole.Id.String())
+	require.NoError(t, err)
+
+	targetRole, err := repo.CreateRole(ctx, tid, "Target", nil, settingsOnlyPerms)
+	require.NoError(t, err)
+
+	escalated := teams.PermissionsJSON{Settings: "write", Stats: "write"}
+	_, err = repo.UpdateRole(ctx, targetRole.Id.String(), tid, callerUID, roles.RolePatch{Permissions: &escalated})
+	require.ErrorIs(t, err, roles.ErrInsufficientPermissionToGrant)
+}
+
 // A caller may grant a role a permission level they hold themselves.
 func TestRolesRepository_UpdateRole_WithinCallersOwnPermissions_Allowed(t *testing.T) {
 	t.Parallel()

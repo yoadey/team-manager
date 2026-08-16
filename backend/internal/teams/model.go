@@ -48,6 +48,7 @@ type PermissionsJSON struct {
 	News     string `json:"news"`
 	Polls    string `json:"polls"`
 	Settings string `json:"settings"`
+	Stats    string `json:"stats"`
 }
 
 // InviteRow mirrors the DB invites table.

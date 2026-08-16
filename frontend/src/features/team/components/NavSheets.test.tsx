@@ -210,11 +210,21 @@ describe('MoreSheet', () => {
     expect(screen.queryByText('Team')).toBeNull();
   });
 
-  it('hides Statistik when the caller lacks events:read', () => {
+  it('hides Statistik when the caller lacks stats:read', () => {
+    const app = makeApp();
+    app.can.mockImplementation((module: string) => module !== 'stats');
+    render(<MoreSheet app={app as never} sheet={SHEET} />);
+    expect(screen.queryByText('Statistik')).toBeNull();
+  });
+
+  // Regression test: stats used to piggyback on the events module (see
+  // CLAUDE.md history) -- it must no longer be tied to it, so a team can
+  // show event details to everyone while restricting attendance statistics.
+  it('keeps showing Statistik when the caller lacks events:read but has stats:read', () => {
     const app = makeApp();
     app.can.mockImplementation((module: string) => module !== 'events');
     render(<MoreSheet app={app as never} sheet={SHEET} />);
-    expect(screen.queryByText('Statistik')).toBeNull();
+    expect(screen.getByText('Statistik')).toBeTruthy();
   });
 
   // Settings is ungated (ROUTE_MODULE.settings is null), so it must stay

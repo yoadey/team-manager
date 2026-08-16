@@ -27,7 +27,15 @@ export function useRoleActions({ api, S, setState, refreshRoles, askConfirm, toa
         ? { id: role.id, name: role.name, perms: role.permissions }
         : {
             name: '',
-            perms: { events: 'read', members: 'read', finances: 'none', news: 'read', polls: 'read', settings: 'none' },
+            perms: {
+              events: 'read',
+              members: 'read',
+              finances: 'none',
+              news: 'read',
+              polls: 'read',
+              settings: 'none',
+              stats: 'none',
+            },
           };
       setState((st) => ({
         sheet: { type: 'roleForm', mode: role ? 'edit' : 'create', back: st.sheet, formInitial: form },

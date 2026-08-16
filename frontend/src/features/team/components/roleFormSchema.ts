@@ -14,8 +14,8 @@ export const roleFormSchema = z.object({
     .min(1, { message: t('team.roleNameRequired') })
     .max(60),
   // Fixed module set, matching `Permissions` (@/types) -- not an open
-  // z.record(), since the backend's RoleDto always carries exactly these six
-  // module keys.
+  // z.record(), since the backend's RoleDto always carries exactly these
+  // seven module keys.
   perms: z.object({
     events: PermLevel,
     members: PermLevel,
@@ -23,6 +23,7 @@ export const roleFormSchema = z.object({
     news: PermLevel,
     polls: PermLevel,
     settings: PermLevel,
+    stats: PermLevel,
   }),
 });
 

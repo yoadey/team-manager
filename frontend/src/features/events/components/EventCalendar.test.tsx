@@ -48,7 +48,7 @@ function makeMember(overrides: Partial<Member> = {}): Member {
     roles: [],
     joinedAt: '2020-01-01',
     primaryRole: null,
-    perms: { events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read', settings: 'read' },
+    perms: { events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read', settings: 'read', stats: 'read' },
     excludeFromStats: false,
     ...overrides,
   };

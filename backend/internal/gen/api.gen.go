@@ -401,22 +401,6 @@ type AppNotification struct {
 	Unread            *bool               `json:"unread,omitempty"`
 }
 
-// AttendanceAbsenceRow defines model for AttendanceAbsenceRow.
-type AttendanceAbsenceRow struct {
-	EventDate  openapi_types.Date `json:"eventDate"`
-	EventId    openapi_types.UUID `json:"eventId"`
-	EventTitle string             `json:"eventTitle"`
-	MemberName string             `json:"memberName"`
-	UserId     openapi_types.UUID `json:"userId"`
-}
-
-// AttendanceAbsenceTable defines model for AttendanceAbsenceTable.
-type AttendanceAbsenceTable struct {
-	From openapi_types.Date     `json:"from"`
-	Rows []AttendanceAbsenceRow `json:"rows"`
-	To   openapi_types.Date     `json:"to"`
-}
-
 // AttendanceMatrix defines model for AttendanceMatrix.
 type AttendanceMatrix struct {
 	// Events Columns, ordered by date ascending.
@@ -888,6 +872,7 @@ type Permissions struct {
 	News     PermLevel `json:"news"`
 	Polls    PermLevel `json:"polls"`
 	Settings PermLevel `json:"settings"`
+	Stats    PermLevel `json:"stats"`
 }
 
 // Poll defines model for Poll.
@@ -1479,12 +1464,6 @@ type GetStatsOverviewParams struct {
 	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 }
 
-// GetStatsAbsencesParams defines parameters for GetStatsAbsences.
-type GetStatsAbsencesParams struct {
-	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
-	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
-}
-
 // GetAttendanceMatrixParams defines parameters for GetAttendanceMatrix.
 type GetAttendanceMatrixParams struct {
 	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
@@ -1915,9 +1894,6 @@ type ServerInterface interface {
 	// Rename or reschedule a saved statistics date-range preset
 	// (PATCH /teams/{teamId}/stats-presets/{presetId})
 	UpdateStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId, presetId openapi_types.UUID)
-	// Per-member, per-event absence table for the date range
-	// (GET /teams/{teamId}/stats/absences)
-	GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams)
 	// Per-member-per-event attendance matrix
 	// (GET /teams/{teamId}/stats/attendance-matrix)
 	GetAttendanceMatrix(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetAttendanceMatrixParams)
@@ -2497,12 +2473,6 @@ func (_ Unimplemented) DeleteStatsPreset(w http.ResponseWriter, r *http.Request,
 // Rename or reschedule a saved statistics date-range preset
 // (PATCH /teams/{teamId}/stats-presets/{presetId})
 func (_ Unimplemented) UpdateStatsPreset(w http.ResponseWriter, r *http.Request, teamId TeamId, presetId openapi_types.UUID) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Per-member, per-event absence table for the date range
-// (GET /teams/{teamId}/stats/absences)
-func (_ Unimplemented) GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5985,67 +5955,6 @@ func (siw *ServerInterfaceWrapper) UpdateStatsPreset(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
-// GetStatsAbsences operation middleware
-func (siw *ServerInterfaceWrapper) GetStatsAbsences(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "teamId" -------------
-	var teamId TeamId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params GetStatsAbsencesParams
-
-	// ------------- Optional query parameter "from" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "to" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetStatsAbsences(w, r, teamId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // GetAttendanceMatrix operation middleware
 func (siw *ServerInterfaceWrapper) GetAttendanceMatrix(w http.ResponseWriter, r *http.Request) {
 
@@ -6630,9 +6539,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/teams/{teamId}/stats-presets/{presetId}", wrapper.UpdateStatsPreset)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/teams/{teamId}/stats/absences", wrapper.GetStatsAbsences)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/stats/attendance-matrix", wrapper.GetAttendanceMatrix)
@@ -9213,29 +9119,6 @@ func (response UpdateStatsPreset200JSONResponse) VisitUpdateStatsPresetResponse(
 	return err
 }
 
-type GetStatsAbsencesRequestObject struct {
-	TeamId TeamId `json:"teamId"`
-	Params GetStatsAbsencesParams
-}
-
-type GetStatsAbsencesResponseObject interface {
-	VisitGetStatsAbsencesResponse(w http.ResponseWriter) error
-}
-
-type GetStatsAbsences200JSONResponse AttendanceAbsenceTable
-
-func (response GetStatsAbsences200JSONResponse) VisitGetStatsAbsencesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type GetAttendanceMatrixRequestObject struct {
 	TeamId TeamId `json:"teamId"`
 	Params GetAttendanceMatrixParams
@@ -9599,9 +9482,6 @@ type StrictServerInterface interface {
 	// Rename or reschedule a saved statistics date-range preset
 	// (PATCH /teams/{teamId}/stats-presets/{presetId})
 	UpdateStatsPreset(ctx context.Context, request UpdateStatsPresetRequestObject) (UpdateStatsPresetResponseObject, error)
-	// Per-member, per-event absence table for the date range
-	// (GET /teams/{teamId}/stats/absences)
-	GetStatsAbsences(ctx context.Context, request GetStatsAbsencesRequestObject) (GetStatsAbsencesResponseObject, error)
 	// Per-member-per-event attendance matrix
 	// (GET /teams/{teamId}/stats/attendance-matrix)
 	GetAttendanceMatrix(ctx context.Context, request GetAttendanceMatrixRequestObject) (GetAttendanceMatrixResponseObject, error)
@@ -12394,33 +12274,6 @@ func (sh *strictHandler) UpdateStatsPreset(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateStatsPresetResponseObject); ok {
 		if err := validResponse.VisitUpdateStatsPresetResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetStatsAbsences operation middleware
-func (sh *strictHandler) GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams) {
-	var request GetStatsAbsencesRequestObject
-
-	request.TeamId = teamId
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetStatsAbsences(ctx, request.(GetStatsAbsencesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetStatsAbsences")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetStatsAbsencesResponseObject); ok {
-		if err := validResponse.VisitGetStatsAbsencesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

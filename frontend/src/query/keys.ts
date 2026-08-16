@@ -34,10 +34,6 @@ export const queryKeys = {
   // tab caches independently of the overview for the same team+range.
   statsMatrix: (teamId: string, range: DateRange | null) =>
     ['teams', teamId, 'stats', 'matrix', range?.from ?? null, range?.to ?? null] as const,
-  // Separate cache entry from `stats` above (its own endpoint/query), but
-  // varies by date range for the same reason.
-  statsAbsences: (teamId: string, range: DateRange | null) =>
-    ['teams', teamId, 'statsAbsences', range?.from ?? null, range?.to ?? null] as const,
   // The caller's last-selected stats date range for the team -- not
   // range-scoped itself (there is only ever one "current" selection per
   // team+user).

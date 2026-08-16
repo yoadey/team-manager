@@ -145,7 +145,7 @@ describe('members & roles', () => {
   it('creates, updates and removes a custom role', async () => {
     const role = await api.roles.create('t_a', {
       name: 'Testrolle',
-      permissions: { events: 'read', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' },
+      permissions: { events: 'read', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none', stats: 'none' },
     });
     expect(role.name).toBe('Testrolle');
     const updated = await api.roles.update(role.id, { name: 'Umbenannt' }, 't_a');

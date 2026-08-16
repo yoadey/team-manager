@@ -57,11 +57,10 @@ function makeApp(
   statsOverride: unknown = null,
   statsRange: { from: string; to: string } | null = null,
   matrixOverride: unknown = null,
-  absenceTableOverride: unknown = null,
+  canDefinePresets = true,
 ) {
   mockUseStatsQuery.mockReturnValue({ data: statsOverride ?? undefined } as never);
   mockUseMatrixQuery.mockReturnValue({ data: matrixOverride ?? undefined } as never);
-  mockUseAbsenceTableQuery.mockReturnValue({ data: absenceTableOverride ?? undefined } as never);
   return {
     api: {},
     state: {
@@ -74,6 +73,7 @@ function makeApp(
     setStatsRange: mockSetStatsRange,
     askConfirm: vi.fn(),
     toastMsg: vi.fn(),
+    can: vi.fn().mockReturnValue(canDefinePresets),
   };
 }
 
@@ -83,13 +83,12 @@ vi.mock('@/context/AppContext', () => ({
 }));
 
 // Mocked directly on the hooks module (not just a barrel re-export) --
-// Stats.tsx imports `useStatsQuery`/`useAbsenceTableQuery` via this exact
+// Stats.tsx imports `useStatsQuery`/`useAttendanceMatrixQuery` via this exact
 // relative path, so this must match it (see the identical comment/pattern in
 // PollsPage.test.tsx/NewsPage.test.tsx).
 vi.mock('./hooks/useStatsQueries', () => ({
   useStatsQuery: vi.fn(),
   useAttendanceMatrixQuery: vi.fn(),
-  useAbsenceTableQuery: vi.fn(),
 }));
 
 // Also mocked directly (not just a barrel re-export), same reasoning as
@@ -101,12 +100,11 @@ vi.mock('./hooks/useStatsPreferencesActions', () => ({
 }));
 
 import { useApp } from '@/context/AppContext';
-import { useAbsenceTableQuery, useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
+import { useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
 import { useStatsPreferencesActions } from './hooks/useStatsPreferencesActions';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
 const mockUseMatrixQuery = useAttendanceMatrixQuery as ReturnType<typeof vi.fn>;
-const mockUseAbsenceTableQuery = useAbsenceTableQuery as ReturnType<typeof vi.fn>;
 const mockUseStatsPreferencesActions = useStatsPreferencesActions as ReturnType<typeof vi.fn>;
 
 describe('Stats', () => {
@@ -251,12 +249,11 @@ describe('Stats', () => {
     expect(screen.getByText('Gesamt')).toBeTruthy();
   });
 
-  it('renders the Quote/Matrix/Fehlzeiten tab toggle', () => {
+  it('renders the Quote/Matrix tab toggle', () => {
     mockUseApp.mockReturnValue(makeApp(makeStats()));
     render(<Stats />);
     expect(screen.getByRole('tab', { name: 'Quote' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Matrix' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Fehlzeiten' })).toBeTruthy();
   });
 
   it('switches to the matrix tab and renders the member × event grid', async () => {
@@ -291,40 +288,6 @@ describe('Stats', () => {
     mockUseApp.mockReturnValue(makeApp(makeStats(), null, null));
     render(<Stats />);
     await userEvent.click(screen.getByRole('tab', { name: 'Matrix' }));
-    expect(screen.getByRole('status')).toBeTruthy();
-  });
-
-  it('renders the absence table tab with rows when switched to', async () => {
-    mockUseApp.mockReturnValue(
-      makeApp(makeStats(), null, null, {
-        rows: [
-          { userId: 'u1', memberName: 'Anna Müller', eventId: 'ev1', eventTitle: 'Training', eventDate: '2026-03-01' },
-          { userId: 'u2', memberName: 'Bob Schmidt', eventId: 'ev2', eventTitle: 'Spiel', eventDate: '2026-03-05' },
-        ],
-        from: '2025-12-01',
-        to: '2026-03-05',
-      }),
-    );
-    render(<Stats />);
-    await userEvent.click(screen.getByRole('tab', { name: 'Fehlzeiten' }));
-    expect(screen.getByText('Fehlzeiten je Person')).toBeTruthy();
-    expect(screen.getByText('Anna Müller')).toBeTruthy();
-    expect(screen.getByText('Bob Schmidt')).toBeTruthy();
-    expect(screen.getByText(/Training/)).toBeTruthy();
-    expect(screen.getByText(/Spiel/)).toBeTruthy();
-  });
-
-  it('shows an empty state (not an empty table) when there are no absences in range', async () => {
-    mockUseApp.mockReturnValue(makeApp(makeStats(), null, null, { rows: [], from: '2025-12-01', to: '2026-03-05' }));
-    render(<Stats />);
-    await userEvent.click(screen.getByRole('tab', { name: 'Fehlzeiten' }));
-    expect(screen.getByText('Keine Fehlzeiten im gewählten Zeitraum')).toBeTruthy();
-  });
-
-  it('shows a spinner for the absence tab while its data has not loaded yet', async () => {
-    mockUseApp.mockReturnValue(makeApp(makeStats(), null, null, null));
-    render(<Stats />);
-    await userEvent.click(screen.getByRole('tab', { name: 'Fehlzeiten' }));
     expect(screen.getByRole('status')).toBeTruthy();
   });
 
@@ -413,6 +376,46 @@ describe('Stats saved presets', () => {
     await userEvent.click(screen.getByLabelText('„Saison 2026/27" löschen'));
     expect(askConfirm).toHaveBeenCalled();
     expect(deletePreset).toHaveBeenCalledWith('p1');
+  });
+
+  it('hides the "Neu" preset button and rename/delete affordances for a stats:read-only caller', () => {
+    mockUseApp.mockReturnValue(makeApp(null, { from: '2026-01-01', to: '2026-03-01' }, null, false));
+    mockUseStatsPreferencesActions.mockReturnValue({
+      preferences: undefined,
+      preferencesLoaded: false,
+      presets: [{ id: 'p1', name: 'Saison 2026/27', from: '2026-08-01', to: '2027-05-31' }],
+      saveSelection: vi.fn(),
+      createPreset: vi.fn(),
+      creatingPreset: false,
+      renamePreset: vi.fn(),
+      deletePreset: vi.fn(),
+    });
+    render(<Stats />);
+    expect(screen.queryByText('Neu')).toBeNull();
+    expect(screen.queryByLabelText('„Saison 2026/27" umbenennen')).toBeNull();
+    expect(screen.queryByLabelText('„Saison 2026/27" löschen')).toBeNull();
+    // The preset itself is still visible and selectable -- read access alone
+    // must not hide a preset the caller already has.
+    expect(screen.getByText('Saison 2026/27')).toBeTruthy();
+  });
+
+  it('selecting a saved preset still works for a stats:read-only caller', async () => {
+    const saveSelection = vi.fn();
+    mockUseApp.mockReturnValue(makeApp(null, null, null, false));
+    mockUseStatsPreferencesActions.mockReturnValue({
+      preferences: undefined,
+      preferencesLoaded: false,
+      presets: [{ id: 'p1', name: 'Saison 2026/27', from: '2026-08-01', to: '2027-05-31' }],
+      saveSelection,
+      createPreset: vi.fn(),
+      creatingPreset: false,
+      renamePreset: vi.fn(),
+      deletePreset: vi.fn(),
+    });
+    render(<Stats />);
+    await userEvent.click(screen.getByText('Saison 2026/27'));
+    expect(mockSetStatsRange).toHaveBeenCalledWith({ from: '2026-08-01', to: '2027-05-31' });
+    expect(saveSelection).toHaveBeenCalledWith({ from: '2026-08-01', to: '2027-05-31' }, 'p1');
   });
 
   it('hydrates the range from the caller last-saved preferences on first load', () => {

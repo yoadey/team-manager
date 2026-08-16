@@ -17,6 +17,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   news: 'Neuigkeiten',
   polls: 'Umfragen',
   settings: 'Einstellungen',
+  stats: 'Statistik',
 };
 
 // AppContext's "reset demo data" action calls this then reloads the page.

@@ -1924,7 +1924,7 @@ paths:
     get:
       tags: [stats]
       operationId: getStatsOverview
-      x-rbac-module: events
+      x-rbac-module: stats
       summary: Team attendance statistics
       parameters:
         - name: from
@@ -1951,7 +1951,7 @@ paths:
     get:
       tags: [stats]
       operationId: getAttendanceMatrix
-      x-rbac-module: events
+      x-rbac-module: stats
       summary: Per-member-per-event attendance matrix
       parameters:
         - name: from
@@ -1984,7 +1984,7 @@ paths:
     get:
       tags: [stats]
       operationId: getMemberStats
-      x-rbac-module: events
+      x-rbac-module: stats
       summary: Individual member attendance statistics
       parameters:
         - name: from
@@ -2005,40 +2005,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/MemberAttendanceStats"
 
-  /teams/{teamId}/stats/absences:
-    parameters:
-      - $ref: "#/components/parameters/teamId"
-    get:
-      tags: [stats]
-      operationId: getStatsAbsences
-      x-rbac-module: events
-      summary: Per-member, per-event absence table for the date range
-      parameters:
-        - name: from
-          in: query
-          schema:
-            type: string
-            format: date
-        - name: to
-          in: query
-          schema:
-            type: string
-            format: date
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AttendanceAbsenceTable"
-
   /teams/{teamId}/stats-preferences:
     parameters:
       - $ref: "#/components/parameters/teamId"
     get:
       tags: [stats]
       operationId: getStatsPreferences
-      x-rbac-module: public
+      x-rbac-module: stats
       summary: >-
         Get the caller's last-selected statistics date range for this team.
         Empty properties mean nothing has been saved yet.
@@ -2052,7 +2025,8 @@ paths:
     put:
       tags: [stats]
       operationId: setStatsPreferences
-      x-rbac-module: public
+      x-rbac-module: stats
+      x-rbac-self-service: true
       summary: Save the caller's last-selected statistics date range for this team
       requestBody:
         required: true
@@ -2070,7 +2044,7 @@ paths:
     get:
       tags: [stats]
       operationId: listStatsPresets
-      x-rbac-module: public
+      x-rbac-module: stats
       summary: List the caller's saved statistics date-range presets for this team
       responses:
         "200":
@@ -2088,7 +2062,7 @@ paths:
     post:
       tags: [stats]
       operationId: createStatsPreset
-      x-rbac-module: public
+      x-rbac-module: stats
       summary: Save a new statistics date-range preset (e.g. "Saison 2026/27")
       requestBody:
         required: true
@@ -2116,7 +2090,7 @@ paths:
     patch:
       tags: [stats]
       operationId: updateStatsPreset
-      x-rbac-module: public
+      x-rbac-module: stats
       summary: Rename or reschedule a saved statistics date-range preset
       requestBody:
         required: true
@@ -2134,7 +2108,7 @@ paths:
     delete:
       tags: [stats]
       operationId: deleteStatsPreset
-      x-rbac-module: public
+      x-rbac-module: stats
       summary: Delete a saved statistics date-range preset
       responses:
         "204":
@@ -2286,7 +2260,7 @@ components:
     Permissions:
       type: object
       description: Per-module permission levels
-      required: [events, members, finances, news, polls, settings]
+      required: [events, members, finances, news, polls, settings, stats]
       properties:
         events:
           $ref: "#/components/schemas/PermLevel"
@@ -2299,6 +2273,8 @@ components:
         polls:
           $ref: "#/components/schemas/PermLevel"
         settings:
+          $ref: "#/components/schemas/PermLevel"
+        stats:
           $ref: "#/components/schemas/PermLevel"
 
     EventType:
@@ -4090,38 +4066,6 @@ components:
           items:
             $ref: "#/components/schemas/AttendanceMatrixRow"
 
-    AttendanceAbsenceRow:
-      type: object
-      required: [userId, memberName, eventId, eventTitle, eventDate]
-      properties:
-        userId:
-          type: string
-          format: uuid
-        memberName:
-          type: string
-        eventId:
-          type: string
-          format: uuid
-        eventTitle:
-          type: string
-        eventDate:
-          type: string
-          format: date
-
-    AttendanceAbsenceTable:
-      type: object
-      required: [rows, from, to]
-      properties:
-        rows:
-          type: array
-          items:
-            $ref: "#/components/schemas/AttendanceAbsenceRow"
-        from:
-          type: string
-          format: date
-        to:
-          type: string
-          format: date
 
     StatsPreferences:
       type: object

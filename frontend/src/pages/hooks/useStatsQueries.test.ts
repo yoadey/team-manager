@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { useAbsenceTableQuery, useStatsQuery, useAttendanceMatrixQuery } from './useStatsQueries';
+import { useStatsQuery, useAttendanceMatrixQuery } from './useStatsQueries';
 import { createQueryWrapper, createTestQueryClient } from '@/test/queryTestUtils';
-import type { AttendanceAbsenceTable, AttendanceMatrix, StatsOverview } from '@/types';
+import type { AttendanceMatrix, StatsOverview } from '@/types';
 
 function makeStats(overrides: Partial<StatsOverview> = {}): StatsOverview {
   return {
@@ -12,15 +12,6 @@ function makeStats(overrides: Partial<StatsOverview> = {}): StatsOverview {
     pastCount: 0,
     from: null,
     to: null,
-    ...overrides,
-  };
-}
-
-function makeAbsenceTable(overrides: Partial<AttendanceAbsenceTable> = {}): AttendanceAbsenceTable {
-  return {
-    rows: [],
-    from: '2026-01-01',
-    to: '2026-03-01',
     ...overrides,
   };
 }
@@ -137,83 +128,5 @@ describe('useAttendanceMatrixQuery', () => {
     });
     await waitFor(() => expect(result.current.data?.members.length).toBe(1));
     expect(api.stats.attendanceMatrix).toHaveBeenCalledWith('team1', range);
-  });
-});
-
-describe('useAbsenceTableQuery', () => {
-  it('is disabled (does not fetch) while there is no active team', () => {
-    const api = { stats: { absenceTable: vi.fn() } };
-    renderHook(() => useAbsenceTableQuery(api as never, null, null), { wrapper: createQueryWrapper() });
-    expect(api.stats.absenceTable).not.toHaveBeenCalled();
-  });
-
-  it('fetches the team-and-range-scoped absence table once a team id is provided', async () => {
-    const rows = [{ userId: 'u1', memberName: 'Anna', eventId: 'e1', eventTitle: 'Training', eventDate: '2026-02-10' }];
-    const api = { stats: { absenceTable: vi.fn().mockResolvedValue(makeAbsenceTable({ rows })) } };
-    const range = { from: '2026-01-01', to: '2026-03-01' };
-    const { result } = renderHook(() => useAbsenceTableQuery(api as never, 'team1', range), {
-      wrapper: createQueryWrapper(),
-    });
-    await waitFor(() => expect(result.current.data?.rows).toHaveLength(1));
-    expect(api.stats.absenceTable).toHaveBeenCalledWith('team1', range);
-  });
-
-  // Same team-scoped cache-key guard as useStatsQuery above: a slow response
-  // for a previously-selected team must not overwrite the newly-selected
-  // team's absence table.
-  it('discards a stale response for a previous team after switching teams', async () => {
-    let resolveTeamA!: (v: AttendanceAbsenceTable) => void;
-    const teamAPromise = new Promise<AttendanceAbsenceTable>((resolve) => (resolveTeamA = resolve));
-    const api = {
-      stats: {
-        absenceTable: vi.fn((teamId: string) =>
-          teamId === 'teamA' ? teamAPromise : Promise.resolve(makeAbsenceTable({ from: '2026-02-01' })),
-        ),
-      },
-    };
-    const client = createTestQueryClient();
-    const { result, rerender } = renderHook(({ teamId }) => useAbsenceTableQuery(api as never, teamId, null), {
-      wrapper: createQueryWrapper(client),
-      initialProps: { teamId: 'teamA' },
-    });
-
-    rerender({ teamId: 'teamB' });
-    await waitFor(() => expect(result.current.data?.from).toBe('2026-02-01'));
-
-    resolveTeamA(makeAbsenceTable({ from: '1999-01-01' }));
-    await Promise.resolve();
-
-    expect(result.current.data?.from).toBe('2026-02-01');
-  });
-
-  // Mirrors useStatsQuery's range-scoped cache-key guard: the absence table
-  // must cover exactly the date range passed in (the quota view's active
-  // filter), so a range change must swap to a different cache entry rather
-  // than reusing/overwriting the previous range's cached rows.
-  it('discards a stale response for a previous range after switching ranges', async () => {
-    let resolveRangeA!: (v: AttendanceAbsenceTable) => void;
-    const rangeAPromise = new Promise<AttendanceAbsenceTable>((resolve) => (resolveRangeA = resolve));
-    const rangeA = { from: '2026-01-01', to: '2026-02-01' };
-    const rangeB = { from: '2026-02-01', to: '2026-03-01' };
-    const api = {
-      stats: {
-        absenceTable: vi.fn((_teamId: string, range: typeof rangeA) =>
-          range === rangeA ? rangeAPromise : Promise.resolve(makeAbsenceTable({ from: '2026-02-01' })),
-        ),
-      },
-    };
-    const client = createTestQueryClient();
-    const { result, rerender } = renderHook(({ range }) => useAbsenceTableQuery(api as never, 'team1', range), {
-      wrapper: createQueryWrapper(client),
-      initialProps: { range: rangeA },
-    });
-
-    rerender({ range: rangeB });
-    await waitFor(() => expect(result.current.data?.from).toBe('2026-02-01'));
-
-    resolveRangeA(makeAbsenceTable({ from: '1999-01-01' }));
-    await Promise.resolve();
-
-    expect(result.current.data?.from).toBe('2026-02-01');
   });
 });

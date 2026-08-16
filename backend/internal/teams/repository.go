@@ -216,7 +216,7 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string,
 	// Insert Admin role (all write).
 	adminPerms, _ := json.Marshal(PermissionsJSON{
 		Events: "write", Members: "write", Finances: "write",
-		News: "write", Polls: "write", Settings: "write",
+		News: "write", Polls: "write", Settings: "write", Stats: "write",
 	})
 	var adminRoleID uuid.UUID
 	err = tx.QueryRow(ctx, `
@@ -236,10 +236,12 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string,
 	// roster (GET .../members) and the role catalog (GET .../roles, gated by
 	// "settings") for every team member on every login/team switch, not just
 	// for admins. Finances stays "none" -- financial data is legitimately
-	// admin-only by default.
+	// admin-only by default. Stats defaults to "read" too, so an ordinary
+	// member can see attendance statistics out of the box; write is reserved
+	// for defining personal statistics presets.
 	memberPerms, _ := json.Marshal(PermissionsJSON{
 		Events: "read", Members: "read", Finances: "none",
-		News: "read", Polls: "read", Settings: "read",
+		News: "read", Polls: "read", Settings: "read", Stats: "read",
 	})
 	var memberRoleID uuid.UUID
 	err = tx.QueryRow(ctx, `
@@ -576,7 +578,7 @@ func MergePermissions(roles []RoleRow) gen.Permissions {
 
 	best := PermissionsJSON{
 		Events: "none", Members: "none", Finances: "none",
-		News: "none", Polls: "none", Settings: "none",
+		News: "none", Polls: "none", Settings: "none", Stats: "none",
 	}
 
 	merge := func(current, candidate string) string {
@@ -593,6 +595,7 @@ func MergePermissions(roles []RoleRow) gen.Permissions {
 		best.News = merge(best.News, r.Permissions.News)
 		best.Polls = merge(best.Polls, r.Permissions.Polls)
 		best.Settings = merge(best.Settings, r.Permissions.Settings)
+		best.Stats = merge(best.Stats, r.Permissions.Stats)
 	}
 
 	return gen.Permissions{
@@ -602,6 +605,7 @@ func MergePermissions(roles []RoleRow) gen.Permissions {
 		News:     gen.PermLevel(best.News),
 		Polls:    gen.PermLevel(best.Polls),
 		Settings: gen.PermLevel(best.Settings),
+		Stats:    gen.PermLevel(best.Stats),
 	}
 }
 

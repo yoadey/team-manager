@@ -489,8 +489,12 @@ func enforceNoPermissionEscalation(ctx context.Context, tx pgx.Tx, teamID, calle
 		foldMax(callerPerms.News, targetPermsBefore.News),
 		foldMax(callerPerms.Polls, targetPermsBefore.Polls),
 		foldMax(callerPerms.Settings, targetPermsBefore.Settings),
+		foldMax(callerPerms.Stats, targetPermsBefore.Stats),
 	}
-	granted := []string{newPerms.Events, newPerms.Members, newPerms.Finances, newPerms.News, newPerms.Polls, newPerms.Settings}
+	granted := []string{
+		newPerms.Events, newPerms.Members, newPerms.Finances, newPerms.News,
+		newPerms.Polls, newPerms.Settings, newPerms.Stats,
+	}
 	for i, level := range granted {
 		if permLevelRank(level) > permLevelRank(ceilings[i]) {
 			return ErrInsufficientPermissionToGrant
@@ -503,7 +507,7 @@ func enforceNoPermissionEscalation(ctx context.Context, tx pgx.Tx, teamID, calle
 // across every role in roleIDs (which must already be validated as
 // belonging to teamID by validateSetRolesInputs).
 func roleSetEffectivePermissions(ctx context.Context, tx pgx.Tx, teamID string, roleIDs []string) (teams.PermissionsJSON, error) {
-	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none"}
+	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none", Stats: "none"}
 	if len(roleIDs) == 0 {
 		return eff, nil
 	}
@@ -535,7 +539,7 @@ func roleSetEffectivePermissions(ctx context.Context, tx pgx.Tx, teamID string, 
 // so a cross-team role slipping through here would inflate that ceiling
 // instead of failing safe.
 func getMembershipEffectivePermissionsQ(ctx context.Context, q querier, membershipID string) (teams.PermissionsJSON, error) {
-	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none"}
+	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none", Stats: "none"}
 	rows, err := q.Query(ctx, `
 		SELECT r.permissions
 		FROM roles r
@@ -570,6 +574,7 @@ func foldPermissions(a, b teams.PermissionsJSON) teams.PermissionsJSON {
 		News:     foldMax(a.News, b.News),
 		Polls:    foldMax(a.Polls, b.Polls),
 		Settings: foldMax(a.Settings, b.Settings),
+		Stats:    foldMax(a.Stats, b.Stats),
 	}
 }
 
@@ -747,7 +752,7 @@ func (r *Repository) GetPermissions(ctx context.Context, teamID, userID uuid.UUI
 // enforceNoPermissionEscalation can compute the caller's effective
 // permissions inside its own transaction, behind the per-team advisory lock.
 func getEffectivePermissionsByUserQ(ctx context.Context, q querier, teamID, userID string) (teams.PermissionsJSON, error) {
-	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none"}
+	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none", Stats: "none"}
 	rows, err := q.Query(ctx, `
 		SELECT r.permissions
 		FROM roles r

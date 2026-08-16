@@ -25,8 +25,6 @@ import type {
   AttendanceMatrixColumn,
   AttendanceMatrixRow,
   AttendanceCellStatus,
-  AttendanceAbsenceRow,
-  AttendanceAbsenceTable,
   StatsPreferences,
   StatsPreset,
   Provider,
@@ -557,24 +555,6 @@ export function mapAttendanceMatrix(m: S['AttendanceMatrix']): AttendanceMatrix 
     to: m.to,
     events: m.events.map(mapMatrixColumn),
     members: m.members.map(mapMatrixRow),
-  };
-}
-
-export function mapAttendanceAbsenceRow(r: S['AttendanceAbsenceRow']): AttendanceAbsenceRow {
-  return {
-    userId: r.userId,
-    memberName: r.memberName,
-    eventId: r.eventId,
-    eventTitle: r.eventTitle,
-    eventDate: r.eventDate,
-  };
-}
-
-export function mapAttendanceAbsenceTable(t: S['AttendanceAbsenceTable']): AttendanceAbsenceTable {
-  return {
-    rows: t.rows.map(mapAttendanceAbsenceRow),
-    from: t.from,
-    to: t.to,
   };
 }
 

@@ -9,6 +9,7 @@ const perms = (over: Partial<Permissions> = {}): Permissions => ({
   news: 'none',
   polls: 'none',
   settings: 'none',
+  stats: 'none',
   ...over,
 });
 

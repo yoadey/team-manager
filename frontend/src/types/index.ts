@@ -5,7 +5,7 @@
 // =============================================================================
 
 export type PermLevel = 'none' | 'read' | 'write';
-export type ModuleKey = 'events' | 'members' | 'finances' | 'news' | 'polls' | 'settings';
+export type ModuleKey = 'events' | 'members' | 'finances' | 'news' | 'polls' | 'settings' | 'stats';
 export type Permissions = Record<ModuleKey, PermLevel>;
 
 export type EventType = 'training' | 'auftritt' | 'event';
@@ -130,20 +130,6 @@ export interface AttendanceMatrix {
   to: string | null;
   events: AttendanceMatrixColumn[];
   members: AttendanceMatrixRow[];
-}
-
-export interface AttendanceAbsenceRow {
-  userId: string;
-  memberName: string;
-  eventId: string;
-  eventTitle: string;
-  eventDate: string;
-}
-
-export interface AttendanceAbsenceTable {
-  rows: AttendanceAbsenceRow[];
-  from: string;
-  to: string;
 }
 
 export interface Provider {
