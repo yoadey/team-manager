@@ -562,6 +562,32 @@ describe('EventDetailSheet', () => {
     expect(screen.getByText('Anna Müller')).toBeTruthy();
   });
 
+  it('combines group and title in the attendance row secondary line', () => {
+    const app = makeApp();
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ date: '2026-07-01' });
+    const rows = [
+      {
+        userId: 'user2',
+        name: 'Anna Müller',
+        avatarColor: '#4285F4',
+        photo: null,
+        group: 'Gruppe A',
+        title: 'Witzbeauftragter',
+        primaryRole: null,
+        status: 'yes' as const,
+        reason: '',
+        reasonId: null,
+        reasonVisibility: null,
+        auto: false,
+        absent: false,
+      },
+    ];
+    render(<EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows, comments: [] } as never} />);
+    expect(screen.getByText('Gruppe A · Witzbeauftragter')).toBeTruthy();
+  });
+
   it('renders location in info box', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);

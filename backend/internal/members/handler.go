@@ -25,6 +25,7 @@ type memberService interface {
 	GetMemberPhotoURL(ctx context.Context, teamID, membershipID string) (string, error)
 	GetMemberPhotoBytes(ctx context.Context, teamID, membershipID string) (io.ReadCloser, string, error)
 	UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*gen.Member, error)
+	SetMemberTitle(ctx context.Context, membershipID, teamID, callerUserID string, title *string) (*gen.Member, error)
 	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
 	RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
@@ -140,18 +141,6 @@ func validateMemberPatch(body *gen.UpdateMemberJSONRequestBody) (MemberPatch, er
 		s := strings.ToLower(strings.TrimSpace(string(*body.Email)))
 		patch.Email = &s
 	}
-	if body.Phone != nil {
-		if err := validate.MaxLen(*body.Phone, 32, "phone"); err != nil {
-			return patch, fmt.Errorf("%w", err)
-		}
-		patch.Phone = body.Phone
-	}
-	if body.Address != nil {
-		if err := validate.MaxLen(*body.Address, 500, "address"); err != nil {
-			return patch, fmt.Errorf("%w", err)
-		}
-		patch.Address = body.Address
-	}
 	if body.Birthday != nil {
 		t := body.Birthday.Time
 		if err := validate.Birthday(t); err != nil {
@@ -159,14 +148,42 @@ func validateMemberPatch(body *gen.UpdateMemberJSONRequestBody) (MemberPatch, er
 		}
 		patch.Birthday = &t
 	}
-	if body.Group != nil {
-		if err := validate.MaxLen(*body.Group, 100, "group"); err != nil {
-			return patch, fmt.Errorf("%w", err)
-		}
-		patch.Group = body.Group
+	if err := applyMaxLenFields(body, &patch); err != nil {
+		return patch, err
 	}
 	patch.ExcludeFromStats = body.ExcludeFromStats
 	return patch, nil
+}
+
+// applyMaxLenFields validates and applies the simple free-text fields that
+// only need a max-length check, split out of validateMemberPatch to keep its
+// cognitive complexity down.
+func applyMaxLenFields(body *gen.UpdateMemberJSONRequestBody, patch *MemberPatch) error {
+	if body.Phone != nil {
+		if err := validate.MaxLen(*body.Phone, 32, "phone"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+		patch.Phone = body.Phone
+	}
+	if body.Address != nil {
+		if err := validate.MaxLen(*body.Address, 500, "address"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+		patch.Address = body.Address
+	}
+	if body.Group != nil {
+		if err := validate.MaxLen(*body.Group, 100, "group"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+		patch.Group = body.Group
+	}
+	if body.Title != nil {
+		if err := validate.MaxLen(*body.Title, 40, "title"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+		patch.Title = body.Title
+	}
+	return nil
 }
 
 // UpdateMember updates member profile fields.
@@ -216,6 +233,45 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()))
 	metrics.TeamEvents.WithLabelValues("member", "update").Inc()
 	return gen.UpdateMember200JSONResponse(*m), nil
+}
+
+// SetMemberTitle sets or clears the caller's own member title.
+func (h *Handler) SetMemberTitle(ctx context.Context, request gen.SetMemberTitleRequestObject) (gen.SetMemberTitleResponseObject, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if request.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+
+	trimmed := strings.TrimSpace(request.Body.Title)
+	if err := validate.MaxLen(trimmed, 40, "title"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	var title *string
+	if trimmed != "" {
+		title = &trimmed
+	}
+
+	m, err := h.svc.SetMemberTitle(ctx, request.MembershipId.String(), request.TeamId.String(), user.Id.String(), title)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("member not found")
+		}
+		if errors.Is(err, ErrCannotSetOthersTitle) {
+			h.audit.Record(ctx, audit.EventMemberUpdate, audit.Failure, actor(ctx),
+				slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
+				slog.String("reason", "cannot_set_others_title"))
+			return nil, apierror.Forbidden(ErrCannotSetOthersTitle.Error())
+		}
+		h.logger.ErrorContext(ctx, "SetMemberTitle failed", "err", err)
+		return nil, fmt.Errorf("members.Handler.SetMemberTitle: %w", err)
+	}
+	h.audit.Record(ctx, audit.EventMemberUpdate, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()))
+	metrics.TeamEvents.WithLabelValues("member", "update").Inc()
+	return gen.SetMemberTitle200JSONResponse(*m), nil
 }
 
 // SetMemberRoles replaces the member's role assignments.

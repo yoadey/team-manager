@@ -153,6 +153,7 @@ const Member = z
     avatarColor: z.string(),
     hasPhoto: z.boolean().optional(),
     group: z.string().optional(),
+    title: z.string().max(40).optional(),
     roles: z.array(Role),
     primaryRole: Role.optional(),
     perms: Permissions.optional(),
@@ -169,9 +170,13 @@ const UpdateMemberRequest = z
     address: z.string(),
     roleIds: z.array(z.string().uuid()),
     group: z.string(),
+    title: z.string().max(40),
     excludeFromStats: z.boolean(),
   })
   .partial()
+  .passthrough();
+const SetMemberTitleRequest = z
+  .object({ title: z.string().max(40) })
   .passthrough();
 const SetRolesRequest = z
   .object({ roleIds: z.array(z.string().uuid()) })
@@ -314,6 +319,7 @@ const AttendanceRow = z
     avatarColor: z.string(),
     hasPhoto: z.boolean().optional(),
     group: z.string().optional(),
+    title: z.string().max(40).optional(),
     primaryRole: Role.optional(),
     status: AttendanceStatus,
     reason: z.string().optional(),
@@ -780,6 +786,7 @@ export const schemas = {
   AcceptInviteResponse,
   Member,
   UpdateMemberRequest,
+  SetMemberTitleRequest,
   SetRolesRequest,
   CreateRoleRequest,
   UpdateRoleRequest,
@@ -2259,6 +2266,43 @@ const endpoints = makeApi([
       },
     ],
     response: Member,
+  },
+  {
+    method: "put",
+    path: "/teams/:teamId/members/:membershipId/title",
+    alias: "setMemberTitle",
+    description: `Lets a member set or clear (empty string) a short, purely cosmetic title on their own membership, without requiring members:write. Rejected if membershipId is not the caller&#x27;s own membership.`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ title: z.string().max(40) }).passthrough(),
+      },
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "membershipId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: Member,
+    errors: [
+      {
+        status: 403,
+        description: `Forbidden`,
+        schema: z.void(),
+      },
+      {
+        status: 404,
+        description: `Not Found`,
+        schema: z.void(),
+      },
+    ],
   },
   {
     method: "get",

@@ -100,6 +100,22 @@ describe('MembersPage', () => {
     expect(screen.getByText('Rollen & Rechte')).toBeTruthy();
   });
 
+  it('shows the member title in small text near the name when set', () => {
+    mockUseApp.mockReturnValue(
+      makeApp({
+        members: [makeMember({ title: 'Witzbeauftragter' })],
+      }),
+    );
+    render(<MembersPage />);
+    expect(screen.getByText('Witzbeauftragter')).toBeTruthy();
+  });
+
+  it('shows no title text when the member has no title', () => {
+    mockUseApp.mockReturnValue(makeApp({ members: [makeMember({ title: '' })] }));
+    render(<MembersPage />);
+    expect(screen.queryByText('Witzbeauftragter')).toBeNull();
+  });
+
   it('renders member with primary role chip', () => {
     mockUseApp.mockReturnValue(
       makeApp({

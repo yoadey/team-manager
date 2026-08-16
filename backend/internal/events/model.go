@@ -112,6 +112,7 @@ type AttendanceEnriched struct {
 	AvatarColor      string
 	HasPhoto         bool
 	Group            *string
+	Title            *string
 	// Auto is true when Status was derived from opt_out/absence-based
 	// defaulting rather than an explicit attendance record.
 	Auto bool

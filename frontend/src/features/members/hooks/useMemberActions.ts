@@ -7,7 +7,7 @@ import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 import type { MemberFormValues } from '../components/memberFormSchema';
 import { queryKeys } from '@/query/keys';
-import { useSaveMemberMutation, useRemoveMemberMutation } from './useMemberMutations';
+import { useSaveMemberMutation, useRemoveMemberMutation, useSetMyTitleMutation } from './useMemberMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -40,6 +40,7 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
 
   const { mutateAsync: saveMemberAsync, isPending: savingMember } = useSaveMemberMutation(api, teamId, refreshTeams);
   const { mutateAsync: removeMemberAsync } = useRemoveMemberMutation(api);
+  const { mutateAsync: setMyTitleAsync, isPending: savingMyTitle } = useSetMyTitleMutation(api, teamId);
 
   // Guards against a STALE stats response overwriting a NEWER one for the
   // SAME membershipId -- e.g. rapid double-clicks on the same member row (no
@@ -89,6 +90,7 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
         address: member.address || '',
         roleIds: member.roles.map((r) => r.id),
         group: member.group,
+        title: member.title,
         photo: member.photo,
         excludeFromStats: member.excludeFromStats,
       };
@@ -139,6 +141,7 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
             birthday: f.birthday || '',
             address: f.address || '',
             group: f.group || '',
+            title: f.title || '',
             excludeFromStats: !!f.excludeFromStats,
           },
           roleIds: nextRoleIds,
@@ -170,6 +173,21 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
     [S, setState, saveMemberAsync, openMemberDetail, toastMsg, logout, membersOf, teamId],
   );
 
+  // Self-service: sets/clears the caller's own title via the dedicated
+  // members:write-free endpoint, unlike saveMember's bulk profile patch.
+  const setMyTitle = useCallback(
+    async (membershipId: string, title: string) => {
+      try {
+        await setMyTitleAsync({ membershipId, title: title.trim() });
+        toastMsg(t('members.toastProfileSaved'));
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+        throw err;
+      }
+    },
+    [setMyTitleAsync, setState, toastMsg, logout],
+  );
+
   const removeMember = useCallback(
     (membershipId: string) => {
       const m = membersOf().find((x) => x.membershipId === membershipId);
@@ -198,5 +216,5 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
     [S, askConfirm, removeMemberAsync, setState, toastMsg, logout, membersOf, teamId],
   );
 
-  return { openMemberDetail, openMemberForm, saveMember, removeMember, savingMember };
+  return { openMemberDetail, openMemberForm, saveMember, removeMember, savingMember, setMyTitle, savingMyTitle };
 }

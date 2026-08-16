@@ -462,6 +462,7 @@ type AttendanceRow struct {
 	ReasonId         *string                        `json:"reasonId,omitempty"`
 	ReasonVisibility *AttendanceRowReasonVisibility `json:"reasonVisibility,omitempty"`
 	Status           AttendanceStatus               `json:"status"`
+	Title            *string                        `json:"title,omitempty"`
 	UserId           openapi_types.UUID             `json:"userId"`
 }
 
@@ -770,11 +771,14 @@ type Member struct {
 	Name             string             `json:"name"`
 
 	// Perms Per-module permission levels
-	Perms       *Permissions       `json:"perms,omitempty"`
-	Phone       *string            `json:"phone,omitempty"`
-	PrimaryRole *Role              `json:"primaryRole,omitempty"`
-	Roles       []Role             `json:"roles"`
-	UserId      openapi_types.UUID `json:"userId"`
+	Perms       *Permissions `json:"perms,omitempty"`
+	Phone       *string      `json:"phone,omitempty"`
+	PrimaryRole *Role        `json:"primaryRole,omitempty"`
+	Roles       []Role       `json:"roles"`
+
+	// Title A short, self-chosen, purely cosmetic label (e.g. "Witzbeauftragter"). Display-only -- never interpreted by RBAC.
+	Title  *string            `json:"title,omitempty"`
+	UserId openapi_types.UUID `json:"userId"`
 }
 
 // MemberAttendanceStats defines model for MemberAttendanceStats.
@@ -1008,6 +1012,12 @@ type SetEventStatusRequest struct {
 	Status EventStatus `json:"status"`
 }
 
+// SetMemberTitleRequest defines model for SetMemberTitleRequest.
+type SetMemberTitleRequest struct {
+	// Title Empty string clears the title.
+	Title string `json:"title"`
+}
+
 // SetNominationRequest defines model for SetNominationRequest.
 type SetNominationRequest struct {
 	Nominated bool               `json:"nominated"`
@@ -1227,6 +1237,7 @@ type UpdateMemberRequest struct {
 	Name             *string               `json:"name,omitempty"`
 	Phone            *string               `json:"phone,omitempty"`
 	RoleIds          *[]openapi_types.UUID `json:"roleIds,omitempty"`
+	Title            *string               `json:"title,omitempty"`
 }
 
 // UpdateNewsRequest defines model for UpdateNewsRequest.
@@ -1574,6 +1585,9 @@ type UpdateMemberJSONRequestBody = UpdateMemberRequest
 // SetMemberRolesJSONRequestBody defines body for SetMemberRoles for application/json ContentType.
 type SetMemberRolesJSONRequestBody = SetRolesRequest
 
+// SetMemberTitleJSONRequestBody defines body for SetMemberTitle for application/json ContentType.
+type SetMemberTitleJSONRequestBody = SetMemberTitleRequest
+
 // CreateNewsJSONRequestBody defines body for CreateNews for application/json ContentType.
 type CreateNewsJSONRequestBody = CreateNewsRequest
 
@@ -1810,6 +1824,9 @@ type ServerInterface interface {
 	// Replace member role assignments
 	// (PUT /teams/{teamId}/members/{membershipId}/roles)
 	SetMemberRoles(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId)
+	// Set or clear your own member title
+	// (PUT /teams/{teamId}/members/{membershipId}/title)
+	SetMemberTitle(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId)
 	// List team news
 	// (GET /teams/{teamId}/news)
 	ListNews(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListNewsParams)
@@ -2305,6 +2322,12 @@ func (_ Unimplemented) GetMemberPhoto(w http.ResponseWriter, r *http.Request, te
 // Replace member role assignments
 // (PUT /teams/{teamId}/members/{membershipId}/roles)
 func (_ Unimplemented) SetMemberRoles(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set or clear your own member title
+// (PUT /teams/{teamId}/members/{membershipId}/title)
+func (_ Unimplemented) SetMemberTitle(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4862,6 +4885,47 @@ func (siw *ServerInterfaceWrapper) SetMemberRoles(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// SetMemberTitle operation middleware
+func (siw *ServerInterfaceWrapper) SetMemberTitle(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "membershipId" -------------
+	var membershipId MembershipId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "membershipId", chi.URLParam(r, "membershipId"), &membershipId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "membershipId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetMemberTitle(w, r, teamId, membershipId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListNews operation middleware
 func (siw *ServerInterfaceWrapper) ListNews(w http.ResponseWriter, r *http.Request) {
 
@@ -6455,6 +6519,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/teams/{teamId}/members/{membershipId}/roles", wrapper.SetMemberRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/teams/{teamId}/members/{membershipId}/title", wrapper.SetMemberTitle)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/news", wrapper.ListNews)
@@ -8454,6 +8521,62 @@ func (response SetMemberRoles200JSONResponse) VisitSetMemberRolesResponse(w http
 	return err
 }
 
+type SetMemberTitleRequestObject struct {
+	TeamId       TeamId       `json:"teamId"`
+	MembershipId MembershipId `json:"membershipId"`
+	Body         *SetMemberTitleJSONRequestBody
+}
+
+type SetMemberTitleResponseObject interface {
+	VisitSetMemberTitleResponse(w http.ResponseWriter) error
+}
+
+type SetMemberTitle200JSONResponse Member
+
+func (response SetMemberTitle200JSONResponse) VisitSetMemberTitleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMemberTitle403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response SetMemberTitle403ApplicationProblemPlusJSONResponse) VisitSetMemberTitleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMemberTitle404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SetMemberTitle404ApplicationProblemPlusJSONResponse) VisitSetMemberTitleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListNewsRequestObject struct {
 	TeamId TeamId `json:"teamId"`
 	Params ListNewsParams
@@ -9398,6 +9521,9 @@ type StrictServerInterface interface {
 	// Replace member role assignments
 	// (PUT /teams/{teamId}/members/{membershipId}/roles)
 	SetMemberRoles(ctx context.Context, request SetMemberRolesRequestObject) (SetMemberRolesResponseObject, error)
+	// Set or clear your own member title
+	// (PUT /teams/{teamId}/members/{membershipId}/title)
+	SetMemberTitle(ctx context.Context, request SetMemberTitleRequestObject) (SetMemberTitleResponseObject, error)
 	// List team news
 	// (GET /teams/{teamId}/news)
 	ListNews(ctx context.Context, request ListNewsRequestObject) (ListNewsResponseObject, error)
@@ -11456,6 +11582,40 @@ func (sh *strictHandler) SetMemberRoles(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetMemberRolesResponseObject); ok {
 		if err := validResponse.VisitSetMemberRolesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetMemberTitle operation middleware
+func (sh *strictHandler) SetMemberTitle(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId) {
+	var request SetMemberTitleRequestObject
+
+	request.TeamId = teamId
+	request.MembershipId = membershipId
+
+	var body SetMemberTitleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetMemberTitle(ctx, request.(SetMemberTitleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetMemberTitle")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetMemberTitleResponseObject); ok {
+		if err := validResponse.VisitSetMemberTitleResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

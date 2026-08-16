@@ -380,6 +380,7 @@ export interface AppContextValue {
   openMemberForm: (member: Member) => void;
   saveMember: (f: MemberFormValues) => Promise<void>;
   removeMember: (membershipId: string) => void;
+  setMyTitle: (membershipId: string, title: string) => Promise<void>;
   // roles
   openRoles: () => void;
   openRoleForm: (role?: Role) => void;
@@ -1215,6 +1216,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openMemberForm,
     saveMember,
     removeMember,
+    setMyTitle,
     openRoles,
     openRoleForm,
     saveRole,
@@ -1493,6 +1495,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openMemberForm,
       saveMember,
       removeMember,
+      setMyTitle,
       openRoles,
       openRoleForm,
       saveRole,
@@ -1604,6 +1607,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openMemberForm,
       saveMember,
       removeMember,
+      setMyTitle,
       openRoles,
       openRoleForm,
       saveRole,

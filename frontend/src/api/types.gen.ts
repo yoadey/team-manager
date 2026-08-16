@@ -433,6 +433,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{teamId}/members/{membershipId}/title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set or clear your own member title
+         * @description Lets a member set or clear (empty string) a short, purely cosmetic title on their own membership, without requiring members:write. Rejected if membershipId is not the caller's own membership.
+         */
+        put: operations["setMemberTitle"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{teamId}/members/{membershipId}/roles": {
         parameters: {
             query?: never;
@@ -1490,6 +1513,8 @@ export interface components {
             avatarColor: string;
             hasPhoto?: boolean;
             group?: string;
+            /** @description A short, self-chosen, purely cosmetic label (e.g. "Witzbeauftragter"). Display-only -- never interpreted by RBAC. */
+            title?: string;
             roles: components["schemas"]["Role"][];
             primaryRole?: components["schemas"]["Role"];
             perms?: components["schemas"]["Permissions"];
@@ -1508,7 +1533,12 @@ export interface components {
             address?: string;
             roleIds?: string[];
             group?: string;
+            title?: string;
             excludeFromStats?: boolean;
+        };
+        SetMemberTitleRequest: {
+            /** @description Empty string clears the title. */
+            title: string;
         };
         SetRolesRequest: {
             roleIds: string[];
@@ -1665,6 +1695,7 @@ export interface components {
             avatarColor: string;
             hasPhoto?: boolean;
             group?: string;
+            title?: string;
             primaryRole?: components["schemas"]["Role"];
             status: components["schemas"]["AttendanceStatus"];
             reason?: string;
@@ -3099,6 +3130,35 @@ export interface operations {
         responses: {
             200: components["responses"]["PhotoBytes"];
             302: components["responses"]["PhotoRedirect"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setMemberTitle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetMemberTitleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Member"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };

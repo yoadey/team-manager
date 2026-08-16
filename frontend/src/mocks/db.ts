@@ -409,25 +409,26 @@ export function createSeedData(): DemoDb {
   tA.description = 'A-Formation Latein – aktuell in der NRW-Liga. Training Di & Do.';
   tB.description = 'B-Formation – Nachwuchs & Aufbau. Wir freuen uns über jede neue Tänzerin und jeden neuen Tänzer.';
 
-  const M = (teamId: string, userId: string, roleIds: string[], group: string): Membership => ({
+  const M = (teamId: string, userId: string, roleIds: string[], group: string, title = ''): Membership => ({
     id: rid('mem'),
     teamId,
     userId,
     roleIds,
     group,
+    title,
     joinedAt: iso(new Date(Date.now() - 200 * DAY)),
     excludeFromStats: false,
   });
   db.memberships = [
     M('t_a', 'u1', [RA('Admin / Trainer'), RA('Tänzer / Mitglied')], 'A-Formation'),
-    M('t_a', 'u2', [RA('Teamkapitän'), RA('Tänzer / Mitglied')], 'A-Formation'),
+    M('t_a', 'u2', [RA('Teamkapitän'), RA('Tänzer / Mitglied')], 'A-Formation', 'Chefmotivator'),
     M('t_a', 'u3', [RA('Kassenwart'), RA('Tänzer / Mitglied')], 'A-Formation'),
     M('t_a', 'u4', [RA('Tänzer / Mitglied')], 'A-Formation'),
     M('t_a', 'u5', [RA('Tänzer / Mitglied')], 'A-Formation'),
     M('t_a', 'u6', [RA('Tänzer / Mitglied')], 'A-Formation'),
     M('t_a', 'u7', [RA('Tänzer / Mitglied')], 'A-Formation'),
     M('t_a', 'u8', [RA('Tänzer / Mitglied')], 'A-Formation'),
-    M('t_a', 'u9', [RA('Tänzer / Mitglied')], 'Nachwuchs'),
+    M('t_a', 'u9', [RA('Tänzer / Mitglied')], 'Nachwuchs', 'Witzbeauftragter'),
     M('t_a', 'u10', [RA('Tänzer / Mitglied')], 'Nachwuchs'),
     M('t_a', 'u11', [RA('Betreuer')], 'A-Formation'),
     M('t_a', 'u12', [RA('Tänzer / Mitglied')], 'Nachwuchs'),

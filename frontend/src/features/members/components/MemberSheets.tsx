@@ -384,6 +384,9 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
       <Field label={t('members.fieldAddress')}>
         <TextInput {...register('address')} placeholder={t('members.fieldAddressPlaceholder')} maxLength={500} />
       </Field>
+      <Field label={t('members.fieldTitle')} error={!!errors.title} errorText={errors.title?.message}>
+        <TextInput {...register('title')} placeholder={t('members.fieldTitlePlaceholder')} maxLength={40} />
+      </Field>
       {contactNote}
       {roleChips}
       {canExcludeFromStats ? (

@@ -80,6 +80,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "POST", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: true},                      // setAttendance
 	{Method: "POST", Segments: []string{"events", "{eventId}", "status"}, Module: "events", SelfService: false},                         // setEventStatus
 	{Method: "PUT", Segments: []string{"members", "{membershipId}", "roles"}, Module: "settings", SelfService: false},                   // setMemberRoles
+	{Method: "PUT", Segments: []string{"members", "{membershipId}", "title"}, Module: "members", SelfService: true},                     // setMemberTitle
 	{Method: "PUT", Segments: []string{"events", "{eventId}", "attendance", "nominations"}, Module: "events", SelfService: false},       // setNomination
 	{Method: "PUT", Segments: []string{"push-preferences"}, Module: "public", SelfService: false},                                       // setPushPreferences
 	{Method: "PUT", Segments: []string{"stats-preferences"}, Module: "stats", SelfService: true},                                        // setStatsPreferences

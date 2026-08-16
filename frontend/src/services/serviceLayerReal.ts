@@ -405,6 +405,7 @@ export const realApi = {
         birthday?: string | null;
         address?: string | null;
         group?: string | null;
+        title?: string | null;
         excludeFromStats?: boolean;
       },
       teamId: string,
@@ -418,6 +419,7 @@ export const realApi = {
           ...opt('birthday', patch.birthday ?? undefined),
           ...opt('address', patch.address ?? undefined),
           ...opt('group', patch.group ?? undefined),
+          ...opt('title', patch.title ?? undefined),
           ...opt('excludeFromStats', patch.excludeFromStats),
         },
       });
@@ -429,6 +431,15 @@ export const realApi = {
       const res = await apiClient.PUT('/teams/{teamId}/members/{membershipId}/roles', {
         params: { path: { teamId, membershipId } },
         body: { roleIds },
+      });
+      const m = await check(res);
+      return mapMember(m, teamId);
+    },
+
+    async setMyTitle(membershipId: string, title: string, teamId: string): Promise<Member> {
+      const res = await apiClient.PUT('/teams/{teamId}/members/{membershipId}/title', {
+        params: { path: { teamId, membershipId } },
+        body: { title },
       });
       const m = await check(res);
       return mapMember(m, teamId);

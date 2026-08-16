@@ -81,6 +81,16 @@ var ErrInsufficientPermissionToGrant = errors.New("cannot grant a permission lev
 // to -- with no notification and no audit trail of the old value.
 var ErrCannotChangeOthersEmail = errors.New("changing another member's email requires settings permission")
 
+// ErrCannotSetOthersTitle is returned by SetMemberTitle when the caller
+// tries to set or clear a title on a membership other than their own. Unlike
+// UpdateMember's fields (editable by any members:write holder, for anyone),
+// the self-service title endpoint has no such holder-editing-someone-else
+// path -- a title is something a member gives themselves. A members:write
+// holder who needs to moderate another member's title still can, just
+// through UpdateMember (title is a field on UpdateMemberRequest too), not
+// through this endpoint.
+var ErrCannotSetOthersTitle = errors.New("only a member can set or clear their own title")
+
 // ErrCannotRemoveSettingsAdmin is returned by RemoveMember when the caller
 // tries to remove a member who currently holds settings:write while the
 // caller does not hold settings:write themselves. DELETE .../members/{id} is
@@ -142,7 +152,7 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 		SELECT m.id, u.id, u.name, u.email, u.phone,
 		       u.birthday, u.address, u.avatar_color,
 		       (u.photo_object_key IS NOT NULL AND length(u.photo_object_key) > 0),
-		       m."group", m.joined_at, m.exclude_from_stats
+		       m."group", m.title, m.joined_at, m.exclude_from_stats
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.team_id = $1 %s
@@ -317,6 +327,14 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID, cal
 		}
 	}
 
+	// Update membership title.
+	if patch.Title != nil {
+		_, err = tx.Exec(ctx, `UPDATE memberships SET title = $1 WHERE id = $2 AND team_id = $3`, *patch.Title, membershipID, teamID)
+		if err != nil {
+			return nil, fmt.Errorf("members.Repository.UpdateMember: update title: %w", err)
+		}
+	}
+
 	if patch.ExcludeFromStats != nil {
 		_, err = tx.Exec(ctx, `UPDATE memberships SET exclude_from_stats = $1 WHERE id = $2 AND team_id = $3`, *patch.ExcludeFromStats, membershipID, teamID)
 		if err != nil {
@@ -338,6 +356,47 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID, cal
 		return nil, fmt.Errorf("members.Repository.UpdateMember: commit: %w", err)
 	}
 
+	return mr, nil
+}
+
+// SetMemberTitle sets or clears (title == nil) the caller's own title on
+// membershipID, scoped to teamID. Returns pgx.ErrNoRows if no membership with
+// id exists within teamID, or ErrCannotSetOthersTitle if the membership
+// belongs to a different user than callerUserID.
+//
+// Unlike UpdateMember/SetRoles/RemoveMember, this doesn't take the per-team
+// advisory lock or run inside a transaction: title is cosmetic display text,
+// not a security- or state-sensitive field, so the narrow race with a
+// concurrent RemoveMember (an update landing just as the membership is
+// deleted) is an acceptable, self-healing edge case here -- worst case the
+// caller sees pgx.ErrNoRows for a write that momentarily "succeeded" on a
+// row that no longer exists, same as any ordinary delete-after-read race.
+
+func (r *Repository) SetMemberTitle(ctx context.Context, membershipID, teamID, callerUserID string, title *string) (*MemberRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var userID string
+	err := r.pool.QueryRow(ctx, `SELECT user_id FROM memberships WHERE id = $1 AND team_id = $2`, membershipID, teamID).Scan(&userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		return nil, fmt.Errorf("members.Repository.SetMemberTitle: get user_id: %w", err)
+	}
+	if userID != callerUserID {
+		return nil, ErrCannotSetOthersTitle
+	}
+
+	_, err = r.pool.Exec(ctx, `UPDATE memberships SET title = $1 WHERE id = $2 AND team_id = $3`, title, membershipID, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("members.Repository.SetMemberTitle: update: %w", err)
+	}
+
+	mr, err := getMemberByMembershipIDQ(ctx, r.pool, membershipID)
+	if err != nil {
+		return nil, err
+	}
 	return mr, nil
 }
 
@@ -791,7 +850,7 @@ func getMemberByMembershipIDQ(ctx context.Context, q querier, membershipID strin
 		SELECT m.id, u.id, u.name, u.email, u.phone,
 		       u.birthday, u.address, u.avatar_color,
 		       (u.photo_object_key IS NOT NULL AND length(u.photo_object_key) > 0),
-		       m."group", m.joined_at, m.exclude_from_stats
+		       m."group", m.title, m.joined_at, m.exclude_from_stats
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.id = $1
@@ -883,7 +942,7 @@ func scanMemberRow(row interface{ Scan(dest ...any) error }) (*MemberRow, error)
 		&mr.MembershipID, &mr.UserID, &mr.Name, &mr.Email, &mr.Phone,
 		&mr.Birthday, &mr.Address, &mr.AvatarColor,
 		&mr.HasPhoto,
-		&mr.Group, &mr.JoinedAt, &mr.ExcludeFromStats,
+		&mr.Group, &mr.Title, &mr.JoinedAt, &mr.ExcludeFromStats,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)

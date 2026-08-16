@@ -1100,6 +1100,7 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 			m.id,
 			m.user_id,
 			m."group",
+			m.title,
 			u.name,
 			u.avatar_color,
 			(u.photo_object_key IS NOT NULL) AS has_photo,
@@ -1133,7 +1134,7 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 		var absenceCovers bool
 		var responseMode string
 		err := rows.Scan(
-			&a.MembershipId, &a.UserId, &a.Group,
+			&a.MembershipId, &a.UserId, &a.Group, &a.Title,
 			&a.Name, &a.AvatarColor, &a.HasPhoto,
 			&status, &reason, &reasonID, &reasonVisibility, &at,
 			&absenceCovers, &responseMode,

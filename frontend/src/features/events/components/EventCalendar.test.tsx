@@ -45,6 +45,7 @@ function makeMember(overrides: Partial<Member> = {}): Member {
     avatarColor: '#000000',
     photo: null,
     group: '',
+    title: '',
     roles: [],
     joinedAt: '2020-01-01',
     primaryRole: null,

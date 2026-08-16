@@ -533,7 +533,7 @@ function AttendanceRowItem({
           </Box>
         ) : (
           <Box sx={{ fontSize: '11px', color: NEUTRAL.faint }}>
-            {row.group + (row.absent ? ' · ' + t('events.absent') : '')}
+            {[row.group, row.title, row.absent ? t('events.absent') : ''].filter(Boolean).join(' · ')}
           </Box>
         )}
       </Box>

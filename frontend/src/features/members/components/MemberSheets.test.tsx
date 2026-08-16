@@ -328,6 +328,13 @@ describe('MemberFormSheet', () => {
     expect(input.maxLength).toBe(254);
   });
 
+  it('renders the title input field capped at 40 characters matching the backend limit', () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const input = screen.getByPlaceholderText(/Witzbeauftragter/i) as HTMLInputElement;
+    expect(input.maxLength).toBe(40);
+  });
+
   it('renders the save button', () => {
     const app = makeFormApp();
     render(<MemberFormSheet app={app} sheet={formSheet} />);

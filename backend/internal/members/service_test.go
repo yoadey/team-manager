@@ -22,6 +22,7 @@ type mockMemberRepo struct {
 	listMembers    func(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error)
 	getMemberPhoto func(ctx context.Context, teamID, membershipID string) (string, error)
 	updateMember   func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*members.MemberRow, error)
+	setMemberTitle func(ctx context.Context, membershipID, teamID, callerUserID string, title *string) (*members.MemberRow, error)
 	setRoles       func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*members.MemberRow, error)
 	removeMember   func(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
@@ -39,6 +40,10 @@ func (m *mockMemberRepo) GetMemberPhotoKey(ctx context.Context, teamID, membersh
 
 func (m *mockMemberRepo) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*members.MemberRow, error) {
 	return m.updateMember(ctx, membershipID, teamID, callerUserID, patch)
+}
+
+func (m *mockMemberRepo) SetMemberTitle(ctx context.Context, membershipID, teamID, callerUserID string, title *string) (*members.MemberRow, error) {
+	return m.setMemberTitle(ctx, membershipID, teamID, callerUserID, title)
 }
 
 func (m *mockMemberRepo) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*members.MemberRow, error) {
@@ -135,6 +140,45 @@ func TestMemberService_UpdateMember_WrongTeam_PropagatesNoRows(t *testing.T) {
 	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	_, err := svc.UpdateMember(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String(), members.MemberPatch{})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+func TestMemberService_SetMemberTitle_PassesTeamID(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	membershipID := uuid.New()
+	callerUserID := uuid.New()
+	row := fixedMemberRow()
+	title := "Witzbeauftragter"
+
+	repo := &mockMemberRepo{
+		setMemberTitle: func(_ context.Context, mid, tid, caller string, tt *string) (*members.MemberRow, error) {
+			assert.Equal(t, membershipID.String(), mid)
+			assert.Equal(t, teamID.String(), tid)
+			assert.Equal(t, callerUserID.String(), caller)
+			assert.Equal(t, &title, tt)
+			return &row, nil
+		},
+	}
+
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
+	_, err := svc.SetMemberTitle(context.Background(), membershipID.String(), teamID.String(), callerUserID.String(), &title)
+	require.NoError(t, err)
+}
+
+func TestMemberService_SetMemberTitle_CannotSetOthersTitle_Propagates(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockMemberRepo{
+		setMemberTitle: func(context.Context, string, string, string, *string) (*members.MemberRow, error) {
+			return nil, members.ErrCannotSetOthersTitle
+		},
+	}
+
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
+	title := "Not mine"
+	_, err := svc.SetMemberTitle(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String(), &title)
+	require.ErrorIs(t, err, members.ErrCannotSetOthersTitle)
 }
 
 func TestMemberService_SetRoles_PassesTeamID(t *testing.T) {

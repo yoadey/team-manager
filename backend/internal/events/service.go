@@ -886,6 +886,7 @@ func toGenAttendanceRow(a *AttendanceEnriched) gen.AttendanceRow {
 		Reason:       a.Reason,
 		ReasonId:     a.ReasonId,
 		Group:        a.Group,
+		Title:        a.Title,
 		Auto:         &a.Auto,
 		Absent:       &a.Absent,
 	}
