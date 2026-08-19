@@ -62,9 +62,8 @@ export function useSaveMemberMutation(
       // Role assignment is a separate write path (members.setRoles -> PUT
       // .../roles, gated on settings:write) from the profile-field patch
       // (members.update -> PATCH .../{membershipId}, gated on members:write)
-      // -- the backend's UpdateMember handler never applies a roleIds field
-      // embedded in the PATCH body, so it must be sent via setRoles()
-      // whenever it actually changed.
+      // -- the PATCH request body has no roleIds field at all, so role
+      // changes must be sent via setRoles() whenever they actually changed.
       if (rolesChanged) member = await api.members.setRoles(membershipId, roleIds, teamId!);
       // Photo has its own dedicated endpoint (auth.setPhoto, self-only --
       // there is no backend endpoint to set another member's photo at all),

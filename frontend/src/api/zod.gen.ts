@@ -168,7 +168,6 @@ const UpdateMemberRequest = z
     phone: z.string(),
     birthday: z.string(),
     address: z.string(),
-    roleIds: z.array(z.string().uuid()),
     group: z.string(),
     title: z.string().max(40),
     excludeFromStats: z.boolean(),
