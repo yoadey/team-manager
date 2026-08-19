@@ -4,7 +4,8 @@
 // DTO types (which already mirror the OpenAPI wire shapes closely); handlers.ts
 // is responsible for converting a row into the exact `components['schemas']`
 // response shape.
-import type { Invite, Membership, ModuleKey, Permissions, PermLevel, RoleDto, Team, User } from '@/types';
+import { MODULE_KEYS } from '@/types';
+import type { Invite, Membership, Permissions, PermLevel, RoleDto, Team, User } from '@/types';
 import type { Absence, AttendanceDto, EventComment, EventDto, ResponseMode } from '@/features/events';
 import type { Penalty, Transaction } from '@/features/finances';
 import type { NewsItem } from '@/features/news';
@@ -79,7 +80,7 @@ export function perms(overrides: Partial<Permissions> = {}): Permissions {
   };
 }
 
-export const MODULES: ModuleKey[] = ['events', 'members', 'finances', 'news', 'polls', 'settings', 'stats'];
+export const MODULES = MODULE_KEYS;
 const LEVEL: Record<PermLevel, number> = { none: 0, read: 1, write: 2 };
 
 export function mergePerms(roles: RoleDto[]): Permissions {

@@ -4,6 +4,7 @@
 // (src/mocks/) rather than a second in-code implementation.
 
 import { apiClient, apiOrigin } from '@/api/client';
+import { MODULE_KEYS } from '@/types';
 import {
   mapUser,
   mapProvider,
@@ -1297,7 +1298,7 @@ export const realApi = {
     },
   },
 
-  MODULES: ['events', 'members', 'finances', 'news', 'polls', 'settings'] as const,
+  MODULES: MODULE_KEYS,
 };
 
 export type RealApi = typeof realApi;
