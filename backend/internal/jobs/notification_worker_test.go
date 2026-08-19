@@ -34,7 +34,7 @@ type mockPermsChecker struct {
 	calledN int
 }
 
-func (m *mockPermsChecker) GetPermissions(_ context.Context, _ uuid.UUID, userID uuid.UUID) (teams.PermissionsJSON, error) {
+func (m *mockPermsChecker) GetPermissions(_ context.Context, _, userID uuid.UUID) (teams.PermissionsJSON, error) {
 	m.calledN++
 	if m.err != nil {
 		return teams.PermissionsJSON{}, m.err
