@@ -61,18 +61,18 @@ export function useSaveMemberMutation(
       // Role assignment is a separate write path (members.setRoles -> PUT
       // .../roles, gated on settings:write) from the profile-field patch
       // (members.update -> PATCH .../{membershipId}, gated on members:write)
-      // -- the backend's UpdateMember handler never applies a roleIds field
-      // embedded in the PATCH body, so it must be sent via setRoles()
-      // whenever it actually changed. setRoles is deliberately called FIRST,
-      // before the profile patch: it requires the stronger settings:write
-      // permission and is the call most likely to fail for permission
-      // reasons (caller has members:write but not settings:write) or
-      // business-rule reasons (ErrInsufficientPermissionToGrant,
-      // ErrLastSettingsAdmin). This way a setRoles failure leaves nothing
-      // written yet, instead of the old order's silent partial write (new
-      // profile fields persisted with stale roles). update() still runs
-      // last and its response -- which reflects the roles just set -- is
-      // what's returned, so the caller always sees the true post-save state.
+      // -- the PATCH request body has no roleIds field at all, so role
+      // changes must be sent via setRoles() whenever they actually changed.
+      // setRoles is deliberately called FIRST, before the profile patch: it
+      // requires the stronger settings:write permission and is the call most
+      // likely to fail for permission reasons (caller has members:write but
+      // not settings:write) or business-rule reasons
+      // (ErrInsufficientPermissionToGrant, ErrLastSettingsAdmin). This way a
+      // setRoles failure leaves nothing written yet, instead of a silent
+      // partial write (new profile fields persisted with stale roles).
+      // update() still runs last and its response -- which reflects the
+      // roles just set -- is what's returned, so the caller always sees the
+      // true post-save state.
       if (rolesChanged) await api.members.setRoles(membershipId, roleIds, teamId!);
       const member = await api.members.update(membershipId, patch, teamId!);
       // Photo has its own dedicated endpoint (auth.setPhoto, self-only --

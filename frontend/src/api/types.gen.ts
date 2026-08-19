@@ -1530,7 +1530,6 @@ export interface components {
             /** Format: date */
             birthday?: string;
             address?: string;
-            roleIds?: string[];
             group?: string;
             title?: string;
             excludeFromStats?: boolean;

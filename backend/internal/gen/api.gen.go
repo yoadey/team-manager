@@ -1229,15 +1229,14 @@ type UpdateEventRequest struct {
 
 // UpdateMemberRequest defines model for UpdateMemberRequest.
 type UpdateMemberRequest struct {
-	Address          *string               `json:"address,omitempty"`
-	Birthday         *openapi_types.Date   `json:"birthday,omitempty"`
-	Email            *openapi_types.Email  `json:"email,omitempty"`
-	ExcludeFromStats *bool                 `json:"excludeFromStats,omitempty"`
-	Group            *string               `json:"group,omitempty"`
-	Name             *string               `json:"name,omitempty"`
-	Phone            *string               `json:"phone,omitempty"`
-	RoleIds          *[]openapi_types.UUID `json:"roleIds,omitempty"`
-	Title            *string               `json:"title,omitempty"`
+	Address          *string              `json:"address,omitempty"`
+	Birthday         *openapi_types.Date  `json:"birthday,omitempty"`
+	Email            *openapi_types.Email `json:"email,omitempty"`
+	ExcludeFromStats *bool                `json:"excludeFromStats,omitempty"`
+	Group            *string              `json:"group,omitempty"`
+	Name             *string              `json:"name,omitempty"`
+	Phone            *string              `json:"phone,omitempty"`
+	Title            *string              `json:"title,omitempty"`
 }
 
 // UpdateNewsRequest defines model for UpdateNewsRequest.

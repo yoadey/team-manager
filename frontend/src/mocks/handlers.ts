@@ -841,10 +841,6 @@ export const handlers = [
     if (body.group !== undefined) m.group = body.group;
     if (body.title !== undefined) m.title = body.title;
     if (body.excludeFromStats !== undefined) m.excludeFromStats = body.excludeFromStats;
-    // An explicitly empty array clears all roles (matches the real backend's
-    // SetRoles, only guarded by ErrLastSettingsAdmin server-side) — only an
-    // absent field should be a no-op, not an empty one.
-    if (body.roleIds !== undefined) m.roleIds = body.roleIds;
     return HttpResponse.json(toWireMember(m));
   }),
 

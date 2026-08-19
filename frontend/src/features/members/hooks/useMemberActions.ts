@@ -115,9 +115,9 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
       // Role assignment is a separate write path (members.setRoles ->
       // PUT .../roles, gated on settings:write) from the profile-field patch
       // (members.update -> PATCH .../{membershipId}, gated on members:write) —
-      // the backend's UpdateMember handler never applies a roleIds field
-      // embedded in the PATCH body, so it must be sent via setRoles() whenever
-      // it actually changed, not folded into the profile update.
+      // the PATCH request body has no roleIds field at all, so role changes
+      // must be sent via setRoles() whenever they actually changed, not
+      // folded into the profile update.
       const original = membersOf().find((x) => x.membershipId === f.membershipId);
       const originalRoleIds = original ? original.roles.map((r) => r.id) : [];
       const nextRoleIds = f.roleIds ?? [];
