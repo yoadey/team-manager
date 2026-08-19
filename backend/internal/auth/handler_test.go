@@ -346,10 +346,16 @@ func TestHandler_Login_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
+	respBody := w.Body.String()
 	var resp gen.LoginResponse
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	assert.Equal(t, "jwt.token.here", resp.Token)
+	require.NoError(t, json.NewDecoder(strings.NewReader(respBody)).Decode(&resp))
 	assert.Equal(t, "Test User", resp.User.Name)
+	// The signed session JWT must never appear in the response body -- it is
+	// only ever set as the httpOnly session cookie (see cookie.go's
+	// applyCookie/SetSessionToken). This is the regression this test guards
+	// against.
+	assert.NotContains(t, respBody, "jwt.token.here")
+	assert.NotContains(t, respBody, `"token"`)
 }
 
 func TestHandler_Login_BadCredentials(t *testing.T) {
@@ -504,9 +510,14 @@ func TestHandler_VerifyEmail_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
+	respBody := w.Body.String()
 	var resp gen.LoginResponse
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	assert.Equal(t, "jwt.token.here", resp.Token)
+	require.NoError(t, json.NewDecoder(strings.NewReader(respBody)).Decode(&resp))
+	assert.Equal(t, "Test User", resp.User.Name)
+	// See TestHandler_Login_Success: the session JWT must never appear in
+	// the response body.
+	assert.NotContains(t, respBody, "jwt.token.here")
+	assert.NotContains(t, respBody, `"token"`)
 }
 
 func TestHandler_VerifyEmail_InvalidToken_Returns401(t *testing.T) {
@@ -610,9 +621,14 @@ func TestHandler_ResetPassword_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
+	respBody := w.Body.String()
 	var resp gen.LoginResponse
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	assert.Equal(t, "jwt.token.here", resp.Token)
+	require.NoError(t, json.NewDecoder(strings.NewReader(respBody)).Decode(&resp))
+	assert.Equal(t, "Test User", resp.User.Name)
+	// See TestHandler_Login_Success: the session JWT must never appear in
+	// the response body.
+	assert.NotContains(t, respBody, "jwt.token.here")
+	assert.NotContains(t, respBody, `"token"`)
 }
 
 func TestHandler_ResetPassword_InvalidToken_Returns401(t *testing.T) {

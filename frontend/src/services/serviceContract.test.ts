@@ -34,9 +34,12 @@ describe('self-service registration: enumeration safety and verification flow', 
     expect(resp.message).toBeTruthy();
 
     const token = onlyVerificationToken();
-    const { token: sessionToken, user } = await api.auth.verifyEmail(token);
-    expect(sessionToken).toBeTruthy();
+    const { user } = await api.auth.verifyEmail(token);
     expect(user.email).toBe('new-user@example.com');
+    // verifyEmail establishes a session via the httpOnly cookie (never in
+    // the response body -- see backend/internal/auth/handler.go); confirm
+    // it actually took effect rather than asserting on a body field.
+    await expect(api.auth.currentUser()).resolves.toMatchObject({ email: 'new-user@example.com' });
   });
 
   it('register/resend-verification return the identical response across available, verified, and pending emails', async () => {
@@ -122,9 +125,12 @@ describe('password reset: enumeration safety and reset flow', () => {
     await api.auth.forgotPassword('reset-target@example.com');
     const token = onlyPasswordResetToken();
 
-    const { token: sessionToken, user } = await api.auth.resetPassword(token, 'brandnewpassword123');
-    expect(sessionToken).toBeTruthy();
+    const { user } = await api.auth.resetPassword(token, 'brandnewpassword123');
     expect(user.email.toLowerCase()).toBe('reset-target@example.com');
+    // resetPassword establishes a session via the httpOnly cookie (never in
+    // the response body -- see backend/internal/auth/handler.go); confirm
+    // it actually took effect rather than asserting on a body field.
+    await expect(api.auth.currentUser()).resolves.toMatchObject({ email: 'reset-target@example.com' });
 
     await expect(api.auth.login('reset-target@example.com', 'brandnewpassword123')).resolves.toBeTruthy();
   });

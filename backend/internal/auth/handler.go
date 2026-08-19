@@ -116,9 +116,13 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 
 	metrics.LoginAttempts.WithLabelValues("success").Inc()
 	h.audit.Record(ctx, audit.EventLogin, audit.Success, user.Id.String(), slog.String("email_hash", HashEmailForAudit(string(request.Body.Email))))
+	// The session JWT is set as the httpOnly cookie by cookie.go's
+	// StrictMiddleware/applyCookie; it deliberately does not appear in the
+	// JSON response body (an httpOnly cookie's whole point is keeping the
+	// credential out of reach of JS/XSS).
+	SetSessionToken(ctx, token)
 	return gen.Login200JSONResponse{
-		Token: token,
-		User:  toGenUser(user),
+		User: toGenUser(user),
 	}, nil
 }
 
@@ -186,9 +190,10 @@ func (h *Handler) VerifyEmail(ctx context.Context, request gen.VerifyEmailReques
 	}
 
 	h.audit.Record(ctx, audit.EventEmailVerify, audit.Success, user.Id.String())
+	// See Login's comment: the session JWT goes only into the httpOnly cookie.
+	SetSessionToken(ctx, token)
 	return gen.VerifyEmail200JSONResponse{
-		Token: token,
-		User:  toGenUser(user),
+		User: toGenUser(user),
 	}, nil
 }
 
@@ -261,9 +266,10 @@ func (h *Handler) ResetPassword(ctx context.Context, request gen.ResetPasswordRe
 
 	metrics.PasswordResetAttempts.WithLabelValues("success").Inc()
 	h.audit.Record(ctx, audit.EventPasswordReset, audit.Success, user.Id.String())
+	// See Login's comment: the session JWT goes only into the httpOnly cookie.
+	SetSessionToken(ctx, token)
 	return gen.ResetPassword200JSONResponse{
-		Token: token,
-		User:  toGenUser(user),
+		User: toGenUser(user),
 	}, nil
 }
 

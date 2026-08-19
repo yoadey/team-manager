@@ -1381,7 +1381,6 @@ export interface components {
             password: string;
         };
         LoginResponse: {
-            token: string;
             user: components["schemas"]["User"];
         };
         RegisterRequest: {
