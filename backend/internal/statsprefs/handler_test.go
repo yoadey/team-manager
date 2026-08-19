@@ -175,6 +175,34 @@ func TestHandler_UpdateStatsPreset_NotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Regression test: a single-bound PATCH (only "from" supplied) that would
+// invert the preset's stored range can only be caught by the DB's CHECK
+// constraint, since the merge happens inside the UPDATE statement -- must
+// surface as 400, not the generic 500 a bare repository error would
+// produce. Mirrors
+// absences_test.TestAbsenceHandler_UpdateAbsence_InvalidDateRange_Returns400.
+func TestHandler_UpdateStatsPreset_InvalidDateRange_Returns400(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsPrefsService{
+		updatePresetFn: func(_ context.Context, _, _, _ uuid.UUID, _ *string, _, _ *time.Time) (statsprefs.Preset, error) {
+			return statsprefs.Preset{}, statsprefs.ErrInvalidDateRange
+		},
+	}
+	h := statsprefs.NewHandler(svc, slog.Default())
+
+	from := openapi_types.Date{Time: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)}
+	_, err := h.UpdateStatsPreset(statsPrefsAuthedCtx(), gen.UpdateStatsPresetRequestObject{
+		TeamId:   statsPrefsTeamID,
+		PresetId: uuid.New(),
+		Body:     &gen.UpdateStatsPresetJSONRequestBody{From: &from},
+	})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "must map to an APIError, not fall through to the generic 500")
+	assert.Equal(t, 400, apiErr.Status)
+}
+
 func TestHandler_DeleteStatsPreset_Success(t *testing.T) {
 	t.Parallel()
 	var gotPresetID uuid.UUID
