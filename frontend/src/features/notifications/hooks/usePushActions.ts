@@ -24,6 +24,36 @@ export type PushSupport = 'unsupported' | 'supported';
 type ToastFn = (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
 
 /**
+ * Revokes this browser's Web Push registration: unsubscribes the local
+ * PushSubscription (if one exists) and deletes the corresponding
+ * push_subscriptions row on the backend. A no-op when the browser has no
+ * active subscription, or doesn't support Push at all (config.vapidPublicKey
+ * unset, or missing serviceWorker/PushManager -- in which case
+ * navigator.serviceWorker is never touched).
+ *
+ * Shared by two callers with different error-handling needs, so this
+ * function itself has none: it lets rejections propagate and leaves
+ * catching/toasting to the caller.
+ *  - `disablePush` below (explicit opt-out from Settings' NotificationsPanel)
+ *    catches and shows an error toast.
+ *  - `AppContext`'s `logout` (implicit revocation on every logout, so a
+ *    shared/kiosk device doesn't keep delivering this account's push
+ *    notifications to whoever uses the browser next -- push delivery is
+ *    keyed server-side on team membership, not on holding a live session)
+ *    fires-and-forgets it with `captureException`, matching how logout
+ *    already treats its own `api.auth.logout()` failure as non-blocking.
+ */
+export async function unsubscribeWebPush(api: typeof defaultApi): Promise<void> {
+  if (!config.vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (!sub) return;
+  const endpoint = sub.endpoint;
+  await sub.unsubscribe();
+  await api.push.unsubscribe(endpoint);
+}
+
+/**
  * Drives the "enable Web Push" toggle in Settings' NotificationsPanel: reads the current
  * subscription state on mount, and exposes enable/disable actions that
  * register/unregister the browser's PushSubscription with the backend.
@@ -89,13 +119,7 @@ export function usePushActions(api: typeof defaultApi, toastMsg: ToastFn) {
     if (support === 'unsupported' || busy) return;
     setBusy(true);
     try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        const endpoint = sub.endpoint;
-        await sub.unsubscribe();
-        await api.push.unsubscribe(endpoint);
-      }
+      await unsubscribeWebPush(api);
       setSubscribed(false);
       toastMsg(t('push.disabled'));
     } catch {

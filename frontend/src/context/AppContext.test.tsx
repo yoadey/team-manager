@@ -7,7 +7,19 @@ import { useNotificationsQuery } from '@/features/notifications';
 import { AppProvider, useApp, useAppActions, useAppSelector, sheetErrorBoundaryKey } from './AppContext';
 import { db as sharedMockDb } from '@/mocks/db';
 
-beforeEach(() => localStorage.clear());
+// logout() calls this to revoke the browser's Web Push subscription --
+// mocked so logout tests don't depend on the real Push API/service worker
+// (already covered in isolation by usePushActions.test.ts) and so the
+// "logout must survive a failed revocation" case can be exercised directly.
+const { unsubscribeWebPushMock } = vi.hoisted(() => ({ unsubscribeWebPushMock: vi.fn() }));
+vi.mock('@/features/notifications/hooks/usePushActions', () => ({
+  unsubscribeWebPush: unsubscribeWebPushMock,
+}));
+
+beforeEach(() => {
+  localStorage.clear();
+  unsubscribeWebPushMock.mockReset().mockResolvedValue(undefined);
+});
 
 // AppProvider fetches the events vertical through TanStack Query internally
 // now, so every render needs a QueryClientProvider ancestor -- a fresh client
@@ -452,6 +464,35 @@ describe('AppProvider / actions (app phase)', () => {
 
     expect(cb).not.toHaveBeenCalled();
     expect(screen.getByTestId('toast').textContent).not.toBe('');
+  });
+
+  // Regression coverage for the "shared/kiosk device keeps receiving a
+  // logged-out account's push notifications" finding: logout must also
+  // revoke this browser's Web Push subscription, and must never fail (or
+  // even slow down reaching the login screen) if that revocation itself
+  // fails -- push_subscriptions rows aren't tied to session liveness
+  // server-side, so this is the only client-side backstop.
+  it('logout revokes the browser Web Push subscription', async () => {
+    await renderAndBootstrap();
+
+    act(() => {
+      capturedActions.logout();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    expect(unsubscribeWebPushMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('logout still completes when revoking the Web Push subscription fails', async () => {
+    await renderAndBootstrap();
+    unsubscribeWebPushMock.mockRejectedValueOnce(new Error('offline'));
+
+    act(() => {
+      capturedActions.logout();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    expect(unsubscribeWebPushMock).toHaveBeenCalledTimes(1);
   });
 });
 
