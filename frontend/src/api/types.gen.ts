@@ -2204,7 +2204,10 @@ export interface components {
             enough: boolean;
         };
         StatsOverview: {
-            /** Format: float */
+            /**
+             * Format: float
+             * @description Mean attendance quote across members who have at least one counted event in the range. Members with no counted events (e.g. a brand-new member, or someone whose only events all fell under not_relevant_for_stats/exclude_from_stats) have no attendance data and are excluded from this average entirely -- they are not scored as 0%, matching how MemberStat.quote is null/absent-of-meaning for the same members below. If no member in the range has any counted events, avg is 0.
+             */
             avg: number;
             members: components["schemas"]["MemberStat"][];
             events: components["schemas"]["EventStat"][];
