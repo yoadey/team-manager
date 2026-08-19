@@ -23,18 +23,30 @@ var (
 	ErrMigrationsDirEmpty = errors.New("db: migrationsDir must not be empty")
 )
 
-// Connect parses dsn, configures a pgxpool.Pool with sensible connection-pool
-// settings, pings the database to confirm connectivity, and returns the pool.
+// PoolConfig holds the pgxpool connection-pool sizing knobs. It is normally
+// populated from config.Config's DBPoolMaxConns / DBPoolMinConns /
+// DBPoolMaxConnLifetime / DBPoolMaxConnIdleTime fields (see
+// config.loadDBPoolConfig), which in turn come from the DB_POOL_MAX_CONNS /
+// DB_POOL_MIN_CONNS / DB_POOL_MAX_CONN_LIFETIME_MINUTES /
+// DB_POOL_MAX_CONN_IDLE_TIME_MINUTES env vars -- letting an operator tune
+// per-replica pool size against a fixed DB max_connections budget without a
+// code change and redeploy.
+type PoolConfig struct {
+	MaxConns        int32
+	MinConns        int32
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
+}
+
+// Connect parses dsn, configures a pgxpool.Pool using poolCfg, pings the
+// database to confirm connectivity, and returns the pool.
 //
-// Pool configuration:
-//   - MaxConns: 25
-//   - MinConns: 2
-//   - MaxConnLifetime: 1 h
-//   - MaxConnIdleTime: 30 min
-//   - SlowQueryTracer: logs queries exceeding 1 s at WARN level
+// Pool configuration is caller-supplied via poolCfg (see PoolConfig);
+// SlowQueryTracer (logs queries exceeding 1 s at WARN level) is always
+// installed regardless of poolCfg.
 //
 // The caller is responsible for closing the pool (defer pool.Close()).
-func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+func Connect(ctx context.Context, dsn string, poolCfg PoolConfig) (*pgxpool.Pool, error) {
 	if dsn == "" {
 		return nil, ErrDSNEmpty
 	}
@@ -44,10 +56,10 @@ func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("db: parse dsn: %w", err)
 	}
 
-	cfg.MaxConns = 25
-	cfg.MinConns = 2
-	cfg.MaxConnLifetime = time.Hour
-	cfg.MaxConnIdleTime = 30 * time.Minute
+	cfg.MaxConns = poolCfg.MaxConns
+	cfg.MinConns = poolCfg.MinConns
+	cfg.MaxConnLifetime = poolCfg.MaxConnLifetime
+	cfg.MaxConnIdleTime = poolCfg.MaxConnIdleTime
 	cfg.ConnConfig.Tracer = NewSlowQueryTracer(slog.Default())
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)

@@ -176,6 +176,10 @@ self-registration minimum-age gate.
 | `JWT_PUBLIC_KEY`  | _(auto-generated in dev)_   | RSA-2048 public key PEM. Same requirement as `JWT_PRIVATE_KEY`. |
 | `SESSION_TTL_HOURS`| `720`                      | Session lifetime (30 days)     |
 | `MIGRATIONS_DIR`  | `internal/db/migrations`    | Goose migrations directory     |
+| `DB_POOL_MAX_CONNS` | `25`                      | Maximum number of connections pgxpool opens against Postgres. Tune down when scaling replica count against a fixed DB `max_connections` budget. |
+| `DB_POOL_MIN_CONNS` | `2`                       | Minimum number of idle connections pgxpool keeps open. Must not exceed `DB_POOL_MAX_CONNS` — startup fails otherwise. |
+| `DB_POOL_MAX_CONN_LIFETIME_MINUTES` | `60`     | Maximum lifetime (minutes) of a pooled connection before it is closed and replaced. |
+| `DB_POOL_MAX_CONN_IDLE_TIME_MINUTES` | `30`    | Maximum time (minutes) a pooled connection may sit idle before it is closed. |
 | `COOKIE_ENCRYPTION_KEYS`| _(empty)_ | Comma-separated list of AES-256 keys (newest first) for zero-downtime rotation. Takes precedence over `COOKIE_ENCRYPTION_KEY`. Each key: 32 bytes, hex or base64. |
 | `COOKIE_ENCRYPTION_KEY`| _(auto-generated in dev)_ | Single AES-256 key (32 bytes, hex or base64). Used when `COOKIE_ENCRYPTION_KEYS` is unset. **Required when `COOKIE_SECURE=true`** — startup fails without it. Generate with `openssl rand -base64 32`. |
 | `COOKIE_SECURE`   | `true`                      | Cookie `Secure` flag; set `false` for local http |
