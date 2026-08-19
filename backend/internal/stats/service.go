@@ -42,6 +42,30 @@ const maxStatsRangeDays = 730
 
 // defaultDateRange returns from = 3 months ago, to = today if not specified,
 // clamping the effective range to at most maxStatsRangeDays wide.
+//
+// "today"/"3 months ago" are derived from time.Now(), i.e. the server
+// process's local clock -- there is no per-team (or even per-deployment)
+// timezone concept anywhere in this codebase to derive them from instead.
+// The closest precedent, events.ZonedTimeToUTC (internal/events/zonedtime.go),
+// hardcodes Europe/Berlin for interpreting event wall-clock times, but that's
+// an app-wide constant standing in for "the club's timezone", not a per-team
+// setting stats could look up -- and adopting it here would just trade one
+// hardcoded assumption for another. In the shipped image (backend/Dockerfile,
+// distroless/static-debian12) no TZ is set and no tzdata/zoneinfo is
+// installed, so time.Now() resolves to UTC in production; docker-compose.yml
+// and helm/team-manager/values.yaml likewise never set TZ. Operators wanting
+// a different reference timezone must set TZ explicitly (and ship tzdata,
+// e.g. via a blank `time/tzdata` import) for the server process.
+//
+// Net effect: for a club whose local calendar day doesn't align with the
+// server's clock (UTC by default), the computed from/to boundary can be off
+// by up to a day around midnight. Low impact in practice: from/to are
+// date-only (no time-of-day component), and the default 3-month window is
+// generous enough that a one-day shift at either edge rarely changes which
+// events/attendance rows are included. This is a known, accepted trade-off,
+// not a bug to fix here -- doing so properly would mean introducing a
+// per-team timezone setting, which doesn't exist anywhere in this codebase
+// and is out of scope for this change.
 func defaultDateRange(from, to *openapi_types.Date) (fromStr, toStr string) {
 	now := time.Now()
 	toTime := now
