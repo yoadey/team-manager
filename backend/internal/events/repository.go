@@ -913,7 +913,7 @@ func (r *Repository) GetMyEffectiveAttendance(ctx context.Context, eventID, user
 		       EXISTS (
 		           SELECT 1 FROM absences ab
 		           WHERE ab.user_id = $2 AND ab.team_id = e.team_id
-		             AND ab.from_date <= e.date AND ab.to_date >= e.date
+		             AND ab.from_date <= COALESCE(e.end_date, e.date) AND ab.to_date >= e.date
 		       ),
 		       e.response_mode
 		FROM events e
@@ -1046,7 +1046,7 @@ func (r *Repository) GetMyEffectiveAttendances(ctx context.Context, eventIDs []u
 		       EXISTS (
 		           SELECT 1 FROM absences ab
 		           WHERE ab.user_id = $2 AND ab.team_id = e.team_id
-		             AND ab.from_date <= e.date AND ab.to_date >= e.date
+		             AND ab.from_date <= COALESCE(e.end_date, e.date) AND ab.to_date >= e.date
 		       ),
 		       e.response_mode
 		FROM events e
