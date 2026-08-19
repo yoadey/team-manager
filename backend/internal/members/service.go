@@ -90,6 +90,13 @@ func (s *Service) ListMembers(ctx context.Context, teamID string, limit int, cur
 	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {
 		return nil, nil, fmt.Errorf("members.Service.ListMembers: %w", err)
 	} else if ok {
+		if decoded.TeamID != teamID {
+			// Cursor was issued for a different team's member list. Reject it
+			// via the same error path as a malformed/tampered cursor (400)
+			// rather than silently applying it to this team's roster
+			// ordering -- see the ListCursor.TeamID doc comment.
+			return nil, nil, fmt.Errorf("members.Service.ListMembers: %w", pagination.ErrInvalidCursor)
+		}
 		cur = &decoded
 	}
 
@@ -102,7 +109,7 @@ func (s *Service) ListMembers(ctx context.Context, teamID string, limit int, cur
 	if len(rows) > limit {
 		rows = rows[:limit]
 		last := rows[len(rows)-1]
-		token, err := s.pager.Encode(ListCursor{Name: last.Name, ID: last.MembershipID})
+		token, err := s.pager.Encode(ListCursor{TeamID: teamID, Name: last.Name, ID: last.MembershipID})
 		if err != nil {
 			return nil, nil, fmt.Errorf("members.Service.ListMembers: %w", err)
 		}
