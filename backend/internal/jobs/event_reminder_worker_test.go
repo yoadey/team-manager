@@ -130,7 +130,7 @@ func TestEventReminderWorker_Work_SendsReminderWhenDue(t *testing.T) {
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/due", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	fired := runReminderTick(t, ctx, pool, worker)
@@ -167,7 +167,7 @@ func TestEventReminderWorker_Work_SkipsWhenNotYetDue(t *testing.T) {
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/notyet", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	runReminderTick(t, ctx, pool, worker)
@@ -204,7 +204,7 @@ func TestEventReminderWorker_Work_SkipsWhenPreferenceDisabled(t *testing.T) {
 			userID: {EventReminderEnabled: false, EventReminderHoursBefore: 6},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	runReminderTick(t, ctx, pool, worker)
@@ -238,7 +238,7 @@ func TestEventReminderWorker_Work_SkipsWhenPermissionDenied(t *testing.T) {
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/noaccess", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "none"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "none"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	runReminderTick(t, ctx, pool, worker)
@@ -295,7 +295,7 @@ func TestEventReminderWorker_Work_IdempotentAcrossRuns(t *testing.T) {
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/idempotent", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	require.NoError(t, jobs.MigrateRiver(ctx, pool))
@@ -368,7 +368,7 @@ func TestEventReminderWorker_Work_SkipsWithoutRiverClientInContext(t *testing.T)
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/norc", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 	job := &river.Job[jobs.EventReminderArgs]{Args: jobs.EventReminderArgs{}}
