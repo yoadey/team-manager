@@ -1424,6 +1424,63 @@ func TestEventService_CreateEvent_RejectsMultiDayEndDateBeforeDate(t *testing.T)
 	require.ErrorIs(t, err, events.ErrMultiDayEndDateBeforeDate)
 }
 
+func TestEventService_CreateEvent_RejectsMultiDaySpanTooLong(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	// One day past maxMultiDaySpanDays (1095): CreateEvent compares with a
+	// strict ">", so 1096 days is the smallest span that must be rejected.
+	end := start.AddDate(0, 0, 1096)
+
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, _ string, _ *events.CreateEventParams) (*events.EventRow, error) {
+			t.Fatal("CreateEvent must not be called when the multiDayEndDate span exceeds the cap")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	body := &gen.CreateEventRequest{
+		Type:            gen.Training,
+		Title:           "Span Too Long",
+		Date:            openapi_types.Date{Time: start},
+		MultiDayEndDate: &openapi_types.Date{Time: end},
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.ErrorIs(t, err, events.ErrMultiDaySpanTooLong)
+}
+
+func TestEventService_CreateEvent_AllowsMultiDaySpanAtMaxBoundary(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	// Exactly maxMultiDaySpanDays (1095): the comparison is a strict ">", so
+	// this must be the largest span that still succeeds.
+	end := start.AddDate(0, 0, 1095)
+
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, _ string, params *events.CreateEventParams) (*events.EventRow, error) {
+			return &events.EventRow{Id: uuid.New(), Type: "training", Title: "Span At Boundary", Date: start, EndDate: params.EndDate, Status: "active"}, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	body := &gen.CreateEventRequest{
+		Type:            gen.Training,
+		Title:           "Span At Boundary",
+		Date:            openapi_types.Date{Time: start},
+		MultiDayEndDate: &openapi_types.Date{Time: end},
+	}
+
+	ev, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.NoError(t, err)
+	require.NotNil(t, ev.MultiDayEndDate)
+	assert.Equal(t, end.Format("2006-01-02"), ev.MultiDayEndDate.Format("2006-01-02"))
+}
+
 func TestEventService_CreateEvent_MultiDay_PassesEndDateToRepository(t *testing.T) {
 	t.Parallel()
 
