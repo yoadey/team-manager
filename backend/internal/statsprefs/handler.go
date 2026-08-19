@@ -34,9 +34,15 @@ type statsprefsService interface {
 }
 
 // Handler implements the stats-preferences/stats-presets methods of
-// gen.StrictServerInterface. Every operation here is self-service and
-// x-rbac-module: public -- the caller always acts on their own selection/
-// presets, identified from the auth context, never a path/body user id.
+// gen.StrictServerInterface. Every route here carries x-rbac-module: stats.
+// Only SetStatsPreferences is x-rbac-self-service: true, so it requires
+// stats:read but never stats:write -- saving the caller's last-selected
+// range is an automatic side effect of viewing, not "defining a preset".
+// GetStatsPreferences and ListStatsPresets are plain stats:read routes;
+// CreateStatsPreset/UpdateStatsPreset/DeleteStatsPreset are not
+// self-service and require stats:write. In every case the caller always
+// acts on their own selection/presets, identified from the auth context,
+// never a path/body user id.
 type Handler struct {
 	svc    statsprefsService
 	logger *slog.Logger
