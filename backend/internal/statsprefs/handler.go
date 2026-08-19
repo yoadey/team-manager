@@ -172,6 +172,9 @@ func (h *Handler) UpdateStatsPreset(ctx context.Context, req gen.UpdateStatsPres
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("preset not found")
 		}
+		if errors.Is(err, ErrInvalidDateRange) {
+			return nil, apierror.BadRequest("'from' must not be after 'to'")
+		}
 		h.logger.ErrorContext(ctx, "UpdateStatsPreset failed", "err", err)
 		return nil, apierror.Internal("failed to update stats preset")
 	}

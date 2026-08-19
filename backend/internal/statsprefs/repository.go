@@ -8,8 +8,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// pgCheckViolation is the Postgres SQLSTATE for a violated CHECK constraint.
+// Mirrors absences.pgCheckViolation.
+const pgCheckViolation = "23514"
 
 // Repository handles all stats_last_selection / stats_view_presets DB
 // operations.
@@ -157,6 +162,10 @@ func (r *Repository) UpdatePreset(ctx context.Context, teamID, userID, presetID 
 		RETURNING id, name, from_date, to_date
 	`, presetID, teamID, userID, name, from, to).Scan(&p.ID, &p.Name, &p.FromDate, &p.ToDate)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+			return Preset{}, ErrInvalidDateRange
+		}
 		return Preset{}, fmt.Errorf("statsprefs.Repository.UpdatePreset: %w", err)
 	}
 	return p, nil
