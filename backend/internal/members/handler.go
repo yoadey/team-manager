@@ -155,33 +155,69 @@ func validateMemberPatch(body *gen.UpdateMemberJSONRequestBody) (MemberPatch, er
 	return patch, nil
 }
 
+// normalizeText trims surrounding whitespace from a free-text field. It is
+// the one piece of normalization genuinely shared between SetMemberTitle and
+// applyMaxLenFields below; each then maps a blank result to *its own*
+// "empty" convention rather than sharing that part too, because the two
+// write paths disagree on what a nil patch field means:
+//
+//   - SetMemberTitle's request field is a required (non-pointer) string, so
+//     it is always "provided"; its repository call runs unconditionally, and
+//     a nil *string title unambiguously means "clear it (store SQL NULL)".
+//   - applyMaxLenFields' fields are optional (*string, omitted-vs-present)
+//     MemberPatch fields whose repository UPDATE only fires when the field is
+//     non-nil (see Repository.UpdateMember and the partial-patch semantics
+//     TestMembersRepository_UpdateMember_PartialPatch pins) -- nil already
+//     means "not present in this PATCH, leave column untouched". Reusing
+//     "blank -> nil" here would collide with that and silently turn a
+//     PATCH `{"title": "   "}` into a no-op that leaves the old value in
+//     place, instead of clearing it -- worse than the bug being fixed. A
+//     trimmed empty string is used instead: still non-nil (so the column IS
+//     written), and still visibly blank once stored -- exactly how this
+//     endpoint has always let a caller clear these fields (submitting `""`
+//     explicitly already took this path before this change; only the
+//     trimming of whitespace-only input into that same "" is new).
+func normalizeText(s string) string {
+	return strings.TrimSpace(s)
+}
+
 // applyMaxLenFields validates and applies the simple free-text fields that
 // only need a max-length check, split out of validateMemberPatch to keep its
-// cognitive complexity down.
+// cognitive complexity down. Each field is trimmed and, like SetMemberTitle,
+// validated (and stored) on its trimmed form -- not the raw input -- so
+// surrounding whitespace submitted alongside content near the length limit
+// can't push a value that's actually within bounds over it, and so
+// whitespace-only input (e.g. `"title": "   "`) no longer persists as a
+// non-nil, visually-blank string of raw spaces (see normalizeText's doc
+// comment for why the result is a trimmed "" here rather than nil).
 func applyMaxLenFields(body *gen.UpdateMemberJSONRequestBody, patch *MemberPatch) error {
 	if body.Phone != nil {
-		if err := validate.MaxLen(*body.Phone, 32, "phone"); err != nil {
+		trimmed := normalizeText(*body.Phone)
+		if err := validate.MaxLen(trimmed, 32, "phone"); err != nil {
 			return fmt.Errorf("%w", err)
 		}
-		patch.Phone = body.Phone
+		patch.Phone = &trimmed
 	}
 	if body.Address != nil {
-		if err := validate.MaxLen(*body.Address, 500, "address"); err != nil {
+		trimmed := normalizeText(*body.Address)
+		if err := validate.MaxLen(trimmed, 500, "address"); err != nil {
 			return fmt.Errorf("%w", err)
 		}
-		patch.Address = body.Address
+		patch.Address = &trimmed
 	}
 	if body.Group != nil {
-		if err := validate.MaxLen(*body.Group, 100, "group"); err != nil {
+		trimmed := normalizeText(*body.Group)
+		if err := validate.MaxLen(trimmed, 100, "group"); err != nil {
 			return fmt.Errorf("%w", err)
 		}
-		patch.Group = body.Group
+		patch.Group = &trimmed
 	}
 	if body.Title != nil {
-		if err := validate.MaxLen(*body.Title, 40, "title"); err != nil {
+		trimmed := normalizeText(*body.Title)
+		if err := validate.MaxLen(trimmed, 40, "title"); err != nil {
 			return fmt.Errorf("%w", err)
 		}
-		patch.Title = body.Title
+		patch.Title = &trimmed
 	}
 	return nil
 }
@@ -245,7 +281,7 @@ func (h *Handler) SetMemberTitle(ctx context.Context, request gen.SetMemberTitle
 		return nil, apierror.BadRequest("missing request body")
 	}
 
-	trimmed := strings.TrimSpace(request.Body.Title)
+	trimmed := normalizeText(request.Body.Title)
 	if err := validate.MaxLen(trimmed, 40, "title"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
