@@ -167,8 +167,9 @@ func (w *NotificationWorker) enqueuePushDeliveries(ctx context.Context, a Notifi
 		return
 	}
 
-	module := notifications.NotificationModule(gen.NotificationType(a.Type))
-	category := push.NotificationCategory(a.Type)
+	notifType := gen.NotificationType(a.Type)
+	module := notifications.NotificationModule(notifType)
+	category := push.NotificationCategory(notifType)
 	payload := pushPayloadForNotification(a)
 
 	allowedCache := map[uuid.UUID]bool{}
