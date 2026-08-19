@@ -2236,6 +2236,42 @@ func TestEventRepository_UpdateEvent_MultiDay_PartialUpdate_RejectsEndDateBefore
 	require.ErrorIs(t, err, events.ErrMultiDayEndDateBeforeDate)
 }
 
+// TestEventRepository_UpdateEvent_MultiDay_PartialUpdate_RejectsSpanTooLong
+// exercises the events_multiday_span_within_limit CHECK constraint's
+// backstop for updates: a partial update that only changes date (leaving the
+// previously-stored end_date untouched) can only be caught once the merge
+// happens inside the UPDATE statement, since Service.CreateEvent's own
+// maxMultiDaySpanDays check never runs for UpdateEvent. UpdateEvent must map
+// the violation to the same ErrMultiDaySpanTooLong the create-time check
+// returns.
+func TestEventRepository_UpdateEvent_MultiDay_PartialUpdate_RejectsSpanTooLong(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Multi-Day Span Update Team')`, teamID)
+	require.NoError(t, err)
+
+	start := time.Now().UTC().Truncate(24 * time.Hour)
+	end := start.AddDate(0, 0, 2)
+	params := makeCreateParams("Camp", start)
+	params.EndDate = &end
+	created, err := repo.CreateEvent(ctx, teamID, &params)
+	require.NoError(t, err)
+
+	// Partial update: push the start date far enough before the stored
+	// end_date that the span exceeds maxMultiDaySpanDays (1095), without
+	// touching end_date itself.
+	newDate := end.AddDate(0, 0, -1096)
+	_, err = repo.UpdateEvent(ctx, created.Id.String(), teamID, &events.UpdateEventParams{
+		Date: &newDate,
+	}, "single")
+	require.ErrorIs(t, err, events.ErrMultiDaySpanTooLong)
+}
+
 func TestEventRepository_UpdateEvent_MultiDay_RejectedOnSeriesEvent(t *testing.T) {
 	t.Parallel()
 
