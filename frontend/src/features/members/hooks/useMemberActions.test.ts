@@ -277,6 +277,54 @@ describe('useMemberActions', () => {
     expect(api.members.setRoles).not.toHaveBeenCalled();
   });
 
+  // Regression test: setRoles (PUT .../roles, gated on the stronger
+  // settings:write) must run BEFORE the profile PATCH (members.update,
+  // gated on members:write) whenever roles changed. If setRoles fails (e.g.
+  // the caller has members:write but not settings:write), nothing must have
+  // been written yet -- the old order left the member with new profile
+  // fields persisted but stale roles when only the second call failed.
+  it('saveMember calls setRoles before members.update when roles changed', async () => {
+    const order: string[] = [];
+    api.members.setRoles = vi.fn(async () => {
+      order.push('setRoles');
+    });
+    api.members.update = vi.fn(async () => {
+      order.push('update');
+    });
+    stateRef = makeState({
+      sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveMember({
+        name: 'Alice',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1', 'r2'],
+      } as never);
+    });
+    expect(order).toEqual(['setRoles', 'update']);
+  });
+
+  it('saveMember does not write the profile patch when setRoles fails, and surfaces the error', async () => {
+    api.members.setRoles = vi.fn().mockRejectedValue(new Error('insufficient permission'));
+    stateRef = makeState({
+      sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
+    });
+    const { result } = renderActions();
+    await expect(
+      result.current.saveMember({
+        name: 'Alice Updated',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1', 'r2'],
+      } as never),
+    ).rejects.toThrow();
+    expect(api.members.setRoles).toHaveBeenCalled();
+    expect(api.members.update).not.toHaveBeenCalled();
+    expect(toastMsg).toHaveBeenCalled();
+  });
+
   it('saveMember calls auth.setPhoto (not members.update) when saving your own changed photo', async () => {
     stateRef = makeState({
       sheet: { type: 'memberForm', mode: 'edit', self: true, back: null } as never,
