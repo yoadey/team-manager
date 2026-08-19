@@ -135,17 +135,40 @@ func (c *SessionCookieCodec) Clear(w http.ResponseWriter) {
 	})
 }
 
+// sessionTokenContextKey is the context key under which StrictMiddleware
+// installs a *string "holder" that Login/VerifyEmail/ResetPassword fill in
+// via SetSessionToken. The signed session JWT deliberately never appears in
+// those handlers' JSON response bodies (only in the httpOnly cookie) -- the
+// holder is how the token still reaches applyCookie after f returns.
+type sessionTokenContextKey struct{}
+
+// SetSessionToken records the session JWT that StrictMiddleware should set as
+// the httpOnly session cookie for the current request. Call this from a
+// strict handler that establishes a new session (Login, VerifyEmail,
+// ResetPassword) instead of returning the token in the JSON response body --
+// returning it in the body would defeat the point of an httpOnly cookie. A
+// no-op if called outside a request wrapped by StrictMiddleware.
+func SetSessionToken(ctx context.Context, token string) {
+	if holder, ok := ctx.Value(sessionTokenContextKey{}).(*string); ok {
+		*holder = token
+	}
+}
+
 // StrictMiddleware returns a generated-strict-handler middleware that sets the
-// session cookie on a successful Login and clears it on Logout. It runs before
-// the response is visited, so the Set-Cookie header is emitted with the body.
+// session cookie on a successful Login/VerifyEmail/ResetPassword (via the
+// token the handler passes to SetSessionToken) and clears it on Logout /
+// account erasure. It runs before the response is visited, so the Set-Cookie
+// header is emitted with the body.
 func (c *SessionCookieCodec) StrictMiddleware() gen.StrictMiddlewareFunc {
 	return func(f gen.StrictHandlerFunc, operationID string) gen.StrictHandlerFunc {
 		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+			var token string
+			ctx = context.WithValue(ctx, sessionTokenContextKey{}, &token)
 			resp, err := f(ctx, w, r, request)
 			if err != nil {
 				return resp, err
 			}
-			if cookieErr := c.applyCookie(w, operationID, resp); cookieErr != nil {
+			if cookieErr := c.applyCookie(w, operationID, resp, token); cookieErr != nil {
 				return resp, cookieErr
 			}
 			return resp, nil
@@ -153,21 +176,23 @@ func (c *SessionCookieCodec) StrictMiddleware() gen.StrictMiddlewareFunc {
 	}
 }
 
-// applyCookie sets the session cookie after a successful Login and clears it
-// after a successful Logout or account erasure, based on the operation result.
-func (c *SessionCookieCodec) applyCookie(w http.ResponseWriter, operationID string, resp any) error {
+// applyCookie sets the session cookie after a successful Login, VerifyEmail
+// or ResetPassword (using the token the handler recorded via
+// SetSessionToken) and clears it after a successful Logout or account
+// erasure, based on the operation result.
+func (c *SessionCookieCodec) applyCookie(w http.ResponseWriter, operationID string, resp any, token string) error {
 	switch operationID {
 	case "Login":
-		if login, ok := resp.(gen.Login200JSONResponse); ok {
-			return c.Set(w, login.Token)
+		if _, ok := resp.(gen.Login200JSONResponse); ok {
+			return c.Set(w, token)
 		}
 	case "VerifyEmail":
-		if verify, ok := resp.(gen.VerifyEmail200JSONResponse); ok {
-			return c.Set(w, verify.Token)
+		if _, ok := resp.(gen.VerifyEmail200JSONResponse); ok {
+			return c.Set(w, token)
 		}
 	case "ResetPassword":
-		if reset, ok := resp.(gen.ResetPassword200JSONResponse); ok {
-			return c.Set(w, reset.Token)
+		if _, ok := resp.(gen.ResetPassword200JSONResponse); ok {
+			return c.Set(w, token)
 		}
 	case "Logout":
 		if _, ok := resp.(gen.Logout204Response); ok {

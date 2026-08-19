@@ -2385,10 +2385,8 @@ components:
 
     LoginResponse:
       type: object
-      required: [token, user]
+      required: [user]
       properties:
-        token:
-          type: string
         user:
           $ref: "#/components/schemas/User"
 

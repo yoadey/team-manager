@@ -190,13 +190,14 @@ export const realApi = {
 
     // login accepts either (email, password) for real backend OR (providerId) for compatibility.
     // When called from tests without VITE_API_BASE_URL, the mock path is used instead.
-    async login(email: string, password?: string): Promise<{ token: string; provider: string; user: User }> {
+    async login(email: string, password?: string): Promise<{ provider: string; user: User }> {
       const res = await apiClient.POST('/auth/login', {
         body: { email: email as string & { format: 'email' }, password: password ?? '' },
       });
       const data = await check(res);
-      // The session cookie is set by the server; the body token is unused.
-      return { token: data.token, provider: 'password', user: mapUser(data.user) };
+      // The session cookie (httpOnly) is set by the server; the response
+      // body never carries the session token.
+      return { provider: 'password', user: mapUser(data.user) };
     },
 
     // Always resolves with a generic message regardless of whether the email
@@ -213,10 +214,10 @@ export const realApi = {
 
     // Consumes a single-use verification token and establishes a session,
     // identical in shape to login()'s response.
-    async verifyEmail(token: string): Promise<{ token: string; user: User }> {
+    async verifyEmail(token: string): Promise<{ user: User }> {
       const res = await apiClient.POST('/auth/verify-email', { body: { token } });
       const data = await check(res);
-      return { token: data.token, user: mapUser(data.user) };
+      return { user: mapUser(data.user) };
     },
 
     // Always resolves with a generic message regardless of account state --
@@ -241,10 +242,10 @@ export const realApi = {
 
     // Consumes a single-use password reset token, sets a new password, and
     // establishes a session identical in shape to login()'s response.
-    async resetPassword(token: string, password: string): Promise<{ token: string; user: User }> {
+    async resetPassword(token: string, password: string): Promise<{ user: User }> {
       const res = await apiClient.POST('/auth/reset-password', { body: { token, password } });
       const data = await check(res);
-      return { token: data.token, user: mapUser(data.user) };
+      return { user: mapUser(data.user) };
     },
 
     async currentUser(): Promise<User | null> {

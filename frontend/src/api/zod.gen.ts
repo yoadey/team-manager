@@ -27,7 +27,7 @@ const User = z
     hasPhoto: z.boolean().optional(),
   })
   .passthrough();
-const LoginResponse = z.object({ token: z.string(), user: User }).passthrough();
+const LoginResponse = z.object({ user: User }).passthrough();
 const RegisterRequest = z
   .object({ email: z.string().email(), password: z.string().min(8).max(128) })
   .passthrough();

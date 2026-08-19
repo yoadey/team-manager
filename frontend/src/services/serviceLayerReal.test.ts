@@ -123,11 +123,14 @@ describe('auth', () => {
     expect(res[0]).toMatchObject({ __mapped: 'provider' });
   });
 
-  it('login posts credentials and returns token + mapped user', async () => {
-    client.POST.mockResolvedValueOnce(ok({ token: 'jwt', user: { id: 'u1' } }));
+  it('login posts credentials and returns the mapped user (no session token in the body)', async () => {
+    // The session token travels only via the httpOnly cookie the server
+    // sets -- the JSON body never carries it (see backend/internal/auth/handler.go).
+    client.POST.mockResolvedValueOnce(ok({ user: { id: 'u1' } }));
     const res = await realApi.auth.login('a@b.c', 'pw');
     expect(client.POST).toHaveBeenCalledWith('/auth/login', { body: { email: 'a@b.c', password: 'pw' } });
-    expect(res).toMatchObject({ token: 'jwt', provider: 'password', user: { __mapped: 'user' } });
+    expect(res).toMatchObject({ provider: 'password', user: { __mapped: 'user' } });
+    expect(res).not.toHaveProperty('token');
   });
 
   it('currentUser returns null on 401 and a mapped user otherwise', async () => {
