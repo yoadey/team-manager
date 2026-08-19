@@ -405,7 +405,258 @@ func TestHandler_CreateTransaction_EmitsAuditEvent(t *testing.T) {
 	assert.Equal(t, "finance.mutation", rec["event"])
 	assert.Equal(t, "transaction.create", rec["operation"])
 	assert.Equal(t, testUserID.String(), rec["actor"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
 	assert.Equal(t, testTxID.String(), rec["transactionId"])
+	assert.Equal(t, float64(5000), rec["amount"])
+	assert.Equal(t, "income", rec["type"])
+}
+
+// Regression test: UpdateTransaction's audit record used to omit both teamId
+// (unlike its own create counterpart) and the amount, so an operator could
+// not tell what a transaction's amount changed to -- or even which team it
+// belonged to -- from the audit log alone.
+func TestHandler_UpdateTransaction_EmitsAuditEventWithAmountAndTeam(t *testing.T) {
+	t.Parallel()
+	tx := &gen.Transaction{
+		Id: testTxID, TeamId: testTeamID, Type: gen.Expense, Title: "Fee", Amount: 9999,
+		Date: openapi_types.Date{Time: time.Now()},
+	}
+	svc := &mockFinanceService{
+		updateTransaction: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			return tx, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	var newAmount int64 = 9999
+	body := &gen.UpdateTransactionJSONRequestBody{Amount: &newAmount}
+	_, err := h.UpdateTransaction(authedCtx(), gen.UpdateTransactionRequestObject{TransactionId: testTxID, TeamId: testTeamID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "transaction.update", rec["operation"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
+	assert.Equal(t, testTxID.String(), rec["transactionId"])
+	assert.Equal(t, float64(9999), rec["amount"])
+	assert.Equal(t, "expense", rec["type"])
+}
+
+// Regression test: DeleteTransaction's audit record used to omit teamId,
+// unlike CreateTransaction's.
+func TestHandler_DeleteTransaction_EmitsAuditEventWithTeam(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		deleteTransaction: func(_ context.Context, _, _ uuid.UUID) error { return nil },
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	_, err := h.DeleteTransaction(authedCtx(), gen.DeleteTransactionRequestObject{TeamId: testTeamID, TransactionId: testTxID})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "transaction.delete", rec["operation"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
+	assert.Equal(t, testTxID.String(), rec["transactionId"])
+}
+
+// Regression test: CreatePenalty's audit record used to omit the amount.
+func TestHandler_CreatePenalty_EmitsAuditEventWithAmount(t *testing.T) {
+	t.Parallel()
+	penaltyID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	p := &gen.Penalty{Id: penaltyID, TeamId: testTeamID, Label: "Late", Amount: 750}
+	svc := &mockFinanceService{
+		createPenalty: func(_ context.Context, _ uuid.UUID, _ *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error) {
+			return p, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	body := &gen.CreatePenaltyJSONRequestBody{Label: "Late", Amount: 750}
+	_, err := h.CreatePenalty(authedCtx(), gen.CreatePenaltyRequestObject{TeamId: testTeamID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "penalty.create", rec["operation"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
+	assert.Equal(t, penaltyID.String(), rec["penaltyId"])
+	assert.Equal(t, float64(750), rec["amount"])
+}
+
+// Regression test: UpdatePenalty's audit record used to omit both teamId and
+// the amount.
+func TestHandler_UpdatePenalty_EmitsAuditEventWithAmountAndTeam(t *testing.T) {
+	t.Parallel()
+	penaltyID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	p := &gen.Penalty{Id: penaltyID, TeamId: testTeamID, Label: "Late", Amount: 1200}
+	svc := &mockFinanceService{
+		updatePenalty: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error) {
+			return p, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	var newAmount int64 = 1200
+	body := &gen.UpdatePenaltyJSONRequestBody{Amount: &newAmount}
+	_, err := h.UpdatePenalty(authedCtx(), gen.UpdatePenaltyRequestObject{PenaltyId: penaltyID, TeamId: testTeamID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "penalty.update", rec["operation"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
+	assert.Equal(t, penaltyID.String(), rec["penaltyId"])
+	assert.Equal(t, float64(1200), rec["amount"])
+}
+
+// Regression test: DeletePenalty's audit record used to omit teamId.
+func TestHandler_DeletePenalty_EmitsAuditEventWithTeam(t *testing.T) {
+	t.Parallel()
+	penaltyID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	svc := &mockFinanceService{
+		deletePenalty: func(_ context.Context, _, _ uuid.UUID) error { return nil },
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	_, err := h.DeletePenalty(authedCtx(), gen.DeletePenaltyRequestObject{TeamId: testTeamID, PenaltyId: penaltyID})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "penalty.delete", rec["operation"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
+	assert.Equal(t, penaltyID.String(), rec["penaltyId"])
+}
+
+// Regression test: CreatePenaltyAssignment's audit record used to omit the
+// (snapshotted) penalty amount.
+func TestHandler_CreatePenaltyAssignment_EmitsAuditEventWithAmount(t *testing.T) {
+	t.Parallel()
+	assignmentID := uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+	penaltyID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	amount := int64(500)
+	a := &gen.PenaltyAssignment{
+		Id: assignmentID, TeamId: testTeamID, UserId: testUserID, PenaltyId: &penaltyID,
+		Date: openapi_types.Date{Time: time.Now()}, Amount: &amount,
+	}
+	svc := &mockFinanceService{
+		createAssignment: func(_ context.Context, _ uuid.UUID, _ *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error) {
+			return a, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: testUserID}
+	_, err := h.CreatePenaltyAssignment(authedCtx(), gen.CreatePenaltyAssignmentRequestObject{TeamId: testTeamID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "assignment.create", rec["operation"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
+	assert.Equal(t, assignmentID.String(), rec["assignmentId"])
+	assert.Equal(t, float64(500), rec["amount"])
+}
+
+// Regression test: DeletePenaltyAssignment's audit record used to omit teamId.
+func TestHandler_DeletePenaltyAssignment_EmitsAuditEventWithTeam(t *testing.T) {
+	t.Parallel()
+	assignmentID := uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+	svc := &mockFinanceService{
+		deleteAssignment: func(_ context.Context, _, _ uuid.UUID) error { return nil },
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	_, err := h.DeletePenaltyAssignment(authedCtx(), gen.DeletePenaltyAssignmentRequestObject{TeamId: testTeamID, AssignmentId: assignmentID})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "assignment.delete", rec["operation"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
+	assert.Equal(t, assignmentID.String(), rec["assignmentId"])
+}
+
+// Regression test: CreateContributions's audit record used to omit the
+// per-contribution amount.
+func TestHandler_CreateContributions_EmitsAuditEventWithAmount(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createContributions: func(_ context.Context, _ uuid.UUID, body *gen.CreateContributionsJSONRequestBody) ([]gen.Contribution, error) {
+			out := make([]gen.Contribution, 0, len(body.UserIds))
+			for _, uid := range body.UserIds {
+				out = append(out, gen.Contribution{Id: testTxID, TeamId: testTeamID, UserId: uid, Name: body.Name, Amount: body.Amount})
+			}
+			return out, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	body := &gen.CreateContributionsJSONRequestBody{Name: "Beitrag", Amount: 2500, UserIds: []uuid.UUID{testUserID}}
+	_, err := h.CreateContributions(authedCtx(), gen.CreateContributionsRequestObject{TeamId: testTeamID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "contribution.create", rec["operation"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
+	assert.Equal(t, float64(1), rec["count"])
+	assert.Equal(t, float64(2500), rec["amount"])
+}
+
+// Regression test: UpdateContribution's audit record used to omit both
+// teamId and the amount.
+func TestHandler_UpdateContribution_EmitsAuditEventWithAmountAndTeam(t *testing.T) {
+	t.Parallel()
+	c := &gen.Contribution{Id: testTxID, TeamId: testTeamID, UserId: testUserID, Name: "Beitrag", Amount: 3000}
+	svc := &mockFinanceService{
+		updateContribution: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error) {
+			return c, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	var newAmount int64 = 3000
+	body := &gen.UpdateContributionJSONRequestBody{Amount: &newAmount}
+	_, err := h.UpdateContribution(authedCtx(), gen.UpdateContributionRequestObject{TeamId: testTeamID, ContributionId: testTxID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "contribution.update", rec["operation"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
+	assert.Equal(t, testTxID.String(), rec["contributionId"])
+	assert.Equal(t, float64(3000), rec["amount"])
+}
+
+// Regression test: DeleteContribution's audit record used to omit teamId.
+func TestHandler_DeleteContribution_EmitsAuditEventWithTeam(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		deleteContribution: func(_ context.Context, _, _ uuid.UUID) error { return nil },
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	_, err := h.DeleteContribution(authedCtx(), gen.DeleteContributionRequestObject{TeamId: testTeamID, ContributionId: testTxID})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "contribution.delete", rec["operation"])
+	assert.Equal(t, testTeamID.String(), rec["teamId"])
+	assert.Equal(t, testTxID.String(), rec["contributionId"])
 }
 
 // Regression test: unlike UpdateTransaction/DeleteTransaction/UpdatePenalty/etc.,
