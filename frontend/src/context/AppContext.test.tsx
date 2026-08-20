@@ -5,7 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { createTestQueryClient } from '@/test/queryTestUtils';
 import { useNotificationsQuery } from '@/features/notifications';
 import { AppProvider, useApp, useAppActions, useAppSelector, sheetErrorBoundaryKey } from './AppContext';
-import { db as sharedMockDb } from '@/mocks/db';
+import { db as sharedMockDb, rid, DEMO_LOGIN_EMAIL, DEMO_PASSWORD } from '@/mocks/db';
 
 beforeEach(() => localStorage.clear());
 
@@ -592,10 +592,12 @@ describe('AppProvider / team-switch race guards', () => {
     const notifSpy = vi.spyOn(svc.api.notifications, 'list');
 
     let actions!: ReturnType<typeof useAppActions>;
+    let phase: string = 'login';
     let notifStatus: string = 'pending';
     function Probe() {
       const { state, api } = useApp();
       actions = useAppActions();
+      phase = state.phase;
       // Mirrors AppShell keeping a live subscriber on the notifications query
       // in the real app -- loadNotifications() (ensureRouteData's
       // invalidateQueries call, below) only forces an actual network refetch
@@ -609,6 +611,25 @@ describe('AppProvider / team-switch race guards', () => {
         <Probe />
       </AppProvider>,
     );
+    // Wait for the mount-time session-restore bootstrap to settle at
+    // 'login' (session.userId is still null in the mock at this point) --
+    // establishing a session below *before* that bootstrap effect has run
+    // its own (single-shot, guarded -- see the StrictMode double-invoke
+    // test) currentUser() check would make bootstrap discover it too and
+    // run its own real team-selection flow, racing/overwriting this test's
+    // synthetic 'team1' state.
+    await waitFor(() => expect(phase).toBe('login'));
+    // afterLoginLoad's roles.list(teamId) fetch (triggered by selectTeam
+    // below) now requires a real authenticated session -- the mock backend's
+    // RBAC enforcement rejects it with 401 otherwise, which afterLoginLoad
+    // treats as a genuine failure and logs the caller out, unlike the
+    // deliberately-tolerated ForbiddenError case (see afterLoginLoad's catch
+    // block). Establish one directly against the mock (bypassing the login
+    // UI, which isn't what this test exercises) so 'team1' below -- a team
+    // the logged-in user isn't a member of -- 403s (silently tolerated) as
+    // an ordinary permission gap, instead of 401ing as an outright
+    // unauthenticated caller.
+    await svc.api.auth.login(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     await act(async () => {
       actions.setState({
         phase: 'app',
@@ -821,16 +842,37 @@ describe('AppProvider / invite-redemption join flow', () => {
       useAppActions: freshUseAppActions,
     } = await freshModules();
 
+    // These setup calls hit the mock backend directly (not through the login
+    // UI this test actually exercises below), so they need their own real
+    // session first -- every team-scoped route now requires authentication
+    // (and, for createInvite below, settings:write).
+    await api.auth.login(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
+
+    // Create the invite (needs u1's admin settings:write on t_a) BEFORE
+    // removing u1's own membership below -- once removed, u1 has no
+    // remaining role on t_a to authorize creating one, same as a genuine
+    // ex-member would find against the real backend.
+    const invite = await api.teams.createInvite('t_a');
+
     // The seeded demo user (Lena Bergmann / u1) is already a member of t_a
-    // by default; remove that membership first so this test genuinely
-    // exercises a brand-new join rather than the idempotent already-member
-    // no-op path (which must not show the "joined" toast -- see the
-    // dedicated test below).
+    // by default; remove that membership so this test genuinely exercises a
+    // brand-new join rather than the idempotent already-member no-op path
+    // (which must not show the "joined" toast -- see the dedicated test
+    // below).
     const members = await api.members.list('t_a');
     const lena = members.find((m) => m.name === 'Lena Bergmann')!;
     await api.members.remove(lena.membershipId, 't_a');
 
-    const invite = await api.teams.createInvite('t_a');
+    // Log back out before mounting the app below: the mock's session is a
+    // single global (module-level, NOT reset by this describe block's own
+    // vi.resetModules() -- see the file-level afterEach's resetDb() in
+    // src/test/setup.ts, which is what actually keeps it from leaking into
+    // other tests), so a still-authenticated session at mount time would
+    // make the app's own session-restore bootstrap discover it and race
+    // ahead with its own real login flow before this test's explicit
+    // doLogin('google') / 'login'-phase assertions below ever run.
+    await api.auth.logout();
+
     window.history.pushState({}, '', '/join/t_a/' + invite.code);
 
     let actions: ReturnType<typeof freshUseAppActions>;
@@ -869,15 +911,36 @@ describe('AppProvider / invite-redemption join flow', () => {
   // idempotent both server-side and in the mock).
   it('does not show a "joined" toast when redeeming an invite for a team already joined', async () => {
     const {
-      api,
       AppProvider: FreshAppProvider,
       useApp: freshUseApp,
       useAppActions: freshUseAppActions,
     } = await freshModules();
 
-    // The seeded demo user (Lena Bergmann / u1) is already a member of t_b.
-    const invite = await api.teams.createInvite('t_b');
-    window.history.pushState({}, '', '/join/t_b/' + invite.code);
+    // The seeded demo user (Lena Bergmann / u1) is already a member of t_b,
+    // but only with a plain (non-admin) role there, so creating an invite
+    // through the API (POST /teams/{teamId}/invite, settings:write) isn't
+    // available to it. Seed the invite row directly on the shared mock db
+    // instead -- mirroring that endpoint's shape -- since this test only
+    // cares about redeeming an existing invite for a team the caller
+    // already belongs to, not about who is privileged enough to have
+    // created it. Uses the file's top-level `sharedMockDb`/`rid` imports
+    // (captured before any vi.resetModules() call), not a dynamic
+    // `import('@/mocks/db')` here -- the latter would resolve to a
+    // different module instance than the one the already-running MSW
+    // server's handlers actually read from (vi.resetModules() only affects
+    // *future* dynamic imports, not the server wired up once in
+    // src/test/setup.ts), so anything pushed to it would be invisible to
+    // the real HTTP request below.
+    const code = 'ALREADYJOINEDCODE';
+    sharedMockDb.invites.push({
+      id: rid('inv'),
+      teamId: 't_b',
+      code,
+      link: `https://teamverwaltung.app/join/t_b/${code}`,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+    });
+    window.history.pushState({}, '', '/join/t_b/' + code);
 
     let actions: ReturnType<typeof freshUseAppActions>;
     function Probe() {
@@ -1217,8 +1280,17 @@ describe('AppProvider / session-restore resilience', () => {
       useAppActions: freshUseAppActions,
     } = await freshModules();
 
+    // This setup call hits the mock backend directly (not through the login
+    // UI below), so it needs its own real session first -- every team-scoped
+    // route now requires authentication. Logged back out immediately after
+    // (before the app below is ever mounted) so its own session-restore
+    // bootstrap still sees a clean, unauthenticated mock and starts at
+    // 'login' as this test expects, instead of discovering this setup-only
+    // session and racing ahead with its own real login flow.
+    await api.auth.login(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     const events = await api.events.list('t_a', 'all');
     const eventId = events[0]!.id;
+    await api.auth.logout();
 
     let actions: ReturnType<typeof freshUseAppActions>;
     function Probe() {
