@@ -254,7 +254,7 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 	}
 	setSQL, args, nextIdx, ok := b.Build(1)
 	if !ok {
-		return r.getTransactionByID(ctx, id, teamID)
+		return r.GetTransaction(ctx, id, teamID)
 	}
 
 	args = append(args, id, teamID)
@@ -285,7 +285,12 @@ func (r *Repository) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID
 	return nil
 }
 
-func (r *Repository) getTransactionByID(ctx context.Context, id, teamID uuid.UUID) (*TransactionRow, error) {
+// GetTransaction fetches a single transaction that belongs to teamID. Used
+// by Service.UpdateTransaction to check whether a transaction is still
+// linked to a contribution/penalty assignment before allowing its type to
+// change away from income, and internally as UpdateTransaction's no-op
+// fallback when the patch sets no fields.
+func (r *Repository) GetTransaction(ctx context.Context, id, teamID uuid.UUID) (*TransactionRow, error) {
 	t := &TransactionRow{}
 	err := r.db.QueryRow(ctx, `
 		SELECT id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, note, created_at

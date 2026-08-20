@@ -2024,6 +2024,7 @@ const endpoints = makeApi([
     method: "patch",
     path: "/teams/:teamId/finances/transactions/:transactionId",
     alias: "updateTransaction",
+    description: `Changing &#x60;type&#x60; away from &#x60;income&#x60; is rejected (400) while the transaction still has &#x60;contributionId&#x60;/&#x60;penaltyAssignmentId&#x60; set -- it would silently detach a booked fee/fine payment from its target with no warning. Delete and recreate the transaction instead; &#x60;amount&#x60;/other fields may still be edited freely on a linked transaction.`,
     requestFormat: "json",
     parameters: [
       {
