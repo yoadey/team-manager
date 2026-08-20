@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/mailer"
 	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/notifications"
 	"github.com/yoadey/team-manager/backend/internal/push"
@@ -302,9 +303,14 @@ type PushDeps struct {
 // eventReminderWorker is optional: pass nil to skip registering the event-reminder
 // periodic job (it also requires pushDeps to actually deliver anything, since
 // it enqueues PushDeliveryArgs jobs the same way notifWorker does).
+// mailSender is required: it backs SendVerificationEmailWorker and
+// SendPasswordResetEmailWorker, which deliver the jobs
+// auth.Repository.CreateEmailVerificationToken/CreatePasswordResetToken
+// enqueue -- see openspec/changes/async-auth-email-delivery/design.md for why
+// auth's own request handlers never call a Mailer directly.
 // Call Start() on the returned river.Client separately if running workers
 // in the same process.
-func NewClient(pool *pgxpool.Pool, retentionWorker *RetentionWorker, pushDeps *PushDeps, eventReminderWorker *EventReminderWorker) (client *Client, riverClient *river.Client[pgx.Tx], err error) {
+func NewClient(pool *pgxpool.Pool, retentionWorker *RetentionWorker, pushDeps *PushDeps, eventReminderWorker *EventReminderWorker, mailSender mailer.Mailer) (client *Client, riverClient *river.Client[pgx.Tx], err error) {
 	workers := river.NewWorkers()
 	notifWorker := NewNotificationWorker(pool)
 	if pushDeps != nil {
@@ -312,6 +318,8 @@ func NewClient(pool *pgxpool.Pool, retentionWorker *RetentionWorker, pushDeps *P
 		river.AddWorker(workers, NewPushDeliveryWorker(pushDeps.Pusher, pushDeps.Repo))
 	}
 	river.AddWorker(workers, notifWorker)
+	river.AddWorker(workers, NewSendVerificationEmailWorker(mailSender))
+	river.AddWorker(workers, NewSendPasswordResetEmailWorker(mailSender))
 
 	var periodicJobs []*river.PeriodicJob
 	if retentionWorker != nil {
@@ -357,6 +365,23 @@ func (c *Client) EnqueueNotification(ctx context.Context, args NotificationArgs)
 	if err != nil {
 		metrics.NotificationEnqueueFailures.Inc()
 		return fmt.Errorf("jobs.Client.EnqueueNotification: %w", err)
+	}
+	return nil
+}
+
+// InsertTx enqueues a job as part of the caller's own database transaction
+// tx: because of Postgres snapshot visibility, the row River's queue reads
+// only becomes visible once tx commits, and rolls back with it if tx
+// doesn't -- so a caller can atomically pair "write some row" with "enqueue
+// a job about that row" and never end up with one but not the other (a
+// crash after commit can't lose the job; a rollback can't leave an orphan
+// job). Generic over any river.JobArgs, unlike EnqueueNotification, which is
+// hardcoded to NotificationArgs and always non-transactional -- this is the
+// primitive auth.Repository's mail-job enqueue is built on. See
+// openspec/changes/async-auth-email-delivery/design.md.
+func (c *Client) InsertTx(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) error {
+	if _, err := c.rc.InsertTx(ctx, tx, args, opts); err != nil {
+		return fmt.Errorf("jobs.Client.InsertTx: %w", err)
 	}
 	return nil
 }
