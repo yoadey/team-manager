@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -101,6 +102,13 @@ func (w *EventReminderWorker) Timeout(*river.Job[EventReminderArgs]) time.Durati
 // read permission, the member's own reminder preference, and an idempotency
 // insert -- only a genuinely new event_reminders_sent row triggers an actual
 // push enqueue.
+//
+// Per-member errors from the marker-insert/enqueue transaction (see
+// remindMember) are collected via errors.Join and returned from Work, so
+// River retries the whole tick instead of silently swallowing them --
+// candidates already handled this run are safe to redo thanks to the
+// event_reminders_sent ON CONFLICT DO NOTHING, since the marker and the
+// enqueue now commit atomically (never one without the other).
 func (w *EventReminderWorker) Work(ctx context.Context, _ *river.Job[EventReminderArgs]) (err error) {
 	ctx, span := tracer.Start(ctx, "event_reminder.work")
 	defer func() {
@@ -141,15 +149,25 @@ func (w *EventReminderWorker) Work(ctx context.Context, _ *river.Job[EventRemind
 	// within a single 5-minute tick.
 	membersCache := map[uuid.UUID][]push.SubscriptionForUser{}
 	permsCache := map[uuid.UUID]bool{}
+	var errs []error
 	for _, c := range candidates {
-		w.remindForEvent(ctx, rc, c, now, membersCache, permsCache)
+		if remindErr := w.remindForEvent(ctx, rc, c, now, membersCache, permsCache); remindErr != nil {
+			errs = append(errs, remindErr)
+		}
+	}
+	if len(errs) > 0 {
+		metrics.EventReminderJobFailures.Inc()
+		return fmt.Errorf("jobs.EventReminderWorker: %w", errors.Join(errs...))
 	}
 	return nil
 }
 
 // remindForEvent evaluates every current member of c's team against c's
 // start instant and enqueues a push for each member whose reminder is due
-// and hasn't already been sent.
+// and hasn't already been sent. Errors from individual members' marker
+// insert/enqueue transactions (remindMember) are collected via errors.Join
+// rather than aborting the rest of the team -- a transient failure for one
+// member shouldn't block reminders that are otherwise ready to send.
 func (w *EventReminderWorker) remindForEvent(
 	ctx context.Context,
 	rc *river.Client[pgx.Tx],
@@ -157,9 +175,9 @@ func (w *EventReminderWorker) remindForEvent(
 	now time.Time,
 	membersCache map[uuid.UUID][]push.SubscriptionForUser,
 	permsCache map[uuid.UUID]bool,
-) {
+) error {
 	if !c.Start.After(now) {
-		return
+		return nil
 	}
 
 	members, cached := membersCache[c.TeamID]
@@ -168,17 +186,21 @@ func (w *EventReminderWorker) remindForEvent(
 		members, err = w.pushRepo.ListForTeam(ctx, c.TeamID)
 		if err != nil {
 			slog.ErrorContext(ctx, "jobs.EventReminderWorker: list team subscriptions failed", "err", err, "team_id", c.TeamID)
-			return
+			return nil
 		}
 		membersCache[c.TeamID] = members
 	}
 
+	var errs []error
 	for _, m := range members {
 		if !w.isAllowed(ctx, c.TeamID, m.UserId, permsCache) {
 			continue
 		}
-		w.remindMember(ctx, rc, c, m, now)
+		if err := w.remindMember(ctx, rc, c, m, now); err != nil {
+			errs = append(errs, err)
+		}
 	}
+	return errors.Join(errs...)
 }
 
 // isAllowed reports whether userID currently has read access to the events
@@ -202,37 +224,59 @@ func (w *EventReminderWorker) isAllowed(ctx context.Context, teamID, userID uuid
 
 // remindMember checks m's own reminder preference against c's start instant
 // and, if due and not already sent, marks it sent and enqueues the push.
-func (w *EventReminderWorker) remindMember(ctx context.Context, rc *river.Client[pgx.Tx], c ReminderCandidate, m push.SubscriptionForUser, now time.Time) {
+//
+// The marker insert and the push-delivery enqueue happen inside a single DB
+// transaction: either both commit or neither does. Doing them as two
+// independent statements (the marker committed via w.pool, then a separate
+// rc.Insert call) left a gap where a crash -- or a transient rc.Insert
+// error, which used to be logged and swallowed here -- between the two could
+// durably commit the marker without ever enqueuing the push. Because the
+// marker's ON CONFLICT DO NOTHING is the only thing that makes retries safe,
+// that gap permanently blocked the (event, user) reminder from ever being
+// retried: nothing on a later tick recognizes "marked but never delivered".
+// Wrapping both in one transaction removes the gap -- a failure anywhere
+// before commit rolls back the marker too, so a retried tick naturally
+// re-attempts both statements together, still protected against genuine
+// duplicates by the same ON CONFLICT.
+func (w *EventReminderWorker) remindMember(ctx context.Context, rc *river.Client[pgx.Tx], c ReminderCandidate, m push.SubscriptionForUser, now time.Time) error {
 	prefs, err := w.pushRepo.GetPreferences(ctx, c.TeamID, m.UserId)
 	if err != nil {
 		slog.ErrorContext(ctx, "jobs.EventReminderWorker: get push preferences failed", "err", err)
-		return
+		return nil
 	}
 	if !prefs.EventReminderEnabled {
-		return
+		return nil
 	}
 
 	due := c.Start.Add(-time.Duration(prefs.EventReminderHoursBefore) * time.Hour)
 	if now.Before(due) {
-		return
+		return nil
 	}
 
-	tag, err := w.pool.Exec(ctx, `
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("jobs.EventReminderWorker: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO event_reminders_sent (event_id, user_id)
 		VALUES ($1, $2)
 		ON CONFLICT (event_id, user_id) DO NOTHING
 	`, c.EventID, m.UserId)
 	if err != nil {
-		slog.ErrorContext(ctx, "jobs.EventReminderWorker: mark reminder sent failed", "err", err)
-		return
+		return fmt.Errorf("jobs.EventReminderWorker: mark reminder sent: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		// Already reminded for this (event, member) pair on an earlier tick.
-		return
+		// Already reminded for this (event, member) pair on an earlier tick
+		// (or -- pre-fix -- a tick that committed the marker but crashed
+		// before enqueuing; a fresh reminder can never be pieced together
+		// for it now, but at least no *new* rows can end up in that state).
+		return nil
 	}
 
 	payload := eventReminderPayload(c, prefs.EventReminderHoursBefore)
-	if _, err := rc.Insert(ctx, PushDeliveryArgs{
+	if _, err := rc.InsertTx(ctx, tx, PushDeliveryArgs{
 		SubscriptionID: m.Id,
 		Endpoint:       m.Subscription.Endpoint,
 		P256dh:         m.Subscription.P256dh,
@@ -241,8 +285,13 @@ func (w *EventReminderWorker) remindMember(ctx context.Context, rc *river.Client
 		Body:           payload.Body,
 	}, nil); err != nil {
 		metrics.NotificationEnqueueFailures.Inc()
-		slog.ErrorContext(ctx, "jobs.EventReminderWorker: enqueue push delivery failed", "err", err)
+		return fmt.Errorf("jobs.EventReminderWorker: enqueue push delivery: %w", err)
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("jobs.EventReminderWorker: commit tx: %w", err)
+	}
+	return nil
 }
 
 // permCacheKey deterministically combines a team and user UUID into a
