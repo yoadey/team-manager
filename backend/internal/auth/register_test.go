@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/auth"
-	"github.com/yoadey/team-manager/backend/internal/mailer"
 	"github.com/yoadey/team-manager/backend/internal/storage"
 )
 
@@ -35,6 +34,19 @@ type regTestRepo struct {
 	tokens    map[string]*auth.EmailVerificationTokenRow // keyed by token hash
 	resetToks map[string]*auth.PasswordResetTokenRow     // keyed by token hash
 	sessions  map[string]*auth.SessionRow                // keyed by token hash
+
+	// Records of the mail jobs CreateEmailVerificationToken/
+	// CreatePasswordResetToken would have enqueued transactionally alongside
+	// the token row -- standing in for the real Repository's jobEnqueuer
+	// (a *jobs.Client) the way FakeMailer used to stand in for a real
+	// mailer.Mailer, back when Service called one directly. See
+	// openspec/changes/async-auth-email-delivery/design.md.
+	lastVerifyTo    string
+	lastVerifyURL   string
+	verifySentCount int
+	lastResetTo     string
+	lastResetURL    string
+	resetSentCount  int
 }
 
 func newRegTestRepo() *regTestRepo {
@@ -156,14 +168,33 @@ func (r *regTestRepo) MarkEmailVerified(_ context.Context, userID string) error 
 	return nil
 }
 
-func (r *regTestRepo) CreateEmailVerificationToken(_ context.Context, userID, tokenHash string, expiresAt time.Time) error {
+func (r *regTestRepo) CreateEmailVerificationToken(_ context.Context, userID, tokenHash string, expiresAt time.Time, email, verifyURL string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tokens[tokenHash] = &auth.EmailVerificationTokenRow{
 		Id: uuid.New(), UserId: uuid.MustParse(userID), TokenHash: tokenHash,
 		ExpiresAt: expiresAt, CreatedAt: time.Now(),
 	}
+	r.lastVerifyTo = email
+	r.lastVerifyURL = verifyURL
+	r.verifySentCount++
 	return nil
+}
+
+// LastSentTo returns the recipient and verification link of the most
+// recently enqueued verification-email job. Test helper.
+func (r *regTestRepo) LastSentTo() (toEmail, verifyURL string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastVerifyTo, r.lastVerifyURL
+}
+
+// SentCount returns how many verification-email jobs have been enqueued.
+// Test helper.
+func (r *regTestRepo) SentCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.verifySentCount
 }
 
 func (r *regTestRepo) FindEmailVerificationToken(_ context.Context, tokenHash string) (*auth.EmailVerificationTokenRow, error) {
@@ -189,14 +220,33 @@ func (r *regTestRepo) ConsumeEmailVerificationToken(_ context.Context, tokenHash
 	return nil
 }
 
-func (r *regTestRepo) CreatePasswordResetToken(_ context.Context, userID, tokenHash string, expiresAt time.Time) error {
+func (r *regTestRepo) CreatePasswordResetToken(_ context.Context, userID, tokenHash string, expiresAt time.Time, email, resetURL string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.resetToks[tokenHash] = &auth.PasswordResetTokenRow{
 		Id: uuid.New(), UserId: uuid.MustParse(userID), TokenHash: tokenHash,
 		ExpiresAt: expiresAt, CreatedAt: time.Now(),
 	}
+	r.lastResetTo = email
+	r.lastResetURL = resetURL
+	r.resetSentCount++
 	return nil
+}
+
+// LastResetSentTo returns the recipient and reset link of the most recently
+// enqueued password-reset-email job. Test helper.
+func (r *regTestRepo) LastResetSentTo() (toEmail, resetURL string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastResetTo, r.lastResetURL
+}
+
+// ResetSentCount returns how many password-reset-email jobs have been
+// enqueued. Test helper.
+func (r *regTestRepo) ResetSentCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.resetSentCount
 }
 
 func (r *regTestRepo) FindPasswordResetToken(_ context.Context, tokenHash string) (*auth.PasswordResetTokenRow, error) {
@@ -252,10 +302,9 @@ func (r *regTestRepo) countUsers() int {
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-func newRegTestService(t *testing.T, repo *regTestRepo, fm *mailer.FakeMailer, ttl time.Duration, enabled bool) *auth.Service {
+func newRegTestService(t *testing.T, repo *regTestRepo, ttl time.Duration, enabled bool) *auth.Service {
 	t.Helper()
 	svc, err := auth.NewService(repo, storage.NewFakeStore(), "", "", 24*time.Hour, auth.RegistrationConfig{
-		Mailer:                  fm,
 		PublicBaseURL:           "https://example.com",
 		EmailVerificationTTL:    ttl,
 		SelfRegistrationEnabled: enabled,
@@ -289,8 +338,7 @@ func tokenFromLink(t *testing.T, link string) string {
 func TestService_Register_EmailAvailable_CreatesUnverifiedUserAndSendsEmail(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	err := svc.Register(context.Background(), "New@Example.com", "longenoughpassword")
 	require.NoError(t, err)
@@ -300,7 +348,7 @@ func TestService_Register_EmailAvailable_CreatesUnverifiedUserAndSendsEmail(t *t
 	assert.Nil(t, user.EmailVerifiedAt, "newly registered account must start unverified")
 	assert.NotEmpty(t, user.PasswordHash)
 
-	to, link := fm.LastSentTo()
+	to, link := repo.LastSentTo()
 	assert.Equal(t, "new@example.com", to)
 	assert.Contains(t, link, "/verify-email/")
 }
@@ -308,8 +356,7 @@ func TestService_Register_EmailAvailable_CreatesUnverifiedUserAndSendsEmail(t *t
 func TestService_Register_EmailTaken_Verified_LeavesAccountUntouched(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	existing, err := repo.CreateUnverifiedUser(context.Background(), "Existing", "taken@example.com", "original-hash")
 	require.NoError(t, err)
@@ -321,14 +368,13 @@ func TestService_Register_EmailTaken_Verified_LeavesAccountUntouched(t *testing.
 	refetched, err := repo.FindUserByEmail(context.Background(), "taken@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, "original-hash", refetched.PasswordHash, "an already-verified account's password must never be overwritten")
-	assert.Equal(t, 0, fm.SentCount(), "no email is sent for an already-verified account in this design")
+	assert.Equal(t, 0, repo.SentCount(), "no email is sent for an already-verified account in this design")
 }
 
 func TestService_Register_EmailTaken_Unverified_ResendsFreshTokenWithoutOverwritingPassword(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	_, err := repo.CreateUnverifiedUser(context.Background(), "Pending", "pending@example.com", "original-hash")
 	require.NoError(t, err)
@@ -339,17 +385,16 @@ func TestService_Register_EmailTaken_Unverified_ResendsFreshTokenWithoutOverwrit
 	refetched, err := repo.FindUserByEmail(context.Background(), "pending@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, "original-hash", refetched.PasswordHash, "a pending registration's password must never be overwritten by a re-registration attempt")
-	assert.Equal(t, 1, fm.SentCount(), "a fresh verification token must be (re)sent for a still-pending registration")
+	assert.Equal(t, 1, repo.SentCount(), "a fresh verification token must be (re)sent for a still-pending registration")
 
-	to, _ := fm.LastSentTo()
+	to, _ := repo.LastSentTo()
 	assert.Equal(t, "pending@example.com", to)
 }
 
 func TestService_Register_AllThreeCases_ReturnIdenticalSuccess(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	verified, err := repo.CreateUnverifiedUser(context.Background(), "V", "verified@example.com", "hash")
 	require.NoError(t, err)
@@ -368,20 +413,18 @@ func TestService_Register_AllThreeCases_ReturnIdenticalSuccess(t *testing.T) {
 func TestService_Register_DisabledFeatureFlag_RejectsAndCreatesNoAccount(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, false)
+	svc := newRegTestService(t, repo, time.Hour, false)
 
 	err := svc.Register(context.Background(), "new@example.com", "longenoughpassword")
 	require.ErrorIs(t, err, auth.ErrSelfRegistrationDisabled)
 	assert.Equal(t, 0, repo.countUsers())
-	assert.Equal(t, 0, fm.SentCount())
+	assert.Equal(t, 0, repo.SentCount())
 }
 
 func TestService_Register_OverLongPassword_Rejected(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	err := svc.Register(context.Background(), "new@example.com", strings.Repeat("x", 73))
 	require.ErrorIs(t, err, auth.ErrPasswordTooLong)
@@ -393,11 +436,10 @@ func TestService_Register_OverLongPassword_Rejected(t *testing.T) {
 func TestService_VerifyEmail_ValidToken_VerifiesAndEstablishesSession(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	require.NoError(t, svc.Register(context.Background(), "new@example.com", "longenoughpassword"))
-	_, link := fm.LastSentTo()
+	_, link := repo.LastSentTo()
 	rawToken := tokenFromLink(t, link)
 
 	sessionToken, user, err := svc.VerifyEmail(context.Background(), rawToken)
@@ -413,11 +455,10 @@ func TestService_VerifyEmail_ValidToken_VerifiesAndEstablishesSession(t *testing
 func TestService_VerifyEmail_TokenReuse_Rejected(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	require.NoError(t, svc.Register(context.Background(), "new@example.com", "longenoughpassword"))
-	_, link := fm.LastSentTo()
+	_, link := repo.LastSentTo()
 	rawToken := tokenFromLink(t, link)
 
 	_, _, err := svc.VerifyEmail(context.Background(), rawToken)
@@ -430,12 +471,11 @@ func TestService_VerifyEmail_TokenReuse_Rejected(t *testing.T) {
 func TestService_VerifyEmail_ExpiredToken_Rejected(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
 	// A negative TTL means the token is already expired the instant it's issued.
-	svc := newRegTestService(t, repo, fm, -time.Minute, true)
+	svc := newRegTestService(t, repo, -time.Minute, true)
 
 	require.NoError(t, svc.Register(context.Background(), "new@example.com", "longenoughpassword"))
-	_, link := fm.LastSentTo()
+	_, link := repo.LastSentTo()
 	rawToken := tokenFromLink(t, link)
 
 	_, _, err := svc.VerifyEmail(context.Background(), rawToken)
@@ -445,8 +485,7 @@ func TestService_VerifyEmail_ExpiredToken_Rejected(t *testing.T) {
 func TestService_VerifyEmail_UnknownToken_Rejected(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	_, _, err := svc.VerifyEmail(context.Background(), "totally-bogus-token")
 	require.ErrorIs(t, err, auth.ErrInvalidVerificationToken)
@@ -457,8 +496,7 @@ func TestService_VerifyEmail_UnknownToken_Rejected(t *testing.T) {
 func TestService_ResendVerification_UniformAcrossAllAccountStates(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	verified, err := repo.CreateUnverifiedUser(context.Background(), "V", "verified@example.com", "hash")
 	require.NoError(t, err)
@@ -468,15 +506,15 @@ func TestService_ResendVerification_UniformAcrossAllAccountStates(t *testing.T) 
 
 	// No account at all: no-op, no error.
 	require.NoError(t, svc.ResendVerification(context.Background(), "nobody@example.com"))
-	assert.Equal(t, 0, fm.SentCount(), "resend for a nonexistent account must not send mail")
+	assert.Equal(t, 0, repo.SentCount(), "resend for a nonexistent account must not send mail")
 
 	// Already verified: no-op, no error, no mail.
 	require.NoError(t, svc.ResendVerification(context.Background(), "verified@example.com"))
-	assert.Equal(t, 0, fm.SentCount(), "resend for an already-verified account must not send mail")
+	assert.Equal(t, 0, repo.SentCount(), "resend for an already-verified account must not send mail")
 
 	// Still pending: succeeds and actually sends a fresh token.
 	require.NoError(t, svc.ResendVerification(context.Background(), "pending@example.com"))
-	assert.Equal(t, 1, fm.SentCount(), "resend for a still-unverified account must send a fresh verification email")
+	assert.Equal(t, 1, repo.SentCount(), "resend for a still-unverified account must send a fresh verification email")
 }
 
 // ─── Login gating on verification status ───────────────────────────────────
@@ -484,8 +522,7 @@ func TestService_ResendVerification_UniformAcrossAllAccountStates(t *testing.T) 
 func TestService_Login_UnverifiedAccount_Rejected(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	require.NoError(t, svc.Register(context.Background(), "new@example.com", "longenoughpassword"))
 
@@ -496,11 +533,10 @@ func TestService_Login_UnverifiedAccount_Rejected(t *testing.T) {
 func TestService_Login_VerifiedAccount_Succeeds(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	require.NoError(t, svc.Register(context.Background(), "new@example.com", "longenoughpassword"))
-	_, link := fm.LastSentTo()
+	_, link := repo.LastSentTo()
 	_, _, err := svc.VerifyEmail(context.Background(), tokenFromLink(t, link))
 	require.NoError(t, err)
 
@@ -515,39 +551,36 @@ func TestService_Login_VerifiedAccount_Succeeds(t *testing.T) {
 func TestService_ForgotPassword_NoAccount_NoOpNoEmail(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	require.NoError(t, svc.ForgotPassword(context.Background(), "nobody@example.com"))
-	assert.Equal(t, 0, fm.ResetSentCount(), "no account for the email must not send a reset link")
+	assert.Equal(t, 0, repo.ResetSentCount(), "no account for the email must not send a reset link")
 }
 
 func TestService_ForgotPassword_AccountWithNoPassword_NoOpNoEmail(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	// OIDC-only account: no password set (password_hash is "").
 	_, err := repo.CreateUnverifiedUser(context.Background(), "OIDC User", "oidc@example.com", "")
 	require.NoError(t, err)
 
 	require.NoError(t, svc.ForgotPassword(context.Background(), "oidc@example.com"))
-	assert.Equal(t, 0, fm.ResetSentCount(), "an account with no password set must not receive a reset link")
+	assert.Equal(t, 0, repo.ResetSentCount(), "an account with no password set must not receive a reset link")
 }
 
 func TestService_ForgotPassword_AccountWithPassword_IssuesTokenAndSendsEmail(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	_, err := repo.CreateUnverifiedUser(context.Background(), "Has Password", "haspw@example.com", "some-hash")
 	require.NoError(t, err)
 
 	require.NoError(t, svc.ForgotPassword(context.Background(), "haspw@example.com"))
 
-	to, link := fm.LastResetSentTo()
+	to, link := repo.LastResetSentTo()
 	assert.Equal(t, "haspw@example.com", to)
 	assert.Contains(t, link, "/reset-password/")
 }
@@ -555,8 +588,7 @@ func TestService_ForgotPassword_AccountWithPassword_IssuesTokenAndSendsEmail(t *
 func TestService_ForgotPassword_AllThreeCases_ReturnIdenticalSuccess(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	_, err := repo.CreateUnverifiedUser(context.Background(), "OIDC", "oidc2@example.com", "")
 	require.NoError(t, err)
@@ -575,13 +607,12 @@ func TestService_ForgotPassword_AllThreeCases_ReturnIdenticalSuccess(t *testing.
 func TestService_ResetPassword_ValidToken_SetsPasswordAndEstablishesSession(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	user, err := repo.CreateUnverifiedUser(context.Background(), "Has Password", "reset@example.com", "old-hash")
 	require.NoError(t, err)
 	require.NoError(t, svc.ForgotPassword(context.Background(), "reset@example.com"))
-	_, link := fm.LastResetSentTo()
+	_, link := repo.LastResetSentTo()
 
 	token, gotUser, err := svc.ResetPassword(context.Background(), tokenFromResetLink(t, link), "brandnewpassword")
 	require.NoError(t, err)
@@ -602,13 +633,12 @@ func TestService_ResetPassword_ValidToken_SetsPasswordAndEstablishesSession(t *t
 func TestService_ResetPassword_TokenReuse_Rejected(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	_, err := repo.CreateUnverifiedUser(context.Background(), "Has Password", "reuse@example.com", "old-hash")
 	require.NoError(t, err)
 	require.NoError(t, svc.ForgotPassword(context.Background(), "reuse@example.com"))
-	_, link := fm.LastResetSentTo()
+	_, link := repo.LastResetSentTo()
 	rawToken := tokenFromResetLink(t, link)
 
 	_, _, err = svc.ResetPassword(context.Background(), rawToken, "firstnewpassword")
@@ -621,10 +651,8 @@ func TestService_ResetPassword_TokenReuse_Rejected(t *testing.T) {
 func TestService_ResetPassword_ExpiredToken_Rejected(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
 	// A negative TTL makes any issued token immediately expired.
 	svc, err := auth.NewService(repo, storage.NewFakeStore(), "", "", 24*time.Hour, auth.RegistrationConfig{
-		Mailer:           fm,
 		PublicBaseURL:    "https://example.com",
 		PasswordResetTTL: -time.Hour,
 	}, nil)
@@ -633,7 +661,7 @@ func TestService_ResetPassword_ExpiredToken_Rejected(t *testing.T) {
 	_, err = repo.CreateUnverifiedUser(context.Background(), "Has Password", "expired@example.com", "old-hash")
 	require.NoError(t, err)
 	require.NoError(t, svc.ForgotPassword(context.Background(), "expired@example.com"))
-	_, link := fm.LastResetSentTo()
+	_, link := repo.LastResetSentTo()
 
 	_, _, err = svc.ResetPassword(context.Background(), tokenFromResetLink(t, link), "brandnewpassword")
 	require.ErrorIs(t, err, auth.ErrInvalidResetToken, "an expired token must be rejected")
@@ -642,8 +670,7 @@ func TestService_ResetPassword_ExpiredToken_Rejected(t *testing.T) {
 func TestService_ResetPassword_UnknownToken_Rejected(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	_, _, err := svc.ResetPassword(context.Background(), "not-a-real-token", "brandnewpassword")
 	require.ErrorIs(t, err, auth.ErrInvalidResetToken)
@@ -652,13 +679,12 @@ func TestService_ResetPassword_UnknownToken_Rejected(t *testing.T) {
 func TestService_ResetPassword_OverLongPassword_Rejected(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	_, err := repo.CreateUnverifiedUser(context.Background(), "Has Password", "toolong@example.com", "old-hash")
 	require.NoError(t, err)
 	require.NoError(t, svc.ForgotPassword(context.Background(), "toolong@example.com"))
-	_, link := fm.LastResetSentTo()
+	_, link := repo.LastResetSentTo()
 
 	overLong := strings.Repeat("a", 73)
 	_, _, err = svc.ResetPassword(context.Background(), tokenFromResetLink(t, link), overLong)
@@ -668,8 +694,7 @@ func TestService_ResetPassword_OverLongPassword_Rejected(t *testing.T) {
 func TestService_ResetPassword_InvalidatesEveryExistingSession(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
-	fm := mailer.NewFakeMailer(nil)
-	svc := newRegTestService(t, repo, fm, time.Hour, true)
+	svc := newRegTestService(t, repo, time.Hour, true)
 
 	user, err := repo.CreateUnverifiedUser(context.Background(), "Has Password", "sessions@example.com", "old-hash")
 	require.NoError(t, err)
@@ -682,7 +707,7 @@ func TestService_ResetPassword_InvalidatesEveryExistingSession(t *testing.T) {
 	require.Equal(t, 2, repo.sessionCountForUser(user.Id.String()))
 
 	require.NoError(t, svc.ForgotPassword(context.Background(), "sessions@example.com"))
-	_, link := fm.LastResetSentTo()
+	_, link := repo.LastResetSentTo()
 	_, _, err = svc.ResetPassword(context.Background(), tokenFromResetLink(t, link), "brandnewpassword")
 	require.NoError(t, err)
 

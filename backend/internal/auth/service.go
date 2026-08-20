@@ -24,7 +24,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/image/draw"
 
-	"github.com/yoadey/team-manager/backend/internal/mailer"
 	"github.com/yoadey/team-manager/backend/internal/storage"
 )
 
@@ -65,10 +64,10 @@ type authRepo interface {
 	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
 	CreateUnverifiedUser(ctx context.Context, name, email, passwordHash string) (*UserRow, error)
 	MarkEmailVerified(ctx context.Context, userID string) error
-	CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
+	CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time, email, verifyURL string) error
 	FindEmailVerificationToken(ctx context.Context, tokenHash string) (*EmailVerificationTokenRow, error)
 	ConsumeEmailVerificationToken(ctx context.Context, tokenHash string) error
-	CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
+	CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time, email, resetURL string) error
 	FindPasswordResetToken(ctx context.Context, tokenHash string) (*PasswordResetTokenRow, error)
 	ConsumePasswordResetToken(ctx context.Context, tokenHash string) error
 	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
@@ -79,8 +78,16 @@ type authRepo interface {
 // own struct (unlike NewService's other parameters) because four more
 // positional bool/string/duration arguments would be easy to transpose by
 // mistake at the call site.
+//
+// It has no Mailer field: Register/ResendVerification/ForgotPassword never
+// call a mailer.Mailer directly -- they build the verification/reset link
+// and hand it to the repository, which enqueues the send as a durable River
+// job in the same DB transaction as the token-row insert (see
+// Repository.CreateEmailVerificationToken/CreatePasswordResetToken and
+// openspec/changes/async-auth-email-delivery/design.md). The Mailer itself
+// lives on the job's consumer (jobs.SendVerificationEmailWorker/
+// SendPasswordResetEmailWorker, wired up in jobs.NewClient).
 type RegistrationConfig struct {
-	Mailer                  mailer.Mailer
 	PublicBaseURL           string
 	EmailVerificationTTL    time.Duration
 	SelfRegistrationEnabled bool
@@ -97,7 +104,6 @@ type Service struct {
 	jwtPrivateKey           *rsa.PrivateKey
 	jwtPublicKey            *rsa.PublicKey
 	sessionTTL              time.Duration
-	mailer                  mailer.Mailer
 	publicBaseURL           string
 	emailVerificationTTL    time.Duration
 	selfRegistrationEnabled bool
@@ -163,7 +169,6 @@ func NewService(repo authRepo, store storage.ObjectStore, privateKeyPEM, publicK
 		jwtPrivateKey:           priv,
 		jwtPublicKey:            pub,
 		sessionTTL:              sessionTTL,
-		mailer:                  reg.Mailer,
 		publicBaseURL:           reg.PublicBaseURL,
 		emailVerificationTTL:    reg.EmailVerificationTTL,
 		selfRegistrationEnabled: reg.SelfRegistrationEnabled,
@@ -317,11 +322,14 @@ func displayNameFromEmail(email string) string {
 }
 
 // issueVerificationToken generates a fresh single-use verification token for
-// user, persists its hash, and emails the verification link. A failure to
-// send the email is logged but not returned as an error -- the token row
-// already exists, so POST /auth/resend-verification can recover it, and
-// Register's response must stay identical to the success case regardless
-// (see enumeration-safety notes on Register).
+// user, persists its hash, and durably enqueues the verification email for
+// asynchronous delivery -- atomically alongside the token-row insert, inside
+// Repository.CreateEmailVerificationToken (see its doc comment). This
+// intentionally never calls a mailer.Mailer itself, or waits on the SMTP
+// round trip: Register/ResendVerification return to the HTTP client as soon
+// as the token+job are durably persisted, and a genuine send failure is
+// retried by jobs.SendVerificationEmailWorker via River's own retry/backoff,
+// not swallowed here.
 func (s *Service) issueVerificationToken(ctx context.Context, user *UserRow) error {
 	rawToken, tokenHash, err := generateTokenAndHash()
 	if err != nil {
@@ -329,14 +337,11 @@ func (s *Service) issueVerificationToken(ctx context.Context, user *UserRow) err
 	}
 
 	expiresAt := time.Now().Add(s.emailVerificationTTL)
-	if err := s.repo.CreateEmailVerificationToken(ctx, user.Id.String(), tokenHash, expiresAt); err != nil {
+	verifyURL := s.publicBaseURL + "/verify-email/" + rawToken
+	if err := s.repo.CreateEmailVerificationToken(ctx, user.Id.String(), tokenHash, expiresAt, user.Email, verifyURL); err != nil {
 		return fmt.Errorf("auth.Service.issueVerificationToken: %w", err)
 	}
-
-	verifyURL := s.publicBaseURL + "/verify-email/" + rawToken
-	if err := s.mailer.SendVerificationEmail(ctx, user.Email, verifyURL); err != nil {
-		s.logger.WarnContext(ctx, "issueVerificationToken: send mail failed", "err", err)
-	}
+	s.logger.DebugContext(ctx, "issueVerificationToken: token issued, mail job enqueued", "user_id", user.Id)
 	return nil
 }
 
@@ -387,10 +392,14 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 }
 
 // issuePasswordResetToken generates a fresh single-use password reset token
-// for user, persists its hash, and emails the reset link. A failure to send
-// the email is logged but not returned as an error -- ForgotPassword's
-// response must stay identical to the success case regardless (see
-// enumeration-safety notes on ForgotPassword).
+// for user, persists its hash, and durably enqueues the reset email for
+// asynchronous delivery -- atomically alongside the token-row insert, inside
+// Repository.CreatePasswordResetToken (see its doc comment). Critically,
+// this never calls a mailer.Mailer itself or blocks on the SMTP round trip:
+// ForgotPassword must return in roughly the same time for every branch (no
+// account / no password set / a real account) to avoid leaking which emails
+// have password-based accounts via response-timing side channel -- see
+// ForgotPassword's doc comment.
 func (s *Service) issuePasswordResetToken(ctx context.Context, user *UserRow) error {
 	rawToken, tokenHash, err := generateTokenAndHash()
 	if err != nil {
@@ -398,24 +407,30 @@ func (s *Service) issuePasswordResetToken(ctx context.Context, user *UserRow) er
 	}
 
 	expiresAt := time.Now().Add(s.passwordResetTTL)
-	if err := s.repo.CreatePasswordResetToken(ctx, user.Id.String(), tokenHash, expiresAt); err != nil {
+	resetURL := s.publicBaseURL + "/reset-password/" + rawToken
+	if err := s.repo.CreatePasswordResetToken(ctx, user.Id.String(), tokenHash, expiresAt, user.Email, resetURL); err != nil {
 		return fmt.Errorf("auth.Service.issuePasswordResetToken: %w", err)
 	}
-
-	resetURL := s.publicBaseURL + "/reset-password/" + rawToken
-	if err := s.mailer.SendPasswordResetEmail(ctx, user.Email, resetURL); err != nil {
-		s.logger.WarnContext(ctx, "issuePasswordResetToken: send mail failed", "err", err)
-	}
+	s.logger.DebugContext(ctx, "issuePasswordResetToken: token issued, mail job enqueued", "user_id", user.Id)
 	return nil
 }
 
-// ForgotPassword issues a password-reset token and emails it, unless no
-// account exists for email or the matching account has no password set (an
-// OIDC-only account) -- in both cases this is a silent no-op. The caller
-// must treat every nil error the same way (a generic "check your email"
-// response); the three cases are only distinguished internally. See
-// openspec/changes/password-reset/design.md for the enumeration-safety
-// rationale.
+// ForgotPassword issues a password-reset token and enqueues its email,
+// unless no account exists for email or the matching account has no
+// password set (an OIDC-only account) -- in both cases this is a silent
+// no-op. The caller must treat every nil error the same way (a generic
+// "check your email" response); the three cases are only distinguished
+// internally. See openspec/changes/password-reset/design.md for the
+// enumeration-safety rationale.
+//
+// All three branches do the same DB work (one FindUserByEmail) and nothing
+// resembling a network call: the "real account" branch stops at durably
+// enqueuing a job row (issuePasswordResetToken -> Repository.
+// CreatePasswordResetToken), never at sending the email itself. Before
+// openspec/changes/async-auth-email-delivery, that branch instead ran a
+// synchronous SMTP round trip (dial + STARTTLS + auth + transmit, up to
+// several seconds) inline, which made this handler's response latency itself
+// an account-enumeration oracle -- see that change's design.md.
 func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	user, err := s.repo.FindUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if err != nil {

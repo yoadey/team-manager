@@ -202,16 +202,20 @@ func initAuthComponents(
 	pool *pgxpool.Pool,
 	cfg *config.Config,
 	objectStore storage.ObjectStore,
-	mailSender mailer.Mailer,
+	jobsClient *jobs.Client,
 	logger *slog.Logger,
 	auditLogger *audit.Logger,
 ) (*auth.Handler, *auth.SessionCookieCodec, error) {
 	if cfg.JWTPrivateKey == "" && cfg.JWTPublicKey == "" {
 		slog.Warn("JWT_PRIVATE_KEY/JWT_PUBLIC_KEY not set; generating an ephemeral RSA key pair for this process — sessions will not survive a restart and won't verify across replicas")
 	}
-	repo := auth.NewRepository(pool)
+	// jobsClient backs the durable, transactional mail-job enqueue in
+	// Repository.CreateEmailVerificationToken/CreatePasswordResetToken (see
+	// openspec/changes/async-auth-email-delivery/design.md) -- the actual
+	// mailer.Mailer lives on jobsClient's registered SendVerificationEmailWorker/
+	// SendPasswordResetEmailWorker (wired up by jobs.NewClient) instead of here.
+	repo := auth.NewRepository(pool, jobsClient)
 	svc, err := auth.NewService(repo, objectStore, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL, auth.RegistrationConfig{
-		Mailer:                  mailSender,
 		PublicBaseURL:           cfg.PublicBaseURL,
 		EmailVerificationTTL:    cfg.EmailVerificationTTL,
 		SelfRegistrationEnabled: cfg.SelfRegistrationEnabled,
@@ -397,11 +401,16 @@ func main() {
 
 	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays, cfg.RetentionAuditLogDays, cfg.RetentionUnverifiedAccountDays)
 	eventReminderWorker := jobs.NewEventReminderWorker(pool, eventsReminderAdapter{repo: eventsRepo}, pushRepo, membersRepo)
+	// mailSender is constructed here (ahead of the "Auth" section below,
+	// which used to build it) because jobs.NewClient needs it to register
+	// SendVerificationEmailWorker/SendPasswordResetEmailWorker -- auth's own
+	// handlers no longer hold a mailer.Mailer at all, see initAuthComponents.
+	mailSender := initMailer(cfg, logger)
 	jobsClient, riverClient, err := jobs.NewClient(pool, retentionWorker, &jobs.PushDeps{
 		Pusher: pusher,
 		Repo:   pushRepo,
 		Perms:  membersRepo,
-	}, eventReminderWorker)
+	}, eventReminderWorker, mailSender)
 	if err != nil {
 		slog.Error("river client init failed", "err", err)
 		os.Exit(1)
@@ -424,8 +433,7 @@ func main() {
 
 	// ─── Auth ────────────────────────────────────────────────────────────────
 
-	mailSender := initMailer(cfg, logger)
-	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, objectStore, mailSender, logger, auditLogger)
+	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, objectStore, jobsClient, logger, auditLogger)
 	if err != nil {
 		slog.Error("auth init failed", "err", err)
 		os.Exit(1)

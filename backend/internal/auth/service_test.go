@@ -23,7 +23,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/yoadey/team-manager/backend/internal/auth"
-	"github.com/yoadey/team-manager/backend/internal/mailer"
 	"github.com/yoadey/team-manager/backend/internal/storage"
 )
 
@@ -41,10 +40,10 @@ type mockRepo struct {
 	exportUserData         func(ctx context.Context, userID string) (*auth.ExportData, error)
 	createUnverifiedUser   func(ctx context.Context, name, email, passwordHash string) (*auth.UserRow, error)
 	markEmailVerified      func(ctx context.Context, userID string) error
-	createVerificationTok  func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
+	createVerificationTok  func(ctx context.Context, userID, tokenHash string, expiresAt time.Time, email, verifyURL string) error
 	findVerificationTok    func(ctx context.Context, tokenHash string) (*auth.EmailVerificationTokenRow, error)
 	consumeVerificationTok func(ctx context.Context, tokenHash string) error
-	createResetTok         func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
+	createResetTok         func(ctx context.Context, userID, tokenHash string, expiresAt time.Time, email, resetURL string) error
 	findResetTok           func(ctx context.Context, tokenHash string) (*auth.PasswordResetTokenRow, error)
 	consumeResetTok        func(ctx context.Context, tokenHash string) error
 	updateUserPassword     func(ctx context.Context, userID, passwordHash string) error
@@ -101,8 +100,8 @@ func (m *mockRepo) MarkEmailVerified(ctx context.Context, userID string) error {
 	return m.markEmailVerified(ctx, userID)
 }
 
-func (m *mockRepo) CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
-	return m.createVerificationTok(ctx, userID, tokenHash, expiresAt)
+func (m *mockRepo) CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time, email, verifyURL string) error {
+	return m.createVerificationTok(ctx, userID, tokenHash, expiresAt, email, verifyURL)
 }
 
 func (m *mockRepo) FindEmailVerificationToken(ctx context.Context, tokenHash string) (*auth.EmailVerificationTokenRow, error) {
@@ -113,9 +112,9 @@ func (m *mockRepo) ConsumeEmailVerificationToken(ctx context.Context, tokenHash 
 	return m.consumeVerificationTok(ctx, tokenHash)
 }
 
-func (m *mockRepo) CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+func (m *mockRepo) CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time, email, resetURL string) error {
 	if m.createResetTok != nil {
-		return m.createResetTok(ctx, userID, tokenHash, expiresAt)
+		return m.createResetTok(ctx, userID, tokenHash, expiresAt, email, resetURL)
 	}
 	return nil
 }
@@ -153,7 +152,6 @@ func (m *mockRepo) DeleteSessionsForUser(ctx context.Context, userID string) err
 func newTestService(t *testing.T, repo *mockRepo) *auth.Service {
 	t.Helper()
 	svc, err := auth.NewService(repo, storage.NewFakeStore(), "", "", 24*time.Hour, auth.RegistrationConfig{
-		Mailer:                  mailer.NewFakeMailer(nil),
 		PublicBaseURL:           "https://example.com",
 		EmailVerificationTTL:    24 * time.Hour,
 		SelfRegistrationEnabled: true,

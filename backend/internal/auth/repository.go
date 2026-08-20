@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 )
 
 // ErrSoleSettingsAdmin is returned by EraseUser when the caller is the only
@@ -30,14 +31,57 @@ type SoleSettingsAdminError struct {
 func (e *SoleSettingsAdminError) Error() string { return ErrSoleSettingsAdmin.Error() }
 func (e *SoleSettingsAdminError) Unwrap() error { return ErrSoleSettingsAdmin }
 
+// SendVerificationEmailArgs carries everything needed to deliver a single
+// self-registration verification email. CreateEmailVerificationToken enqueues
+// it as a durable River job, in the same DB transaction as the token-row
+// insert, instead of calling a mailer.Mailer inline -- see
+// openspec/changes/async-auth-email-delivery/design.md. Consumed by
+// jobs.SendVerificationEmailWorker; defined here (not in internal/jobs)
+// because auth is this job's sole producer, and internal/jobs already
+// depends on internal/auth transitively (via internal/notifications), so the
+// reverse edge would be an import cycle.
+type SendVerificationEmailArgs struct {
+	Email     string `json:"email"`
+	VerifyURL string `json:"verify_url"`
+}
+
+// Kind implements river.JobArgs.
+func (SendVerificationEmailArgs) Kind() string { return "send_verification_email" }
+
+// SendPasswordResetEmailArgs carries everything needed to deliver a single
+// password-reset email. CreatePasswordResetToken enqueues it the same way
+// SendVerificationEmailArgs is enqueued by CreateEmailVerificationToken --
+// see its doc comment.
+type SendPasswordResetEmailArgs struct {
+	Email    string `json:"email"`
+	ResetURL string `json:"reset_url"`
+}
+
+// Kind implements river.JobArgs.
+func (SendPasswordResetEmailArgs) Kind() string { return "send_password_reset_email" }
+
+// jobEnqueuer is the subset of jobs.Client's API the repository needs to
+// enqueue a mail job atomically alongside a token-row insert. Structurally
+// satisfied by *jobs.Client without this package importing internal/jobs
+// (which would cycle back through internal/notifications -- see
+// SendVerificationEmailArgs' doc comment); river.JobArgs and
+// river.InsertOpts are both plain types from the external river module, safe
+// for this package to name directly.
+type jobEnqueuer interface {
+	InsertTx(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) error
+}
+
 // Repository handles all auth-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
+	jobs jobEnqueuer
 }
 
-// NewRepository creates a new Repository.
-func NewRepository(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool}
+// NewRepository creates a new Repository. jobs enqueues the mail-delivery
+// jobs CreateEmailVerificationToken/CreatePasswordResetToken insert
+// atomically alongside their token row -- pass a *jobs.Client.
+func NewRepository(pool *pgxpool.Pool, jobs jobEnqueuer) *Repository {
+	return &Repository{pool: pool, jobs: jobs}
 }
 
 const selectUserFields = `
@@ -217,19 +261,63 @@ func (r *Repository) MarkEmailVerified(ctx context.Context, userID string) error
 	return nil
 }
 
-// CreateEmailVerificationToken inserts a new verification token row keyed by
-// its SHA-256 hash (the raw token is never persisted).
-func (r *Repository) CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+// insertTokenAndEnqueueMailJob runs insertSQL (an INSERT into one of
+// email_verification_tokens/password_reset_tokens -- both shaped
+// identically: user_id, token_hash, expires_at -- as $1, $2, $3) and, in the
+// same DB transaction, enqueues mailJob. The two are atomic: a crash after
+// commit can't lose the email (the job row is already durably queued
+// alongside the token row), and a rollback (e.g. the enqueue itself fails)
+// can't leave an orphan job with no matching token. This is the shared
+// implementation behind CreateEmailVerificationToken and
+// CreatePasswordResetToken -- see either's doc comment for why this matters
+// (in short: it's what lets their callers return to the HTTP client
+// immediately, before any network call to the SMTP relay, instead of the two
+// request handlers each racing their own begin/insert/enqueue/commit
+// sequence -- see openspec/changes/async-auth-email-delivery/design.md).
+// insertSQL is always one of this file's own string-literal constants below,
+// never caller/request-derived. op names the calling method for
+// error-wrapping context.
+func (r *Repository) insertTokenAndEnqueueMailJob(ctx context.Context, op, insertSQL, userID, tokenHash string, expiresAt time.Time, mailJob river.JobArgs) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO email_verification_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
-		userID, tokenHash, expiresAt,
-	)
+
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("auth.Repository.CreateEmailVerificationToken: %w", err)
+		return fmt.Errorf("auth.Repository.%s: begin tx: %w", op, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
+
+	if _, err := tx.Exec(ctx, insertSQL, userID, tokenHash, expiresAt); err != nil {
+		return fmt.Errorf("auth.Repository.%s: %w", op, err)
+	}
+
+	if err := r.jobs.InsertTx(ctx, tx, mailJob, nil); err != nil {
+		return fmt.Errorf("auth.Repository.%s: enqueue mail job: %w", op, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("auth.Repository.%s: commit: %w", op, err)
 	}
 	return nil
+}
+
+// insertEmailVerificationTokenSQL and insertPasswordResetTokenSQL are the
+// literal INSERT statements insertTokenAndEnqueueMailJob runs for
+// CreateEmailVerificationToken/CreatePasswordResetToken respectively.
+const (
+	insertEmailVerificationTokenSQL = `INSERT INTO email_verification_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`
+	insertPasswordResetTokenSQL     = `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`
+)
+
+// CreateEmailVerificationToken inserts a new verification token row keyed by
+// its SHA-256 hash (the raw token is never persisted), and -- in the same DB
+// transaction -- enqueues a durable job to send the verification email to
+// email/verifyURL. This is what lets Register/ResendVerification return to
+// the HTTP client immediately, before any network call to the SMTP relay --
+// see insertTokenAndEnqueueMailJob's doc comment for the atomicity rationale.
+func (r *Repository) CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time, email, verifyURL string) error {
+	return r.insertTokenAndEnqueueMailJob(ctx, "CreateEmailVerificationToken", insertEmailVerificationTokenSQL, userID, tokenHash, expiresAt,
+		SendVerificationEmailArgs{Email: email, VerifyURL: verifyURL})
 }
 
 // FindEmailVerificationToken returns the token row matching tokenHash,
@@ -275,18 +363,19 @@ func (r *Repository) ConsumeEmailVerificationToken(ctx context.Context, tokenHas
 }
 
 // CreatePasswordResetToken inserts a new password reset token row keyed by
-// its SHA-256 hash (the raw token is never persisted).
-func (r *Repository) CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
-		userID, tokenHash, expiresAt,
-	)
-	if err != nil {
-		return fmt.Errorf("auth.Repository.CreatePasswordResetToken: %w", err)
-	}
-	return nil
+// its SHA-256 hash (the raw token is never persisted), and -- in the same DB
+// transaction -- enqueues a durable job to send the reset email to
+// email/resetURL. This is what lets ForgotPassword return to the HTTP client
+// immediately for a real account, instead of blocking on the SMTP relay --
+// without it, the wait for a real account's mail send (a full SMTP round
+// trip) versus the near-instant no-op for "no account"/"no password set"
+// would let an attacker enumerate password-based accounts purely by
+// measuring response latency, defeating the enumeration-safety contract this
+// endpoint promises. See insertTokenAndEnqueueMailJob's doc comment for the
+// atomicity rationale and openspec/changes/async-auth-email-delivery/design.md.
+func (r *Repository) CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time, email, resetURL string) error {
+	return r.insertTokenAndEnqueueMailJob(ctx, "CreatePasswordResetToken", insertPasswordResetTokenSQL, userID, tokenHash, expiresAt,
+		SendPasswordResetEmailArgs{Email: email, ResetURL: resetURL})
 }
 
 // FindPasswordResetToken returns the token row matching tokenHash, provided
