@@ -362,6 +362,61 @@ func TestService_ValidateToken_RejectsTokenWithNoExpiryClaim(t *testing.T) {
 	assert.Error(t, err, "a token with no exp claim at all must be rejected, not accepted forever")
 }
 
+// Regression test: ValidateToken's key-func rejects any signing method that
+// isn't RSA (see the *jwt.SigningMethodRSA type assertion in service.go).
+// Without that check, an RSA-verified service is vulnerable to the classic
+// "alg confusion" forgery: an attacker crafts a token with header alg=HS256
+// and signs it using the server's own RSA *public* key bytes (which are not
+// secret -- they're handed to every client) as the HMAC secret. If the
+// key-func blindly returned the RSA public key regardless of the token's
+// algorithm, golang-jwt would happily HMAC-verify the attacker's token
+// against it, and the forged token -- with any claims the attacker chooses
+// -- would pass. This mints exactly that HS256 token, signed with the
+// service's own RSA public key PEM bytes as the HMAC secret, and asserts
+// ValidateToken rejects it.
+func TestService_ValidateToken_RejectsAlgConfusionHS256Token(t *testing.T) {
+	t.Parallel()
+
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	privPEM := string(pem.EncodeToMemory(&pem.Block{
+		Type: "PRIVATE KEY", Bytes: mustMarshalPKCS8(t, privKey),
+	}))
+	pubPEM := string(pem.EncodeToMemory(&pem.Block{
+		Type: "PUBLIC KEY", Bytes: mustMarshalPKIXPublicKey(t, &privKey.PublicKey),
+	}))
+
+	repo := &mockRepo{
+		findSess: func(_ context.Context, _ string) (*auth.SessionRow, error) {
+			return &auth.SessionRow{UserId: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")}, nil
+		},
+		userByID: func(_ context.Context, id string) (*auth.UserRow, error) {
+			return &auth.UserRow{Id: uuid.MustParse(id)}, nil
+		},
+	}
+	svc, err := auth.NewService(repo, storage.NewFakeStore(), privPEM, pubPEM, 24*time.Hour, auth.RegistrationConfig{}, nil)
+	require.NoError(t, err)
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ID:        "raw-token-alg-confusion",
+		},
+		UserId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+	}
+	// Sign with HS256 using the server's *public* RSA key bytes as the HMAC
+	// secret -- exactly what an attacker who only knows the (non-secret)
+	// public key would do.
+	forgedToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(pubPEM))
+	require.NoError(t, err)
+
+	_, err = svc.ValidateToken(context.Background(), forgedToken)
+	assert.Error(t, err, "an HS256 token signed with the RSA public key bytes must be rejected, not accepted as valid")
+	assert.ErrorIs(t, err, auth.ErrUnexpectedSigningMethod)
+}
+
 func mustMarshalPKCS8(t *testing.T, key *rsa.PrivateKey) []byte {
 	t.Helper()
 	b, err := x509.MarshalPKCS8PrivateKey(key)
