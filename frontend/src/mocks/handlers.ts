@@ -1305,7 +1305,11 @@ export const handlers = [
     const perm = requirePermission(auth, params.teamId as string, 'events', 'write');
     if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
-    if (!e || !eventVisibleToTeam(e, params.teamId as string)) return problem(404, 'Event not found');
+    // Update (unlike get/status) is owner-team-only, mirroring the real
+    // backend's UpdateEvent, which always scopes its UPDATE by
+    // `team_id = teamID` -- a cross-team event may only be edited via its
+    // owning team's own URL, never through a non-owning targeted team's.
+    if (!e || e.teamId !== params.teamId) return problem(404, 'Event not found');
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
     const body = (await request.json()) as S['UpdateEventRequest'];
@@ -1351,6 +1355,11 @@ export const handlers = [
     const perm = requirePermission(auth, params.teamId as string, 'events', 'write');
     if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
+    // Delete is owner-team-only, mirroring the real backend's DeleteEvent
+    // (deliberately never extended to a cross-team event's other targeted
+    // teams, to avoid ambiguity over which target team may delete a shared
+    // event -- see internal/events/repository.go's DeleteEvent doc comment).
+    if (e && e.teamId !== params.teamId) return problem(404, 'Event not found');
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
     const ids = e && scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId).map((x) => x.id) : [params.eventId as string];

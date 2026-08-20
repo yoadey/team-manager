@@ -1827,7 +1827,6 @@ func TestEventService_ListAttendance_TeamBadge(t *testing.T) {
 				{
 					UserId:       ownTeamUser,
 					MembershipId: ownMembershipID,
-					MemberTeamId: viewerTeam,
 					Name:         "Own Team Member",
 					AvatarColor:  "#111111",
 					Status:       "yes",
@@ -1837,7 +1836,6 @@ func TestEventService_ListAttendance_TeamBadge(t *testing.T) {
 				{
 					UserId:       foreignUser,
 					MembershipId: foreignMembershipID,
-					MemberTeamId: teamBravo,
 					Name:         "Foreign Member",
 					AvatarColor:  "#222222",
 					Status:       "no",
@@ -1919,7 +1917,7 @@ func TestEventService_ListAttendance_SingleTeam_NoExtraCrossTeamQuery(t *testing
 	repo := &mockSvcRepo{
 		listAttendanceFn: func(context.Context, string, string) ([]events.AttendanceEnriched, error) {
 			return []events.AttendanceEnriched{
-				{UserId: userID, MembershipId: membershipID, MemberTeamId: viewerTeam, Name: "Solo Member", AvatarColor: "#333333", Status: "yes"},
+				{UserId: userID, MembershipId: membershipID, Name: "Solo Member", AvatarColor: "#333333", Status: "yes"},
 			}, nil
 		},
 		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {

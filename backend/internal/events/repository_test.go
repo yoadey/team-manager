@@ -2544,6 +2544,78 @@ func TestEventRepository_CrossTeam_UpdateReplacesTargetSet(t *testing.T) {
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
+// TestEventRepository_CrossTeam_UpdateSeriesPropagatesToWholeSeries covers a
+// bug the independent review caught: updating crossTeamIds with scope=series
+// must replace event_teams for every occurrence of the series, not just the
+// single addressed occurrence -- otherwise sharing (or un-sharing) "the
+// whole series" from one occurrence would silently apply to that occurrence
+// only.
+func TestEventRepository_CrossTeam_UpdateSeriesPropagatesToWholeSeries(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	teamB := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Series Share Team A'), ($2, 'Series Share Team B')`, teamA, teamB)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	seriesParams := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Joint Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 3,
+	}
+	occurrences, err := repo.CreateSeries(ctx, teamA.String(), &seriesParams)
+	require.NoError(t, err)
+	require.Len(t, occurrences, 3)
+
+	// Share the whole series with team B via scope=series on the first
+	// occurrence.
+	_, err = repo.UpdateEvent(ctx, occurrences[0].Id.String(), teamA.String(), &events.UpdateEventParams{
+		CrossTeamIds: []uuid.UUID{teamB},
+	}, "series")
+	require.NoError(t, err)
+
+	for _, occ := range occurrences {
+		eventTeams, err := repo.GetEventTeams(ctx, occ.Id.String())
+		require.NoError(t, err)
+		gotIDs := make([]uuid.UUID, len(eventTeams))
+		for i, et := range eventTeams {
+			gotIDs[i] = et.TeamID
+		}
+		assert.ElementsMatchf(t, []uuid.UUID{teamA, teamB}, gotIDs,
+			"occurrence %s must be shared with team B after a scope=series share", occ.Id)
+
+		// Team B can now read every occurrence via its own team's URL, not
+		// just the one the update was addressed to.
+		_, err = repo.GetEvent(ctx, occ.Id.String(), teamB.String())
+		assert.NoError(t, err, "occurrence %s must be readable by team B after a scope=series share", occ.Id)
+	}
+
+	// Un-share the whole series again via scope=series with an explicit
+	// empty array.
+	_, err = repo.UpdateEvent(ctx, occurrences[0].Id.String(), teamA.String(), &events.UpdateEventParams{
+		CrossTeamIds: []uuid.UUID{},
+	}, "series")
+	require.NoError(t, err)
+
+	for _, occ := range occurrences {
+		eventTeams, err := repo.GetEventTeams(ctx, occ.Id.String())
+		require.NoError(t, err)
+		require.Lenf(t, eventTeams, 1, "occurrence %s must be back to single-team after a scope=series un-share", occ.Id)
+		assert.Equal(t, teamA, eventTeams[0].TeamID)
+
+		_, err = repo.GetEvent(ctx, occ.Id.String(), teamB.String())
+		assert.ErrorIsf(t, err, pgx.ErrNoRows,
+			"team B must lose read access to occurrence %s after a scope=series un-share", occ.Id)
+	}
+}
+
 // TestEventRepository_CrossTeam_DeleteRestrictedToOwningTeam covers
 // design.md's deliberate simplification: deleting a cross-team event is
 // only ever allowed via its owning team, never a crossTeamIds target, even

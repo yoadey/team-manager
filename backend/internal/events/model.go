@@ -104,16 +104,14 @@ type CommentRow struct {
 // computeEffectiveAttendance). MembershipId/Group/Title/PrimaryRole describe
 // whichever single membership was picked to represent this user (the
 // viewer's own team's membership when the user has one, else an arbitrary
-// targeted team's) -- see Repository.ListAttendance. MemberTeamId is that
-// same membership's team, used by Service.ListAttendance together with
-// EventTeams to decide the display-rule team badge.
+// targeted team's) -- see Repository.ListAttendance. The display-rule team
+// badge is computed separately by Service.ListAttendance/
+// resolveCrossTeamBadgeContext from Repository.ListEventMemberTeams (the
+// full per-user membership-across-targets picture), not from anything on
+// this struct.
 type AttendanceEnriched struct {
-	UserId       uuid.UUID
-	MembershipId uuid.UUID
-	// MemberTeamId is the team the picked membership (MembershipId) belongs
-	// to. Equal to the viewing team whenever the user is a member of it;
-	// otherwise an arbitrary one of the event's other targeted teams.
-	MemberTeamId     uuid.UUID
+	UserId           uuid.UUID
+	MembershipId     uuid.UUID
 	Status           string
 	Reason           *string
 	ReasonId         *string

@@ -835,10 +835,19 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 // applySeriesScopedUpdate looks up eventID's series_id (verified to belong
 // to teamID) and, if it belongs to a series, either rejects a multi-day
 // EndDate on it (ErrMultiDayEndDateOnSeriesEvent) or -- for scope="series"
-// -- applies the series-wide fields via updateSeriesEvents. A standalone
+// -- applies the series-wide fields via updateSeriesEvents, plus (when
+// CrossTeamIds is present in the patch) replaces event_teams for every
+// occurrence in the series via replaceEventTeamsForSeries, not just the
+// single occurrence eventID addresses -- otherwise sharing (or un-sharing)
+// "the whole series" from one occurrence would silently apply to that one
+// occurrence only, leaving the rest of the series either not shared with a
+// newly-added team or still readable by a removed one. A standalone
 // (non-series) event, or a scope="single" request with no EndDate, is a
-// no-op here; UpdateEvent's subsequent writeOrReadSingleEvent call always
-// applies the full params to the specific event regardless.
+// no-op here; UpdateEvent's subsequent writeOrReadSingleEvent (and its own
+// single-event replaceEventTeams call) always applies the full params to the
+// specific event regardless, which for scope="series" redundantly but
+// harmlessly re-applies the same event_teams rows this function already set
+// for that one occurrence.
 func applySeriesScopedUpdate(ctx context.Context, tx pgx.Tx, eventID, teamID, scope string, params *UpdateEventParams) error {
 	var seriesID *uuid.UUID
 	err := tx.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID).Scan(&seriesID)
@@ -851,8 +860,16 @@ func applySeriesScopedUpdate(ctx context.Context, tx pgx.Tx, eventID, teamID, sc
 	if params.EndDate != nil {
 		return ErrMultiDayEndDateOnSeriesEvent
 	}
-	if scope == "series" {
-		return updateSeriesEvents(ctx, tx, seriesID.String(), params)
+	if scope != "series" {
+		return nil
+	}
+	if err := updateSeriesEvents(ctx, tx, seriesID.String(), params); err != nil {
+		return err
+	}
+	if params.CrossTeamIds != nil {
+		if err := replaceEventTeamsForSeries(ctx, tx, seriesID.String(), teamID, params.CrossTeamIds); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -898,6 +915,45 @@ func replaceEventTeams(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, owning
 		return fmt.Errorf("events.Repository.UpdateEvent: clear event_teams: %w", err)
 	}
 	if err := insertEventTeams(ctx, tx, []uuid.UUID{eventID}, dedupTeamIDs(owningTeamID, crossTeamIDs)); err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: %w", err)
+	}
+	return nil
+}
+
+// replaceEventTeamsForSeries replaces the event_teams rows for every event in
+// seriesID with {owningTeamID} ∪ crossTeamIDs, keeping a whole recurring
+// series' cross-team targets in lockstep with each other -- mirrors
+// replaceEventTeams but applied series-wide instead of to a single event; see
+// applySeriesScopedUpdate for why this is needed.
+func replaceEventTeamsForSeries(ctx context.Context, tx pgx.Tx, seriesID, owningTeamIDStr string, crossTeamIDs []uuid.UUID) error {
+	owningTeamID, err := uuid.Parse(owningTeamIDStr)
+	if err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: parse teamID: %w", err)
+	}
+	rows, err := tx.Query(ctx, `SELECT id FROM events WHERE series_id = $1`, seriesID)
+	if err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: list series events: %w", err)
+	}
+	var eventIDs []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("events.Repository.UpdateEvent: scan series event id: %w", err)
+		}
+		eventIDs = append(eventIDs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: list series events: %w", err)
+	}
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM event_teams WHERE event_id = ANY($1)`, eventIDs); err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: clear series event_teams: %w", err)
+	}
+	if err := insertEventTeams(ctx, tx, eventIDs, dedupTeamIDs(owningTeamID, crossTeamIDs)); err != nil {
 		return fmt.Errorf("events.Repository.UpdateEvent: %w", err)
 	}
 	return nil
@@ -1438,7 +1494,6 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 			SELECT DISTINCT ON (m.user_id)
 				m.id,
 				m.user_id,
-				m.team_id,
 				m."group",
 				m.title,
 				u.name,
@@ -1477,7 +1532,7 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 		var absenceCovers bool
 		var responseMode string
 		err := rows.Scan(
-			&a.MembershipId, &a.UserId, &a.MemberTeamId, &a.Group, &a.Title,
+			&a.MembershipId, &a.UserId, &a.Group, &a.Title,
 			&a.Name, &a.AvatarColor, &a.HasPhoto,
 			&status, &reason, &reasonID, &reasonVisibility, &at,
 			&absenceCovers, &responseMode,
