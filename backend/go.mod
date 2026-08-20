@@ -1,6 +1,6 @@
 module github.com/yoadey/team-manager/backend
 
-go 1.25.12
+go 1.25.13
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
