@@ -219,6 +219,10 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransacti
 			h.recordFinanceFailure(ctx, "transaction.update", "not found")
 			return nil, apierror.NotFound("transaction not found")
 		}
+		if errors.Is(err, ErrCannotChangeTypeOfLinkedTransaction) {
+			h.recordFinanceFailure(ctx, "transaction.update", err.Error())
+			return nil, apierror.BadRequest(err.Error())
+		}
 		h.recordFinanceFailure(ctx, "transaction.update", "internal error")
 		h.logger.ErrorContext(ctx, "UpdateTransaction failed", "err", err)
 		return nil, apierror.Internal("failed to update transaction")

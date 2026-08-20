@@ -26,6 +26,7 @@ type mockRepo struct {
 	listTransactionsPageFn           func(ctx context.Context, teamID uuid.UUID, limit int, cur *finances.TxCursor) ([]finances.TransactionRow, error)
 	sumTransactionsFn                func(ctx context.Context, teamID uuid.UUID) (int64, int64, error)
 	createTransactionFn              func(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID, note *string) (*finances.TransactionRow, error)
+	getTransactionFn                 func(ctx context.Context, id, teamID uuid.UUID) (*finances.TransactionRow, error)
 	updateTransactionFn              func(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error)
 	deleteTransactionFn              func(ctx context.Context, id, teamID uuid.UUID) error
 	listPenaltiesFn                  func(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyRow, error)
@@ -82,6 +83,16 @@ func (m *mockRepo) CountTransactions(ctx context.Context, teamID uuid.UUID) (int
 
 func (m *mockRepo) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID, note *string) (*finances.TransactionRow, error) {
 	return m.createTransactionFn(ctx, teamID, txType, title, amount, date, category, contributionID, penaltyAssignmentID, note)
+}
+
+// GetTransaction is optional; when unset it returns an empty (unlinked)
+// TransactionRow, so tests that don't exercise the linked-type-change guard
+// don't all need to set it.
+func (m *mockRepo) GetTransaction(ctx context.Context, id, teamID uuid.UUID) (*finances.TransactionRow, error) {
+	if m.getTransactionFn != nil {
+		return m.getTransactionFn(ctx, id, teamID)
+	}
+	return &finances.TransactionRow{ID: id, TeamID: teamID}, nil
 }
 
 func (m *mockRepo) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error) {
@@ -349,6 +360,116 @@ func TestService_UpdateTransaction_PassesNotePatch(t *testing.T) {
 	assert.Equal(t, want, *gotPatch.Note)
 	require.NotNil(t, result.Note)
 	assert.Equal(t, want, *result.Note)
+}
+
+// Regression test: UpdateTransaction must reject moving a transaction's type
+// away from income while it is still linked to a contribution -- otherwise
+// the treasurer could silently detach a booked fee payment from its
+// contribution by editing the type, with no error or audit trail (see
+// ErrCannotChangeTypeOfLinkedTransaction's doc comment). The repository's
+// UpdateTransaction must never be reached in this case.
+func TestService_UpdateTransaction_RejectsTypeChangeWhenLinkedToContribution(t *testing.T) {
+	t.Parallel()
+
+	teamID, id, contributionID := uuid.New(), uuid.New(), uuid.New()
+	repo := &mockRepo{
+		getTransactionFn: func(_ context.Context, gotID, gotTeamID uuid.UUID) (*finances.TransactionRow, error) {
+			assert.Equal(t, id, gotID)
+			assert.Equal(t, teamID, gotTeamID)
+			return &finances.TransactionRow{ID: id, TeamID: teamID, Type: "income", ContributionID: &contributionID}, nil
+		},
+		updateTransactionFn: func(context.Context, uuid.UUID, uuid.UUID, finances.TransactionPatch) (*finances.TransactionRow, error) {
+			t.Fatal("repository UpdateTransaction must not be called when the type change is rejected")
+			return nil, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	expenseType := gen.Expense
+	body := &gen.UpdateTransactionJSONRequestBody{Type: &expenseType}
+	_, err := svc.UpdateTransaction(context.Background(), id, teamID, body)
+	require.ErrorIs(t, err, finances.ErrCannotChangeTypeOfLinkedTransaction)
+}
+
+// Same guard, for a transaction linked to a penalty assignment instead of a
+// contribution.
+func TestService_UpdateTransaction_RejectsTypeChangeWhenLinkedToPenaltyAssignment(t *testing.T) {
+	t.Parallel()
+
+	teamID, id, assignmentID := uuid.New(), uuid.New(), uuid.New()
+	repo := &mockRepo{
+		getTransactionFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.TransactionRow, error) {
+			return &finances.TransactionRow{ID: id, TeamID: teamID, Type: "income", PenaltyAssignmentID: &assignmentID}, nil
+		},
+		updateTransactionFn: func(context.Context, uuid.UUID, uuid.UUID, finances.TransactionPatch) (*finances.TransactionRow, error) {
+			t.Fatal("repository UpdateTransaction must not be called when the type change is rejected")
+			return nil, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	expenseType := gen.Expense
+	body := &gen.UpdateTransactionJSONRequestBody{Type: &expenseType}
+	_, err := svc.UpdateTransaction(context.Background(), id, teamID, body)
+	require.ErrorIs(t, err, finances.ErrCannotChangeTypeOfLinkedTransaction)
+}
+
+// Regression guard for the fix above: changing type on an UNLINKED
+// transaction must keep working exactly as before.
+func TestService_UpdateTransaction_AllowsTypeChangeWhenUnlinked(t *testing.T) {
+	t.Parallel()
+
+	teamID, id := uuid.New(), uuid.New()
+	var updateCalled bool
+	repo := &mockRepo{
+		getTransactionFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.TransactionRow, error) {
+			return &finances.TransactionRow{ID: id, TeamID: teamID, Type: "income"}, nil
+		},
+		updateTransactionFn: func(_ context.Context, gotID, gotTeamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error) {
+			updateCalled = true
+			require.NotNil(t, patch.Type)
+			assert.Equal(t, "expense", *patch.Type)
+			return &finances.TransactionRow{ID: gotID, TeamID: gotTeamID, Type: *patch.Type}, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	expenseType := gen.Expense
+	body := &gen.UpdateTransactionJSONRequestBody{Type: &expenseType}
+	_, err := svc.UpdateTransaction(context.Background(), id, teamID, body)
+	require.NoError(t, err)
+	assert.True(t, updateCalled, "repository UpdateTransaction must be called when the transaction isn't linked")
+}
+
+// Regression guard: changing only the amount (not type) of a transaction
+// still linked to a contribution must remain allowed -- the finding this
+// fix addresses is specifically about type changes silently detaching a
+// linked payment; correcting a typo'd amount on an income transaction that
+// stays linked is legitimate and must not be blocked.
+func TestService_UpdateTransaction_AllowsAmountChangeWhenLinked(t *testing.T) {
+	t.Parallel()
+
+	teamID, id, contributionID := uuid.New(), uuid.New(), uuid.New()
+	newAmount := int64(2500)
+	var updateCalled bool
+	repo := &mockRepo{
+		getTransactionFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.TransactionRow, error) {
+			t.Fatal("GetTransaction must not be called when the patch doesn't touch type")
+			return nil, nil
+		},
+		updateTransactionFn: func(_ context.Context, gotID, gotTeamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error) {
+			updateCalled = true
+			require.NotNil(t, patch.Amount)
+			assert.Equal(t, newAmount, *patch.Amount)
+			return &finances.TransactionRow{ID: gotID, TeamID: gotTeamID, Type: "income", Amount: newAmount, ContributionID: &contributionID}, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	body := &gen.UpdateTransactionJSONRequestBody{Amount: &newAmount}
+	_, err := svc.UpdateTransaction(context.Background(), id, teamID, body)
+	require.NoError(t, err)
+	assert.True(t, updateCalled, "repository UpdateTransaction must be called for an amount-only patch on a linked transaction")
 }
 
 // ─── ListTransactions (keyset pagination) ────────────────────────────────────

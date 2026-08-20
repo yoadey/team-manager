@@ -1081,7 +1081,10 @@ export interface paths {
         delete: operations["deleteTransaction"];
         options?: never;
         head?: never;
-        /** Update transaction */
+        /**
+         * Update transaction
+         * @description Changing `type` away from `income` is rejected (400) while the transaction still has `contributionId`/`penaltyAssignmentId` set -- it would silently detach a booked fee/fine payment from its target with no warning. Delete and recreate the transaction instead; `amount`/other fields may still be edited freely on a linked transaction.
+         */
         patch: operations["updateTransaction"];
         trace?: never;
     };
