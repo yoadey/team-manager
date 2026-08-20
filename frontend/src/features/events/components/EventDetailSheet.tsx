@@ -396,9 +396,18 @@ function attendanceRowControls(params: {
   mine: boolean;
   tk: Tokens;
 }): ReactNode[] {
-  const { row, event, app, canEdit, isPast, mine, tk } = params;
+  const { row, event, app, isPast, mine, tk } = params;
   const notNominated = row.status === 'not_nominated';
-  const editable = (canEdit || mine) && !isPast;
+  // row.teamName is only ever set for a foreign attendee (someone outside
+  // the viewer's own team on a cross-team event) -- every write these
+  // controls trigger (SetAttendance/SetNomination/reason comment) requires
+  // the target user to be a member of the *viewing* team server-side, which
+  // a foreign attendee never is, so the write would always fail. mine can
+  // never be true for a foreign attendee (the viewer is inherently a member
+  // of their own viewing team), but the guard is kept explicit rather than
+  // relied upon.
+  const canEdit = params.canEdit && !row.teamName;
+  const editable = (canEdit || mine) && !isPast && !row.teamName;
 
   if (notNominated) {
     return [
@@ -413,7 +422,7 @@ function attendanceRowControls(params: {
           title={t('events.nominate')}
         />
       ) : null,
-      canEdit || mine ? (
+      (canEdit || mine) && !row.teamName ? (
         <IconBtn
           key="cm"
           icon="chat_bubble"
@@ -557,6 +566,7 @@ function AttendanceRowItem({
 function EventEditActions({
   event,
   canEdit,
+  canEditOrDelete,
   onEdit,
   onDuplicate,
   onCancel,
@@ -564,6 +574,10 @@ function EventEditActions({
 }: {
   event: TeamEvent;
   canEdit: boolean;
+  // Edit/Delete require the owning team's own URL (see backend
+  // UpdateEvent/DeleteEvent); Cancel/Reactivate and Duplicate stay on
+  // canEdit -- see EventDetailSheet's canEditOrDelete doc comment.
+  canEditOrDelete: boolean;
   onEdit: () => void;
   onDuplicate: () => void;
   onCancel: () => void;
@@ -573,27 +587,29 @@ function EventEditActions({
   const cancelled = event.status === 'cancelled';
   return (
     <Box sx={{ display: 'flex', gap: '10px', mt: '18px', flexWrap: 'wrap' }}>
-      <ButtonBase
-        onClick={onEdit}
-        sx={{
-          flex: '1 1 130px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '8px',
-          p: '12px',
-          borderRadius: '13px',
-          border: `1px solid ${NEUTRAL.inputBorder}`,
-          background: NEUTRAL.card,
-          color: NEUTRAL.onSurfaceVariant,
-          fontWeight: 600,
-          fontSize: '14px',
-          cursor: 'pointer',
-        }}
-      >
-        <Sym name="edit" size={19} color={NEUTRAL.onSurfaceVariant} />
-        {t('events.edit')}
-      </ButtonBase>
+      {canEditOrDelete ? (
+        <ButtonBase
+          onClick={onEdit}
+          sx={{
+            flex: '1 1 130px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            p: '12px',
+            borderRadius: '13px',
+            border: `1px solid ${NEUTRAL.inputBorder}`,
+            background: NEUTRAL.card,
+            color: NEUTRAL.onSurfaceVariant,
+            fontWeight: 600,
+            fontSize: '14px',
+            cursor: 'pointer',
+          }}
+        >
+          <Sym name="edit" size={19} color={NEUTRAL.onSurfaceVariant} />
+          {t('events.edit')}
+        </ButtonBase>
+      ) : null}
       <ButtonBase
         onClick={onDuplicate}
         sx={{
@@ -638,25 +654,27 @@ function EventEditActions({
           {t('events.cancel')}
         </ButtonBase>
       ) : null}
-      <ButtonBase
-        onClick={onDelete}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '8px',
-          p: '12px 16px',
-          borderRadius: '13px',
-          border: '1px solid #F0C4C0',
-          background: NEUTRAL.errorBg,
-          color: NEUTRAL.error,
-          fontWeight: 600,
-          cursor: 'pointer',
-        }}
-      >
-        <Sym name="delete" size={19} color={NEUTRAL.error} />
-        {t('events.delete')}
-      </ButtonBase>
+      {canEditOrDelete ? (
+        <ButtonBase
+          onClick={onDelete}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            p: '12px 16px',
+            borderRadius: '13px',
+            border: '1px solid #F0C4C0',
+            background: NEUTRAL.errorBg,
+            color: NEUTRAL.error,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          <Sym name="delete" size={19} color={NEUTRAL.error} />
+          {t('events.delete')}
+        </ButtonBase>
+      ) : null}
     </Box>
   );
 }
@@ -797,6 +815,12 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
   const today = todayLocalDate();
   const isPast = isEventPast(e, today);
   const canEdit = app.can('events', 'write');
+  // Editing/deleting a cross-team event is only ever allowed via its owning
+  // team's own URL (see backend UpdateEvent/DeleteEvent) -- cancel/reactivate
+  // stays on plain canEdit since the backend deliberately relaxes that one to
+  // any targeted team. Viewing a shared event through a non-owning team must
+  // not offer Edit/Delete buttons that would always 404 on save.
+  const canEditOrDelete = canEdit && e.teamId === state.activeTeamId;
   const rsvpCutoff = effectiveRsvpCutoff(e);
   const me = state.user!.id;
   const canSeeCommentFn = app.canSeeComment;
@@ -888,6 +912,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
       <EventEditActions
         event={e}
         canEdit={canEdit}
+        canEditOrDelete={canEditOrDelete}
         onEdit={() => app.openEventForm(e)}
         onDuplicate={() => app.duplicateEvent(e)}
         onCancel={() => app.askEventAction('cancel', e)}

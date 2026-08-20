@@ -542,6 +542,16 @@ describe('cross-team events', () => {
       crossTeamIds: ['t_b'],
     });
 
+    // The event's reported summary must reflect the deduped union of both
+    // targeted teams' members (a t_a-and-t_b member counts once), not just
+    // the owning team's own roster.
+    const expectedTotal = new Set(
+      db.memberships.filter((m) => m.teamId === 't_a' || m.teamId === 't_b').map((m) => m.userId),
+    ).size;
+    expect(event.summary.total).toBe(expectedTotal);
+    const refetched = await api.events.get(event.id, 't_a');
+    expect(refetched?.summary.total).toBe(expectedTotal);
+
     const tA = db.teams.find((t) => t.id === 't_a')!;
     const tB = db.teams.find((t) => t.id === 't_b')!;
 
@@ -559,6 +569,29 @@ describe('cross-team events', () => {
     expect(rowsFromB.find((r) => r.userId === 'u1')?.teamName).toBeUndefined();
     expect(rowsFromB.find((r) => r.userId === 'u20')?.teamName).toBeUndefined();
     expect(rowsFromB.find((r) => r.userId === 'u2')?.teamName).toBe(tA.name);
+  });
+
+  it('rejects setting attendance or nomination for a foreign (badged) attendee via a non-owning team', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+
+    // u20 belongs only to t_b, not t_a -- setting their attendance/nomination
+    // through t_a's URL must fail server-side, mirroring the real backend's
+    // membership check, even though u1 holds events:write on t_a.
+    await expect(api.attendance.set(event.id, 'u20', { status: 'yes' }, 't_a')).rejects.toThrow();
+    await expect(api.attendance.setNomination(event.id, 'u20', false, 't_a')).rejects.toThrow();
+
+    // u20 can be acted on through their own team, t_b.
+    await expect(api.attendance.set(event.id, 'u20', { status: 'yes' }, 't_b')).resolves.toBeTruthy();
+
+    // Sanity: a genuine t_a member is unaffected by the new check.
+    await expect(api.attendance.set(event.id, 'u2', { status: 'yes' }, 't_a')).resolves.toBeTruthy();
   });
 
   it('update: absent crossTeamIds leaves the target set unchanged; an empty array un-shares back to single-team', async () => {

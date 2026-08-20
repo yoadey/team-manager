@@ -128,6 +128,11 @@ function makeApp(overrides: Record<string, unknown> = {}) {
       user: { id: 'user1', name: 'Max Mustermann' },
       roles: [],
       busy: null,
+      // Matches makeEvent()'s default teamId: 'team1' -- the default
+      // scenario across this file is "viewing the event via its own owning
+      // team", where canEditOrDelete tracks plain canEdit. Tests for the
+      // cross-team (non-owning viewer) case override this explicitly.
+      activeTeamId: 'team1',
       ...overrides,
     },
     can: vi.fn().mockReturnValue(false),
@@ -300,6 +305,26 @@ describe('EventDetailSheet', () => {
     );
     expect(screen.queryByText('events.edit')).toBeNull();
     expect(screen.queryByText('events.duplicate')).toBeNull();
+  });
+
+  // Regression test: editing/deleting a cross-team event is only ever
+  // allowed via its owning team's own URL (see backend UpdateEvent/
+  // DeleteEvent), so viewing it through a non-owning targeted team must not
+  // offer Edit/Delete buttons that would always fail server-side --
+  // Cancel/Duplicate stay available since those are allowed from any
+  // targeted team.
+  it('hides edit and delete, but keeps cancel and duplicate, when viewing a cross-team event via a non-owning team', () => {
+    const app = makeApp({ activeTeamId: 'team2' });
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ teamId: 'team1', crossTeamIds: ['team2'] });
+    render(
+      <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+    );
+    expect(screen.queryByText('events.edit')).toBeNull();
+    expect(screen.queryByText('events.delete')).toBeNull();
+    expect(screen.getByText('events.duplicate')).toBeTruthy();
+    expect(screen.getByText('events.cancel')).toBeTruthy();
   });
 
   it('clicking duplicate calls app.duplicateEvent with the event', () => {

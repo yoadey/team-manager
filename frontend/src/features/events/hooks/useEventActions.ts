@@ -306,14 +306,21 @@ export function useEventActionFeatures({
       }
       const sh = S().sheet;
       const status = action === 'cancel' ? 'cancelled' : 'active';
+      // Cancel/reactivate is deliberately relaxed server-side to any of the
+      // event's targeted teams (unlike edit/delete, which stay owning-team-
+      // only) -- see internal/events/repository.go's SetStatus. Route the
+      // request through the team the user is actually viewing the event
+      // from, not event.teamId (the owning team), so a viewer who belongs
+      // only to a non-owning targeted team can use this at all.
+      const viewTeamId = S().activeTeamId ?? event.teamId;
       try {
-        await setEventStatusAsync({ eventId: event.id, status, scope, teamId: event.teamId });
+        await setEventStatusAsync({ eventId: event.id, status, scope, teamId: viewTeamId });
         loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a different
         // team after switching away mid-request, or one they've since opened
         // for a different event (same team) while this cancel/reactivate was
         // in flight.
-        if (S().activeTeamId === event.teamId && S().sheet === sh) {
+        if (S().activeTeamId === viewTeamId && S().sheet === sh) {
           setState({ sheet: null });
           openEventDetail(event.id);
         }

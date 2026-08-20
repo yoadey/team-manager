@@ -832,24 +832,25 @@ func (s *Service) enqueueAttendanceNotification(ctx context.Context, ev *EventRo
 // events:write for teamID, returning onDenied (the caller-facing sentinel
 // appropriate to whichever gate is calling this -- ErrSetAttendanceForbidden
 // for "acting on another member", ErrCancelLeadTimePassed for "responding
-// after the deadline") when it doesn't, nil when it does. Shared by
-// SetAttendance's events:write gates, which otherwise duplicate the same
-// permChecker plumbing.
+// after the deadline", ErrCrossTeamWriteForbidden for "missing write in a
+// cross-team target") when it doesn't, nil when it does. Shared by
+// SetAttendance's events:write gates and requireEventsWriteInTeams, which
+// otherwise duplicate the same permChecker plumbing.
 func (s *Service) requireCallerEventsWrite(ctx context.Context, callerID, teamID string, onDenied error) error {
 	if s.permChecker == nil {
 		return onDenied
 	}
 	teamUUID, err := uuid.Parse(teamID)
 	if err != nil {
-		return fmt.Errorf("events.Service.SetAttendance: parse teamID: %w", err)
+		return fmt.Errorf("events.Service.requireCallerEventsWrite: parse teamID: %w", err)
 	}
 	callerUUID, err := uuid.Parse(callerID)
 	if err != nil {
-		return fmt.Errorf("events.Service.SetAttendance: parse callerID: %w", err)
+		return fmt.Errorf("events.Service.requireCallerEventsWrite: parse callerID: %w", err)
 	}
 	perms, err := s.permChecker.GetPermissions(ctx, teamUUID, callerUUID)
 	if err != nil {
-		return fmt.Errorf("events.Service.SetAttendance: check permissions: %w", err)
+		return fmt.Errorf("events.Service.requireCallerEventsWrite: check permissions: %w", err)
 	}
 	if perms.Events != "write" {
 		return onDenied
@@ -987,23 +988,9 @@ func (s *Service) validateCrossTeamIds(ctx context.Context, callerID string, cro
 // first team found missing it (or if no permChecker is configured, matching
 // requireCallerEventsWrite's identical fail-closed default).
 func (s *Service) requireEventsWriteInTeams(ctx context.Context, callerID string, teamIDs []uuid.UUID) error {
-	if len(teamIDs) == 0 {
-		return nil
-	}
-	if s.permChecker == nil {
-		return ErrCrossTeamWriteForbidden
-	}
-	callerUUID, err := uuid.Parse(callerID)
-	if err != nil {
-		return fmt.Errorf("events.Service: parse callerID: %w", err)
-	}
 	for _, teamID := range teamIDs {
-		perms, err := s.permChecker.GetPermissions(ctx, teamID, callerUUID)
-		if err != nil {
-			return fmt.Errorf("events.Service: check cross-team permissions: %w", err)
-		}
-		if perms.Events != "write" {
-			return ErrCrossTeamWriteForbidden
+		if err := s.requireCallerEventsWrite(ctx, callerID, teamID.String(), ErrCrossTeamWriteForbidden); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -7,6 +7,7 @@ import { hhmm, todayStr } from '@/styles/tokens';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 import { useSaveEventMutation } from './useEventMutations';
+import { canForTeam } from '@/utils/permissions';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -197,7 +198,19 @@ export function useEventFormActions({
         cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
         cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
         excludeFromStats: !!event.excludeFromStats,
-        crossTeamIds: event.crossTeamIds || [],
+        // Only carry over target teams the duplicating user actually has
+        // events:write in -- CrossTeamPicker only ever renders (and lets the
+        // user deselect) teams meeting that bar, so an invisible team here
+        // would silently survive to the save request and get rejected by
+        // the server (write-in-all-targets) with no way for the user to see
+        // or remove it from the form.
+        crossTeamIds: (event.crossTeamIds || []).filter((id) =>
+          canForTeam(
+            S().teams.find((tm) => tm.id === id) || null,
+            'events',
+            'write',
+          ),
+        ),
       };
       setState((st) => ({
         sheet: {

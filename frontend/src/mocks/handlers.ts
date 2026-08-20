@@ -203,8 +203,16 @@ function toWireMember(m: (typeof db.memberships)[number]): S['Member'] {
   };
 }
 
-function eventSummary(e: EventDto, teamId: string): S['EventSummary'] {
-  const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+function eventSummary(e: EventDto): S['EventSummary'] {
+  // Union of every targeted team's membership (owning team plus
+  // crossTeamIds), deduped by userId -- mirrors crossTeamAttendanceRows and
+  // the real backend's GetAttendanceSummary, which counts a multi-team
+  // member once rather than per team. For a single-team event this reduces
+  // to exactly the old "just this team's members" set.
+  const targetTeamIds = [e.teamId, ...(e.crossTeamIds ?? [])];
+  const memberIds = [
+    ...new Set(db.memberships.filter((m) => targetTeamIds.includes(m.teamId)).map((m) => m.userId)),
+  ];
   let yes = 0, no = 0, maybe = 0, pending = 0, notNom = 0;
   memberIds.forEach((uid) => {
     const s = effectiveStatus(e, uid).status;
@@ -229,7 +237,7 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     responseMode: e.responseMode,
     recurring: e.recurring,
     status: e.status,
-    summary: eventSummary(e, e.teamId),
+    summary: eventSummary(e),
     myStatus: mine.status,
     myAuto: mine.auto,
     myReason: mine.reason,
@@ -1442,6 +1450,15 @@ export const handlers = [
     if (perm !== true) return perm;
     const e = eventDate(eventId);
     if (!e || !eventVisibleToTeam(e, params.teamId as string)) return problem(404, 'Event not found');
+    // The target user must belong to the *viewing* team -- mirrors the real
+    // backend's SetAttendance, which requires
+    // `EXISTS (SELECT 1 FROM memberships WHERE team_id=$teamId AND user_id=$userId)`.
+    // Without this, an admin viewing a cross-team event through their own
+    // team could set attendance for a foreign (badged) attendee who never
+    // belongs to that team.
+    if (!db.memberships.some((m) => m.teamId === params.teamId && m.userId === body.userId)) {
+      return problem(404, 'user is not a member of this team');
+    }
     if (e.status === 'cancelled') return problem(409, 'cannot change attendance on a cancelled event');
     if (actingOnSelf && isRsvpCutoffPassed(e)) {
       return problem(409, 'the cancellation lead time has passed');
@@ -1480,6 +1497,12 @@ export const handlers = [
     if (perm !== true) return perm;
     const eventId = params.eventId as string;
     const body = (await request.json()) as S['SetNominationRequest'];
+    // Same target-must-be-a-member-of-the-viewing-team constraint as the
+    // attendance POST handler above -- mirrors the real backend's
+    // SetNomination.
+    if (!db.memberships.some((m) => m.teamId === params.teamId && m.userId === body.userId)) {
+      return problem(404, 'user is not a member of this team');
+    }
     if (body.nominated) {
       // Only clear the synthetic "not_nominated" placeholder — mirrors
       // applyNominations() in db.ts. A member who already has a real RSVP
