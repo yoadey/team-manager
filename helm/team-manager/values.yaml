@@ -525,8 +525,8 @@ backup:
   activeDeadlineSeconds: 3600
   postgresVersion: "17"
   # Digest for postgresVersion "17", matching docker-compose.yml's local-dev
-  # pin (resolved 2026-07-08 from registry-1.docker.io, docker-library/postgres
-  # 17.10) so a tag-hijack of the mutable `postgres:17` tag can't silently
+  # pin (resolved 2026-08-20 from registry-1.docker.io, docker-library/postgres
+  # 17.11) so a tag-hijack of the mutable `postgres:17` tag can't silently
   # reach this CronJob's initContainer, which holds the app's DATABASE_URL
   # credential. Appended to the image reference when set. If you override
   # postgresVersion to a different major version, set the matching digest
@@ -536,7 +536,7 @@ backup:
   # values.yaml). Any point-in-time digest pin will eventually accrue newly-
   # published CVEs against its frozen package versions (caught once already by
   # CI's security-container-backup Trivy scan) -- re-resolve periodically.
-  postgresImageDigest: "sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397"
+  postgresImageDigest: "sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449"
   # Caps on the CronJob's two emptyDir volumes (dump output, scratch space
   # for pg_dump/aws-cli temp files) -- otherwise unbounded, so a runaway
   # dump or temp-file leak is limited only by the node's actual free disk,
