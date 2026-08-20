@@ -514,10 +514,22 @@ function AttendanceRowItem({
     >
       <Av name={row.name} photo={row.photo} color={row.avatarColor} size={34} font={12} />
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Box
-          sx={{ fontSize: '14px', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-        >
-          {row.name + (mine ? ' · ' + t('events.meLabel') : '')}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+          <Box
+            sx={{
+              fontSize: '14px',
+              fontWeight: 500,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              minWidth: 0,
+            }}
+          >
+            {row.name + (mine ? ' · ' + t('events.meLabel') : '')}
+          </Box>
+          {row.teamName ? (
+            <Chip label={row.teamName} color={NEUTRAL.secondary} bg={NEUTRAL.line2} icon="groups" fs={10} />
+          ) : null}
         </Box>
         {canSeeComment && row.reason ? (
           <Box
@@ -797,6 +809,15 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         <Chip label={tm.label} color={tm.color} bg={tm.bg} icon={tm.icon} fs={12} />
         {e.recurring ? (
           <Chip label={t('events.weekly')} color={NEUTRAL.secondary} bg={NEUTRAL.line2} icon="repeat" fs={12} />
+        ) : null}
+        {e.crossTeamIds?.length ? (
+          <Chip
+            label={t('events.crossTeamSharedIndicator', { n: e.crossTeamIds.length, count: e.crossTeamIds.length })}
+            color={NEUTRAL.secondary}
+            bg={NEUTRAL.line2}
+            icon="groups"
+            fs={12}
+          />
         ) : null}
       </Box>
       <Box sx={{ fontSize: '13px', color: NEUTRAL.secondary, fontWeight: 500, m: '0 2px 12px' }}>

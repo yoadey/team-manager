@@ -21,6 +21,8 @@ type EventPayload = {
   /** Minutes before the event's start, or undefined for "no cutoff". */
   cancelLeadMinutes?: number | undefined;
   excludeFromStats?: boolean | undefined;
+  /** Additional target team ids (besides the owning team). Create: empty/absent = single-team. Update: present replaces the full target set, absent leaves it unchanged. */
+  crossTeamIds?: string[] | undefined;
 };
 
 /**

@@ -215,6 +215,12 @@ describe('person-photo mappers build a member photo URL from membershipId', () =
     expect(row.photo).toMatch(/^.*\/api\/v1\/teams\/t1\/members\/m1\/photo\?v=\d+$/);
   });
 
+  it('mapAttendanceRow passes teamName through for a cross-team attendee, and omits it otherwise', () => {
+    const base = { userId: 'u1', name: 'Alice', avatarColor: '#000', status: 'yes' as const };
+    expect(mapAttendanceRow(base, 't1').teamName).toBeUndefined();
+    expect(mapAttendanceRow({ ...base, teamName: 'B-Jugend' }, 't1').teamName).toBe('B-Jugend');
+  });
+
   it('mapEventComment builds a photo URL from authorMembershipId/hasAuthorPhoto', () => {
     const base = { id: 'c1', eventId: 'e1', userId: 'u1', text: 'hi', createdAt: '2025-01-01T00:00:00Z' };
     expect(mapEventComment(base, 't1').photo).toBeNull();
@@ -443,6 +449,14 @@ describe('mapTeamEvent preserves myReason from the backend', () => {
 
   it('maps a missing myReason to the empty-string default', () => {
     expect(mapTeamEvent(baseEvent as unknown as Parameters<typeof mapTeamEvent>[0]).myReason).toBe('');
+  });
+
+  it('passes crossTeamIds through when present, and omits it when absent', () => {
+    expect(
+      mapTeamEvent({ ...baseEvent, crossTeamIds: ['t2', 't3'] } as unknown as Parameters<typeof mapTeamEvent>[0])
+        .crossTeamIds,
+    ).toEqual(['t2', 't3']);
+    expect(mapTeamEvent(baseEvent as unknown as Parameters<typeof mapTeamEvent>[0]).crossTeamIds).toBeUndefined();
   });
 });
 

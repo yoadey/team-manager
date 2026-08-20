@@ -139,6 +139,14 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
             {cancelled ? (
               <Chip label={t('events.cancelledLabel')} color={NEUTRAL.error} bg={NEUTRAL.errorBg} icon="event_busy" />
             ) : null}
+            {e.crossTeamIds?.length ? (
+              <Chip
+                label={t('events.crossTeamSharedIndicator', { n: e.crossTeamIds.length, count: e.crossTeamIds.length })}
+                color={NEUTRAL.secondary}
+                bg={NEUTRAL.line2}
+                icon="groups"
+              />
+            ) : null}
           </Box>
           <Box
             sx={{

@@ -350,6 +350,11 @@ export const en: Messages = {
     nominatedRoles: 'Nominated roles',
     nominatedRolesHint:
       'Only members with a selected role will be nominated. Deselected roles cannot accept or decline.',
+    crossTeamPicker: 'Share with other teams',
+    crossTeamPickerHint:
+      'Members of the selected teams will also see this event. Anyone in more than one team appears once in a combined attendance list.',
+    crossTeamSharedIndicator_one: 'Shared with {n} other team',
+    crossTeamSharedIndicator_other: 'Shared with {n} other teams',
     fieldLocation: 'Location',
     fieldLocationPlaceholder: 'Hall / Address',
     fieldNote: 'Note',

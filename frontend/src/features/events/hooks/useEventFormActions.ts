@@ -27,8 +27,31 @@ function combineCancelLeadMinutes(f: EventFormValues): number | undefined {
   return total > 0 ? total : undefined;
 }
 
-/** Builds the base event write payload shared by create and edit -- everything except the create-only recurrence fields (see buildRecurrencePayload). */
-function buildBasePayload(f: EventFormValues) {
+/** True when both arrays contain the same ids, order and duplicates aside. */
+function sameIdSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = new Set(a);
+  return b.every((id) => sa.has(id));
+}
+
+/** Builds the base event write payload shared by create and edit -- everything except the create-only recurrence fields (see buildRecurrencePayload) and crossTeamIds (see saveEvent's change-detection). */
+function buildBasePayload(f: EventFormValues): {
+  type: EventFormValues['type'];
+  title: string;
+  date: string;
+  multiDayEndDate: string;
+  location: string;
+  note: string;
+  meetTimeMandatory: boolean;
+  responseMode: 'opt_in' | 'opt_out';
+  meetT: string;
+  startT: string;
+  endT: string;
+  nominatedRoleIds: string[];
+  cancelLeadMinutes: number | undefined;
+  excludeFromStats: boolean;
+  crossTeamIds?: string[];
+} {
   return {
     type: f.type,
     title: f.title.trim(),
@@ -97,6 +120,7 @@ export function useEventFormActions({
             cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
             cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
             excludeFromStats: !!event.excludeFromStats,
+            crossTeamIds: event.crossTeamIds || [],
           }
         : {
             type: 'training',
@@ -118,6 +142,7 @@ export function useEventFormActions({
             cancelLeadHours: 0,
             cancelLeadMinutes: 0,
             excludeFromStats: false,
+            crossTeamIds: [],
           };
       setState((st) => ({
         sheet: {
@@ -172,6 +197,7 @@ export function useEventFormActions({
         cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
         cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
         excludeFromStats: !!event.excludeFromStats,
+        crossTeamIds: event.crossTeamIds || [],
       };
       setState((st) => ({
         sheet: {
@@ -192,6 +218,18 @@ export function useEventFormActions({
       const mode = sh.mode;
       const back = sh.back;
       const payload = buildBasePayload(f);
+      // On create, always forward the picker's current selection (empty means
+      // single-team, same as absent). On edit, only forward it when the user
+      // actually changed the selection from what the form opened with --
+      // sending it unconditionally would make every edit (even an unrelated
+      // field) re-validate events:write across the *current* full target set
+      // (see UpdateEventRequest's "absent leaves the target set unchanged" --
+      // that's exactly the escape hatch this preserves for edits that don't
+      // touch sharing).
+      const initialCrossTeamIds = (sh.formInitial as EventFormValues | undefined)?.crossTeamIds ?? [];
+      const crossTeamIds = f.crossTeamIds ?? [];
+      const crossTeamIdsChanged = mode === 'create' || !sameIdSet(initialCrossTeamIds, crossTeamIds);
+      if (crossTeamIdsChanged) payload.crossTeamIds = crossTeamIds;
       try {
         if (mode === 'edit') await saveEventAsync({ mode: 'edit', eventId: sh.eventId!, scope, payload });
         else await saveEventAsync({ mode: 'create', payload: { ...payload, ...buildRecurrencePayload(f) } });

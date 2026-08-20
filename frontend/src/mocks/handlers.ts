@@ -243,6 +243,7 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     ...opt('startTime', e.startTime ?? undefined),
     ...opt('endTime', e.endTime ?? undefined),
     ...opt('cancelLeadMinutes', e.cancelLeadMinutes ?? undefined),
+    ...opt('crossTeamIds', e.crossTeamIds && e.crossTeamIds.length ? e.crossTeamIds : undefined),
     excludeFromStats: e.excludeFromStats,
   };
 }
@@ -504,6 +505,88 @@ function toWireContribution(c: (typeof db.contributions)[number]): S['Contributi
 
 function eventDate(id: string): EventDto | undefined {
   return db.events.find((e) => e.id === id);
+}
+
+// Mirrors design.md's "Reads resolve visibility via viewer is a member of any
+// row in event_teams" -- true when teamId is the event's owning team or one
+// of its cross-team targets.
+function eventVisibleToTeam(e: EventDto, teamId: string): boolean {
+  return e.teamId === teamId || !!e.crossTeamIds?.includes(teamId);
+}
+
+// Validates a create/update request's crossTeamIds (when present): every id
+// must be a real team (400 otherwise, mirroring the real backend), and the
+// caller must hold events:write in the owning team plus every listed team
+// (403 otherwise) -- see design.md's "Authorization" decision. Returns the
+// deduped, self-excluded target list on success.
+function validateCrossTeamIds(
+  auth: string,
+  ownerTeamId: string,
+  crossTeamIds: string[] | undefined,
+): string[] | HttpResponse<S['Problem']> {
+  if (!crossTeamIds) return [];
+  const others = [...new Set(crossTeamIds.filter((id) => id !== ownerTeamId))];
+  for (const id of others) {
+    if (!db.teams.find((t) => t.id === id)) return problem(400, `unknown team ${id}`);
+  }
+  for (const id of [ownerTeamId, ...others]) {
+    const perm = requirePermission(auth, id, 'events', 'write');
+    if (perm !== true) return perm;
+  }
+  return others;
+}
+
+// Merges attendance across an event's targeted teams (owning team plus
+// crossTeamIds), deduping a multi-team member to one row with one RSVP (the
+// `attendance` table is already keyed by (eventId, userId) so there is only
+// ever one status/reason to show -- see design.md's "Attendance dedup"
+// decision). Labels each attendee per the display rule: no badge when they
+// belong to the viewer's own (viewingTeamId) team; otherwise the
+// alphabetically-first (by team name, case-insensitive) team name from the
+// intersection of their memberships and the event's targets. A foreign
+// attendee's row is rebuilt from only {userId, name, avatarColor, hasPhoto,
+// status, auto, absent, teamName} -- no membershipId/group/title/primaryRole/
+// reason/reasonId/reasonVisibility -- mirroring the real backend's
+// restricted CrossTeamAttendee projection so the frontend can't accidentally
+// render or link through to a foreign profile.
+function crossTeamAttendanceRows(e: EventDto, viewingTeamId: string): S['AttendanceRow'][] {
+  const targetTeamIds = [e.teamId, ...(e.crossTeamIds ?? [])];
+  const byUser = new Map<string, { teamIds: string[]; membership: (typeof db.memberships)[number] }>();
+  for (const tid of targetTeamIds) {
+    for (const m of db.memberships.filter((mm) => mm.teamId === tid)) {
+      const entry = byUser.get(m.userId);
+      if (entry) {
+        entry.teamIds.push(tid);
+        // Prefer the viewer's-own-team membership record for the fields
+        // (group/title/primaryRole/membershipId) shown for a same-team row.
+        if (tid === viewingTeamId) entry.membership = m;
+      } else {
+        byUser.set(m.userId, { teamIds: [tid], membership: m });
+      }
+    }
+  }
+  const rows: S['AttendanceRow'][] = [];
+  byUser.forEach(({ teamIds, membership }, userId) => {
+    const base = toWireAttendanceRow(e, membership);
+    if (teamIds.includes(viewingTeamId)) {
+      rows.push(base);
+      return;
+    }
+    const teamName = teamIds
+      .map((tid) => db.teams.find((t) => t.id === tid)!.name)
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))[0]!;
+    rows.push({
+      userId,
+      name: base.name,
+      avatarColor: base.avatarColor,
+      status: base.status,
+      teamName,
+      ...opt('hasPhoto', base.hasPhoto),
+      ...opt('auto', base.auto),
+      ...opt('absent', base.absent),
+    });
+  });
+  return rows;
 }
 
 export const handlers = [
@@ -1108,7 +1191,7 @@ export const handlers = [
     // Drift-bug fix #4: "upcoming" is date >= today (today counts as
     // upcoming), matching backend/internal/events/repository.go's
     // `WHERE date >= $2` for scope=upcoming (and `date < $2` for scope=past).
-    let list = db.events.filter((e) => e.teamId === params.teamId);
+    let list = db.events.filter((e) => eventVisibleToTeam(e, params.teamId as string));
     // COALESCE(multiDayEndDate, date): an ongoing multi-day event stays
     // "upcoming" until its last day has passed, mirroring
     // backend/internal/events/repository.go's ListEvents.
@@ -1127,6 +1210,12 @@ export const handlers = [
     if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateEventRequest'];
+    // Empty/absent crossTeamIds creates a normal single-team event, unchanged
+    // from today; a non-empty list must all be real teams the caller holds
+    // events:write in (alongside teamId itself) -- see design.md's
+    // "Authorization" decision.
+    const crossTeamTargets = validateCrossTeamIds(auth, teamId, body.crossTeamIds);
+    if (!Array.isArray(crossTeamTargets)) return crossTeamTargets;
     const created: EventDto[] = [];
     const mk = (date: string): EventDto => ({
       id: rid('ev'),
@@ -1151,6 +1240,7 @@ export const handlers = [
       cancelLeadMinutes: body.cancelLeadMinutes ?? null,
       excludeFromStats: body.excludeFromStats ?? false,
       ...opt('nominatedRoleIds', body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined),
+      ...opt('crossTeamIds', crossTeamTargets.length ? crossTeamTargets : undefined),
     });
     // endDate is the alternative to repeatWeeks for a recurring series (see
     // backend/internal/events/repository.go's seriesDates): weekly
@@ -1204,7 +1294,7 @@ export const handlers = [
     const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
     if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
-    if (!e) return problem(404, 'Event not found');
+    if (!e || !eventVisibleToTeam(e, params.teamId as string)) return problem(404, 'Event not found');
     return HttpResponse.json(toWireEvent(e));
   }),
 
@@ -1215,12 +1305,24 @@ export const handlers = [
     const perm = requirePermission(auth, params.teamId as string, 'events', 'write');
     if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
-    if (!e) return problem(404, 'Event not found');
+    if (!e || !eventVisibleToTeam(e, params.teamId as string)) return problem(404, 'Event not found');
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
     const body = (await request.json()) as S['UpdateEventRequest'];
+    // Present crossTeamIds replaces the full target set (validated across
+    // teamId plus every listed id); absent leaves the current set unchanged
+    // -- see design.md's "Authorization" decision and UpdateEventRequest's
+    // doc comment.
+    const crossTeamTargets = validateCrossTeamIds(auth, e.teamId, body.crossTeamIds);
+    if (!Array.isArray(crossTeamTargets)) return crossTeamTargets;
     const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
-    targets.forEach((ev) => applyEventPatch(ev, body, scope));
+    targets.forEach((ev) => {
+      applyEventPatch(ev, body, scope);
+      if (body.crossTeamIds !== undefined) {
+        if (crossTeamTargets.length) ev.crossTeamIds = crossTeamTargets;
+        else delete ev.crossTeamIds;
+      }
+    });
     pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWireEvent(e));
   }),
@@ -1232,7 +1334,7 @@ export const handlers = [
     const perm = requirePermission(auth, params.teamId as string, 'events', 'write');
     if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
-    if (!e) return problem(404, 'Event not found');
+    if (!e || !eventVisibleToTeam(e, params.teamId as string)) return problem(404, 'Event not found');
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
     const body = (await request.json()) as S['SetEventStatusRequest'];
@@ -1313,9 +1415,8 @@ export const handlers = [
     const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
     if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
-    if (!e) return problem(404, 'Event not found');
-    const rows = db.memberships.filter((m) => m.teamId === e.teamId).map((m) => toWireAttendanceRow(e, m));
-    return HttpResponse.json(rows);
+    if (!e || !eventVisibleToTeam(e, params.teamId as string)) return problem(404, 'Event not found');
+    return HttpResponse.json(crossTeamAttendanceRows(e, params.teamId as string));
   }),
 
   http.post(P('/teams/:teamId/events/:eventId/attendance'), async ({ params, request }) => {
@@ -1331,7 +1432,7 @@ export const handlers = [
     const perm = requirePermission(auth, params.teamId as string, 'events', actingOnSelf ? 'read' : 'write');
     if (perm !== true) return perm;
     const e = eventDate(eventId);
-    if (!e) return problem(404, 'Event not found');
+    if (!e || !eventVisibleToTeam(e, params.teamId as string)) return problem(404, 'Event not found');
     if (e.status === 'cancelled') return problem(409, 'cannot change attendance on a cancelled event');
     if (actingOnSelf && isRsvpCutoffPassed(e)) {
       return problem(409, 'the cancellation lead time has passed');

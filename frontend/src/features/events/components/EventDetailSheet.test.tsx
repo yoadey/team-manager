@@ -588,6 +588,53 @@ describe('EventDetailSheet', () => {
     expect(screen.getByText('Gruppe A · Witzbeauftragter')).toBeTruthy();
   });
 
+  it('shows a team badge for a cross-team attendee outside the viewer\'s own team', () => {
+    const app = makeApp();
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ date: '2026-07-01', crossTeamIds: ['team2'] });
+    const rows = [
+      { userId: 'user2', name: 'Anna Müller', avatarColor: '#4285F4', photo: null, status: 'yes' as const, auto: false, absent: false, teamName: 'B-Jugend' },
+    ];
+    render(<EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows, comments: [] } as never} />);
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+    expect(screen.getByText('B-Jugend')).toBeTruthy();
+  });
+
+  it('does not show a team badge for a same-team attendee (no teamName)', () => {
+    const app = makeApp();
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ date: '2026-07-01' });
+    const rows = [
+      { userId: 'user2', name: 'Anna Müller', avatarColor: '#4285F4', photo: null, group: '', primaryRole: null, status: 'yes' as const, reason: '', reasonId: null, reasonVisibility: null, auto: false, absent: false },
+    ];
+    render(<EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows, comments: [] } as never} />);
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+    // No teamName means no group/other team text rendered alongside the name.
+    expect(screen.queryByText('B-Jugend')).toBeNull();
+  });
+
+  it('shows a "shared with other teams" indicator when the event targets other teams', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ crossTeamIds: ['team2', 'team3'] });
+    render(
+      <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+    );
+    expect(screen.getByText('events.crossTeamSharedIndicator')).toBeTruthy();
+  });
+
+  it('does not show a "shared with other teams" indicator for a single-team event', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent();
+    render(
+      <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+    );
+    expect(screen.queryByText('events.crossTeamSharedIndicator')).toBeNull();
+  });
+
   it('renders location in info box', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);

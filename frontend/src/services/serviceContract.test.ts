@@ -488,6 +488,101 @@ describe("drift-bug fix: scope=upcoming includes today's events", () => {
   });
 });
 
+// cross-team-events: an event may target more than one team (crossTeamIds),
+// with a merged attendance view badging attendees who aren't in the viewer's
+// own team. See openspec/changes/cross-team-events/specs/cross-team-events/spec.md.
+describe('cross-team events', () => {
+  it('rejects creating a cross-team event when the caller lacks events:write in one of the targeted teams', async () => {
+    // u1 is Admin/Trainer (events:write) on t_a but only a regular member
+    // (events:read) on t_b by default -- see mocks/db.ts's seed data.
+    await expect(
+      api.events.create('t_a', { type: 'training', title: 'Joint training', date: todayLocalDate(), crossTeamIds: ['t_b'] }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it('rejects an unknown team id in crossTeamIds', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    await expect(
+      api.events.create('t_a', {
+        type: 'training',
+        title: 'Joint training',
+        date: todayLocalDate(),
+        crossTeamIds: ['does-not-exist'],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('creates a cross-team event visible from every targeted team once the caller holds events:write in all of them', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+    expect(event.crossTeamIds).toEqual(['t_b']);
+
+    const fromOwner = await api.events.get(event.id, 't_a');
+    const fromTarget = await api.events.get(event.id, 't_b');
+    expect(fromOwner?.id).toBe(event.id);
+    expect(fromTarget?.id).toBe(event.id);
+
+    const listInTarget = await api.events.list('t_b');
+    expect(listInTarget.some((e) => e.id === event.id)).toBe(true);
+  });
+
+  it('merges attendance across targeted teams, badging only attendees outside the viewer\'s own team, and counts a multi-team member once', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+
+    const tA = db.teams.find((t) => t.id === 't_a')!;
+    const tB = db.teams.find((t) => t.id === 't_b')!;
+
+    const rowsFromA = await api.attendance.listForEvent(event.id, 't_a');
+    // u1 belongs to both t_a and t_b but must appear exactly once.
+    expect(rowsFromA.filter((r) => r.userId === 'u1')).toHaveLength(1);
+    expect(rowsFromA.find((r) => r.userId === 'u1')?.teamName).toBeUndefined();
+    // A t_a-only member is the viewer's own team -- no badge.
+    expect(rowsFromA.find((r) => r.userId === 'u2')?.teamName).toBeUndefined();
+    // A t_b-only member is foreign from t_a's viewpoint -- badged with t_b's name.
+    expect(rowsFromA.find((r) => r.userId === 'u20')?.teamName).toBe(tB.name);
+
+    const rowsFromB = await api.attendance.listForEvent(event.id, 't_b');
+    expect(rowsFromB.filter((r) => r.userId === 'u1')).toHaveLength(1);
+    expect(rowsFromB.find((r) => r.userId === 'u1')?.teamName).toBeUndefined();
+    expect(rowsFromB.find((r) => r.userId === 'u20')?.teamName).toBeUndefined();
+    expect(rowsFromB.find((r) => r.userId === 'u2')?.teamName).toBe(tA.name);
+  });
+
+  it('update: absent crossTeamIds leaves the target set unchanged; an empty array un-shares back to single-team', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+
+    await api.events.update(event.id, { title: 'Joint training (renamed)' }, 'single', 't_a');
+    const afterRename = await api.events.get(event.id, 't_a');
+    expect(afterRename?.crossTeamIds).toEqual(['t_b']);
+
+    await api.events.update(event.id, { crossTeamIds: [] }, 'single', 't_a');
+    const afterUnshare = await api.events.get(event.id, 't_a');
+    expect(afterUnshare?.crossTeamIds ?? []).toEqual([]);
+    const listInTarget = await api.events.list('t_b');
+    expect(listInTarget.some((e) => e.id === event.id)).toBe(false);
+  });
+});
+
 describe('per-team push-category preferences', () => {
   const defaultPrefs = {
     attendance: true,

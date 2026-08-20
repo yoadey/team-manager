@@ -13,9 +13,9 @@
 - [x] 3.4 RSVP: a multi-team member has one row and one RSVP
 
 ## 4. Frontend
-- [ ] 4.1 Create form: multi-team picker showing only teams where the creator has `events:write`; server re-validates
-- [ ] 4.2 Event detail: attendance shows each multi-team member once with their single team badge per the display rule; no badge for viewer's-own-team attendees; no profile navigation for foreign attendees
-- [ ] 4.3 `de`/`en` strings; MSW handlers for multi-team events
+- [x] 4.1 Create form: multi-team picker showing only teams where the creator has `events:write`; server re-validates
+- [x] 4.2 Event detail: attendance shows each multi-team member once with their single team badge per the display rule; no badge for viewer's-own-team attendees; no profile navigation for foreign attendees
+- [x] 4.3 `de`/`en` strings; MSW handlers for multi-team events
 
 ## 5. Docs
 - [x] 5.1 Document the controlled multi-team exception to the team-scoping invariant in `CLAUDE.md` (RBAC/Architecture)
@@ -24,4 +24,4 @@
 - [x] 6.1 openapi-drift green; RBAC behavior covered
 - [x] 6.2 Backend tests: create allowed only with write-in-all-targets; read/RSVP for any-target member; multi-team member = one row/one RSVP; single-team events unchanged; no foreign PII (email/phone/profile) leaks
 - [x] 6.3 `golangci-lint` + `go test ./...` + govulncheck green; migration-rollback + migration-safety green
-- [ ] 6.4 Frontend lint/typecheck/test/build + bundle budget green
+- [x] 6.4 Frontend lint/typecheck/test/build + bundle budget green

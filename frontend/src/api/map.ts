@@ -266,6 +266,7 @@ export function mapTeamEvent(e: S['TeamEvent']): TeamEvent {
     ...opt('result', e.result),
     ...opt('nominatedRoleIds', e.nominatedRoleIds),
     status: e.status,
+    ...opt('crossTeamIds', e.crossTeamIds),
     summary: mapEventSummary(e.summary),
     myStatus: e.myStatus ?? 'pending',
     myAuto: e.myAuto ?? false,
@@ -296,6 +297,7 @@ export function mapAttendanceRow(r: S['AttendanceRow'], teamId: string): Attenda
     reasonVisibility: (r.reasonVisibility as 'trainers' | 'team' | null) ?? null,
     auto: r.auto ?? false,
     absent: r.absent ?? false,
+    ...opt('teamName', r.teamName),
   };
 }
 

@@ -5,8 +5,9 @@ import { useForm, type UseFormRegister, type FieldErrors } from 'react-hook-form
 import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { Field, labelSx, PrimaryButton, Sym, TextArea, TextInput } from '@/components/ui';
-import type { Role } from '@/types';
+import type { Role, TeamForUser } from '@/types';
 import type { SheetProps } from '@/sheets/types';
+import { canForTeam } from '@/utils/permissions';
 import { eventFormSchema, type EventFormValues } from './eventFormSchema';
 import { t } from '@/i18n';
 import { useEventsQuery } from '../hooks/useEventQueries';
@@ -419,6 +420,64 @@ function NominatedRolesSelector({
   );
 }
 
+/**
+ * Optional, secondary multi-team picker (see design.md's "Creation UI"
+ * decision): offers only teams where the creator holds events:write --
+ * the server re-validates regardless, but there is no point offering a pick
+ * that's certain to 403. Renders nothing when there are no eligible other
+ * teams, so a user in only one team never sees this section at all.
+ */
+function CrossTeamPicker({
+  eligibleTeams,
+  selectedIds,
+  onToggle,
+}: {
+  eligibleTeams: TeamForUser[];
+  selectedIds: string[];
+  onToggle: (teamId: string) => void;
+}) {
+  if (!eligibleTeams.length) return null;
+  return (
+    <Box sx={{ borderTop: `1px solid ${NEUTRAL.line2}`, pt: '14px' }}>
+      <Box sx={labelSx}>{t('events.crossTeamPicker')}</Box>
+      <Box sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '-2px 0 9px', lineHeight: 1.45 }}>
+        {t('events.crossTeamPickerHint')}
+      </Box>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+        {eligibleTeams.map((team) => {
+          const sel = selectedIds.includes(team.id);
+          return (
+            <ButtonBase
+              key={team.id}
+              role="checkbox"
+              aria-checked={sel}
+              aria-label={team.name}
+              onClick={() => onToggle(team.id)}
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '7px',
+                p: '8px 13px',
+                borderRadius: '999px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: 600,
+                border: '1.5px solid ' + (sel ? NEUTRAL.secondary : NEUTRAL.inputBorder),
+                background: sel ? NEUTRAL.line2 : NEUTRAL.card,
+                color: sel ? NEUTRAL.onSurfaceVariant : NEUTRAL.faint,
+              }}
+            >
+              <Sym name="groups" size={15} color={sel ? NEUTRAL.onSurfaceVariant : NEUTRAL.faint} />
+              {team.name}
+              {sel ? <Sym name="check" size={16} color={NEUTRAL.onSurfaceVariant} /> : null}
+            </ButtonBase>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
 function SeriesEditSubmit({
   tk,
   disabled,
@@ -511,6 +570,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
   const recurring = watch('recurring');
   const repeatMode = watch('repeatMode') || 'weeks';
   const nominatedRoleIds = watch('nominatedRoleIds') || [];
+  const crossTeamIds = watch('crossTeamIds') || [];
   const seriesId = watch('seriesId');
   const titleVal = watch('title');
   const dateVal = watch('date');
@@ -521,6 +581,20 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       ? nominatedRoleIds.filter((id) => id !== roleId)
       : [...nominatedRoleIds, roleId];
     setValue('nominatedRoleIds', next, { shouldValidate: true });
+  };
+
+  // Every other team the user holds events:write in -- the owning team
+  // (state.activeTeamId, always where this sheet is opened from) is excluded
+  // since it's implicit, not an "additional" target.
+  const eligibleCrossTeams = useMemo(
+    () => state.teams.filter((team) => team.id !== state.activeTeamId && canForTeam(team, 'events', 'write')),
+    [state.teams, state.activeTeamId],
+  );
+  const toggleCrossTeam = (teamId: string) => {
+    const next = crossTeamIds.includes(teamId)
+      ? crossTeamIds.filter((id) => id !== teamId)
+      : [...crossTeamIds, teamId];
+    setValue('crossTeamIds', next, { shouldValidate: true });
   };
 
   const onSubmit = async (values: EventFormValues, scope: 'single' | 'series' = 'single') => {
@@ -610,6 +684,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         />
       </Box>
       <NominatedRolesSelector roles={state.roles} selectedIds={nominatedRoleIds} onToggle={toggleRole} />
+      <CrossTeamPicker eligibleTeams={eligibleCrossTeams} selectedIds={crossTeamIds} onToggle={toggleCrossTeam} />
       <Field label={t('events.fieldLocation')} error={!!errors.location} errorText={errors.location?.message}>
         <TextInput
           placeholder={t('events.fieldLocationPlaceholder')}

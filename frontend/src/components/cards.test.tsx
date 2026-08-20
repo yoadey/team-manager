@@ -124,6 +124,16 @@ describe('EventCard', () => {
     expect(screen.getByText('Jahresabschluss')).toBeTruthy();
   });
 
+  it('shows a "shared with other teams" chip for a cross-team event', () => {
+    render(<EventCard e={makeEvent({ crossTeamIds: ['team2', 'team3'] })} />);
+    expect(screen.getByText('Geteilt mit 2 weiteren Teams')).toBeTruthy();
+  });
+
+  it('does not show the "shared with other teams" chip for a single-team event', () => {
+    render(<EventCard e={makeEvent()} />);
+    expect(screen.queryByText(/Geteilt mit/)).toBeNull();
+  });
+
   // Regression: EventCard is memo()-wrapped on the `e` prop alone, but its
   // translated labels come from t()/getIntlLocale(), which read module-level
   // i18n state rather than a prop. Without subscribing to locale changes, an
