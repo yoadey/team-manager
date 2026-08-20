@@ -355,6 +355,8 @@ export const de = {
     crossTeamPicker: 'Mit anderen Teams teilen',
     crossTeamPickerHint:
       'Mitglieder der ausgewählten Teams sehen diesen Termin ebenfalls. Wer in mehreren Teams ist, erscheint einmal in einer gemeinsamen Teilnehmerliste.',
+    crossTeamPickerLockedHint:
+      'Dieser Termin ist bereits mit einem Team geteilt, in dem du keine Bearbeitungsrechte hast. Die Freigabe kann daher hier nicht geändert werden.',
     crossTeamSharedIndicator_one: 'Geteilt mit {n} weiterem Team',
     crossTeamSharedIndicator_other: 'Geteilt mit {n} weiteren Teams',
     fieldLocation: 'Ort',

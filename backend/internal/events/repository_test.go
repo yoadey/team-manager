@@ -1568,7 +1568,7 @@ func TestEventRepository_MultiDayEvent_AbsenceCoversLaterPortion(t *testing.T) {
 	assert.Equal(t, "no", eff.Status, "GetMyEffectiveAttendance must also treat a later-portion-only absence as covering")
 	assert.True(t, eff.Absent)
 
-	effs, err := repo.GetMyEffectiveAttendances(ctx, []uuid.UUID{ev.Id}, memberID.String())
+	effs, err := repo.GetMyEffectiveAttendances(ctx, []uuid.UUID{ev.Id}, memberID.String(), teamID.String())
 	require.NoError(t, err)
 	assert.Equal(t, *eff, effs[ev.Id], "batched GetMyEffectiveAttendances must agree with the single-event lookup")
 }
@@ -2480,6 +2480,59 @@ func TestEventRepository_CrossTeam_MultiTeamMemberSingleAttendanceRow(t *testing
 	require.NoError(t, err)
 	assert.Equal(t, 1, summary.Yes)
 	assert.Equal(t, 1, summary.Total, "the dual-team member must be counted once in the summary total, not twice")
+}
+
+// TestEventRepository_CrossTeam_GetMyEffectiveAttendances_ScopesAbsenceToViewingTeam
+// regression-tests the batched GetMyEffectiveAttendances (used by
+// ListEvents) checking a planned absence against the event's *owning* team
+// instead of the *viewing* team, unlike its singular sibling
+// GetMyEffectiveAttendance (see that method's own identical test in
+// TestEventRepository_ListAttendance_AbsenceCoveringLaterPortionOnly, and
+// its doc comment). A member who belongs only to a non-owning targeted team
+// and has filed their absence there must still see it reflected when
+// listing events through that team's own URL.
+func TestEventRepository_CrossTeam_GetMyEffectiveAttendances_ScopesAbsenceToViewingTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	teamB := uuid.New()
+	memberB := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Owning Team A'), ($2, 'Viewing Team B')`, teamA, teamB)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Team B Only Member', 'team-b-only@example.com', '#123123')`, memberB)
+	require.NoError(t, err)
+	// memberB belongs only to team B, the non-owning targeted team.
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamB, memberB)
+	require.NoError(t, err)
+
+	eventDate := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, 1)
+	params := makeCreateParams("Joint Training", eventDate)
+	params.CrossTeamIds = []uuid.UUID{teamB}
+	ev, err := repo.CreateEvent(ctx, teamA.String(), &params)
+	require.NoError(t, err)
+
+	// The absence is filed against team B (memberB's only team), covering
+	// the event's date.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO absences (user_id, team_id, from_date, to_date) VALUES ($1, $2, $3, $4)
+	`, memberB, teamB, eventDate, eventDate)
+	require.NoError(t, err)
+
+	effs, err := repo.GetMyEffectiveAttendances(ctx, []uuid.UUID{ev.Id}, memberB.String(), teamB.String())
+	require.NoError(t, err)
+	eff, ok := effs[ev.Id]
+	require.True(t, ok)
+	assert.Equal(t, "no", eff.Status, "batched lookup via the viewing team's own URL must honor an absence filed against that team")
+	assert.True(t, eff.Absent)
+
+	singular, err := repo.GetMyEffectiveAttendance(ctx, ev.Id.String(), memberB.String(), teamB.String())
+	require.NoError(t, err)
+	require.NotNil(t, singular)
+	assert.Equal(t, *singular, eff, "batched and singular lookups must agree for a cross-team event too")
 }
 
 // TestEventRepository_CrossTeam_UpdateReplacesTargetSet covers design.md's

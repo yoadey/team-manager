@@ -427,23 +427,52 @@ function NominatedRolesSelector({
  * that's certain to 403. Renders nothing when there are no eligible other
  * teams, so a user in only one team never sees this section at all.
  */
+// computeCrossTeamPickerLocked reports whether the cross-team picker should
+// be disabled: true only when editing (never on create, which has no prior
+// target set to protect) an event whose current crossTeamIds includes a
+// team not in eligibleTeams -- i.e. the user has no events:write there, so
+// they can't safely toggle anything else without risking that team's access
+// (see CrossTeamPicker's own comment for the full reasoning). Split out of
+// EventFormSheet as a pure function purely to keep that component's
+// cyclomatic complexity under the repo's ESLint threshold.
+function computeCrossTeamPickerLocked(
+  mode: 'edit' | 'view' | 'create' | undefined,
+  formInitial: EventFormValues,
+  eligibleTeams: TeamForUser[],
+): boolean {
+  if (mode !== 'edit') return false;
+  return (formInitial.crossTeamIds || []).some((id) => !eligibleTeams.some((team) => team.id === id));
+}
+
 function CrossTeamPicker({
   eligibleTeams,
   selectedIds,
   onToggle,
+  locked,
 }: {
   eligibleTeams: TeamForUser[];
   selectedIds: string[];
   onToggle: (teamId: string) => void;
+  // True when this event already targets a team the current user has no
+  // events:write in (so it isn't offered as a toggleable chip at all). The
+  // server validates write across the *entire* resulting crossTeamIds set on
+  // every change (see UpdateEventRequest's doc comment) -- letting the user
+  // toggle only the visible/eligible chips would either silently drop that
+  // inaccessible team's access the moment anything else changes (never
+  // included in the submitted set again) or resubmit it unchanged and still
+  // 403 (the user can't attest to a team they don't manage). Neither is
+  // fixable from the picker alone, so editing is disabled here entirely
+  // rather than risk the former.
+  locked: boolean;
 }) {
   if (!eligibleTeams.length) return null;
   return (
     <Box sx={{ borderTop: `1px solid ${NEUTRAL.line2}`, pt: '14px' }}>
       <Box sx={labelSx}>{t('events.crossTeamPicker')}</Box>
       <Box sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '-2px 0 9px', lineHeight: 1.45 }}>
-        {t('events.crossTeamPickerHint')}
+        {locked ? t('events.crossTeamPickerLockedHint') : t('events.crossTeamPickerHint')}
       </Box>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', opacity: locked ? 0.5 : 1 }}>
         {eligibleTeams.map((team) => {
           const sel = selectedIds.includes(team.id);
           return (
@@ -452,7 +481,11 @@ function CrossTeamPicker({
               role="checkbox"
               aria-checked={sel}
               aria-label={team.name}
-              onClick={() => onToggle(team.id)}
+              aria-disabled={locked}
+              disabled={locked}
+              onClick={() => {
+                if (!locked) onToggle(team.id);
+              }}
               sx={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -590,6 +623,14 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
     () => state.teams.filter((team) => team.id !== state.activeTeamId && canForTeam(team, 'events', 'write')),
     [state.teams, state.activeTeamId],
   );
+  // True when editing an event that already targets a team not in
+  // eligibleCrossTeams above (the user has no events:write there) -- see
+  // CrossTeamPicker's own comment for why the picker is disabled rather than
+  // silently dropping or resubmitting that team.
+  const crossTeamPickerLocked = useMemo(
+    () => computeCrossTeamPickerLocked(sheet.mode, sheet.formInitial as EventFormValues, eligibleCrossTeams),
+    [sheet.mode, sheet.formInitial, eligibleCrossTeams],
+  );
   const toggleCrossTeam = (teamId: string) => {
     const next = crossTeamIds.includes(teamId)
       ? crossTeamIds.filter((id) => id !== teamId)
@@ -684,7 +725,12 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         />
       </Box>
       <NominatedRolesSelector roles={state.roles} selectedIds={nominatedRoleIds} onToggle={toggleRole} />
-      <CrossTeamPicker eligibleTeams={eligibleCrossTeams} selectedIds={crossTeamIds} onToggle={toggleCrossTeam} />
+      <CrossTeamPicker
+        eligibleTeams={eligibleCrossTeams}
+        selectedIds={crossTeamIds}
+        onToggle={toggleCrossTeam}
+        locked={crossTeamPickerLocked}
+      />
       <Field label={t('events.fieldLocation')} error={!!errors.location} errorText={errors.location?.message}>
         <TextInput
           placeholder={t('events.fieldLocationPlaceholder')}

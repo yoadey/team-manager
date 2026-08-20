@@ -1416,18 +1416,22 @@ func (r *Repository) GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID,
 // query per event. Every eventID present in the DB is present in the
 // result map (defaulted if the user has no explicit record); an eventID
 // absent from the map means it doesn't exist.
-func (r *Repository) GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]EffectiveAttendance, error) {
+func (r *Repository) GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID, teamID string) (map[uuid.UUID]EffectiveAttendance, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out := make(map[uuid.UUID]EffectiveAttendance, len(eventIDs))
 	if len(eventIDs) == 0 {
 		return out, nil
 	}
+	// ab.team_id = $3 (the viewing team), not e.team_id (the event's owning
+	// team) -- mirrors GetMyEffectiveAttendance's identical reasoning: for a
+	// cross-team event viewed through a non-owning targeted team, the
+	// caller's planned absence is recorded against their own team.
 	q := `
 		SELECT e.id, a.status, a.reason, a.reason_id, a.reason_visibility, a.at,
 		       EXISTS (
 		           SELECT 1 FROM absences ab
-		           WHERE ab.user_id = $2 AND ab.team_id = e.team_id
+		           WHERE ab.user_id = $2 AND ab.team_id = $3
 		             AND ab.from_date <= COALESCE(e.end_date, e.date) AND ab.to_date >= e.date
 		       ),
 		       e.response_mode
@@ -1435,7 +1439,7 @@ func (r *Repository) GetMyEffectiveAttendances(ctx context.Context, eventIDs []u
 		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = $2
 		WHERE e.id = ANY($1)
 	`
-	rows, err := r.pool.Query(ctx, q, eventIDs, userID)
+	rows, err := r.pool.Query(ctx, q, eventIDs, userID, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.GetMyEffectiveAttendances: %w", err)
 	}

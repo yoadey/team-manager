@@ -353,6 +353,8 @@ export const en: Messages = {
     crossTeamPicker: 'Share with other teams',
     crossTeamPickerHint:
       'Members of the selected teams will also see this event. Anyone in more than one team appears once in a combined attendance list.',
+    crossTeamPickerLockedHint:
+      'This event is already shared with a team you have no edit rights in, so sharing cannot be changed here.',
     crossTeamSharedIndicator_one: 'Shared with {n} other team',
     crossTeamSharedIndicator_other: 'Shared with {n} other teams',
     fieldLocation: 'Location',

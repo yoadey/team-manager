@@ -821,6 +821,55 @@ func (r *Repository) GetPermissions(ctx context.Context, teamID, userID uuid.UUI
 	return getEffectivePermissionsByUserQ(ctx, r.pool, teamID.String(), userID.String())
 }
 
+// GetPermissionsForTeams returns userID's effective permissions in every one
+// of teamIDs, in a single query -- used by events.Service's cross-team-event
+// write-in-all-targets check (validating events:write across up to
+// validate.UUIDItems' max array size of targeted teams) to avoid issuing one
+// GetPermissions round-trip per team. A team missing from the returned map
+// (no membership/roles at all there) is equivalent to the zero-value
+// PermissionsJSON{} GetPermissions itself would fold down to for a
+// non-member -- callers must treat a missing key as "no access", not
+// "unchecked".
+func (r *Repository) GetPermissionsForTeams(ctx context.Context, teamIDs []uuid.UUID, userID uuid.UUID) (map[uuid.UUID]teams.PermissionsJSON, error) {
+	out := make(map[uuid.UUID]teams.PermissionsJSON, len(teamIDs))
+	if len(teamIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT m.team_id, r.permissions
+		FROM roles r
+		JOIN membership_roles mr ON mr.role_id = r.id
+		JOIN memberships m ON m.id = mr.membership_id
+		WHERE m.team_id = ANY($1) AND m.user_id = $2 AND r.team_id = m.team_id
+	`, teamIDs, userID)
+	if err != nil {
+		return nil, fmt.Errorf("Repository.GetPermissionsForTeams: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var teamID uuid.UUID
+		var permJSON []byte
+		if err := rows.Scan(&teamID, &permJSON); err != nil {
+			return nil, fmt.Errorf("Repository.GetPermissionsForTeams scan: %w", err)
+		}
+		var p teams.PermissionsJSON
+		if err := json.Unmarshal(permJSON, &p); err != nil {
+			return nil, fmt.Errorf("Repository.GetPermissionsForTeams unmarshal: %w", err)
+		}
+		eff, ok := out[teamID]
+		if !ok {
+			eff = teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none", Stats: "none"}
+		}
+		out[teamID] = foldPermissions(eff, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("Repository.GetPermissionsForTeams: %w", err)
+	}
+	return out, nil
+}
+
 // getEffectivePermissionsByUserQ is the shared implementation behind
 // GetPermissions. It takes a querier rather than always using r.pool so
 // enforceNoPermissionEscalation can compute the caller's effective

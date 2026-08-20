@@ -35,7 +35,7 @@ type mockSvcRepo struct {
 	getAttendanceSummariesFn    func(ctx context.Context, eventIDs []uuid.UUID, teamID string) (map[uuid.UUID]events.EventSummaryData, error)
 	getMyAttendancesFn          func(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.AttendanceDBRow, error)
 	getMyEffectiveAttendanceFn  func(ctx context.Context, eventID, userID, teamID string) (*events.EffectiveAttendance, error)
-	getMyEffectiveAttendancesFn func(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.EffectiveAttendance, error)
+	getMyEffectiveAttendancesFn func(ctx context.Context, eventIDs []uuid.UUID, userID, teamID string) (map[uuid.UUID]events.EffectiveAttendance, error)
 	listAttendanceFn            func(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error)
 	getReasonVisibilityCtxFn    func(ctx context.Context, teamID, viewerID string) ([]string, []string, error)
 	setAttendanceFn             func(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
@@ -135,9 +135,9 @@ func (m *mockSvcRepo) GetMyEffectiveAttendance(ctx context.Context, eventID, use
 	return &events.EffectiveAttendance{Status: "pending"}, nil
 }
 
-func (m *mockSvcRepo) GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.EffectiveAttendance, error) {
+func (m *mockSvcRepo) GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID, teamID string) (map[uuid.UUID]events.EffectiveAttendance, error) {
 	if m.getMyEffectiveAttendancesFn != nil {
-		return m.getMyEffectiveAttendancesFn(ctx, eventIDs, userID)
+		return m.getMyEffectiveAttendancesFn(ctx, eventIDs, userID, teamID)
 	}
 	return map[uuid.UUID]events.EffectiveAttendance{}, nil
 }
@@ -319,7 +319,7 @@ func TestEventService_GetEvent_And_ListEvents_PopulateMyAutoFromEffectiveAttenda
 		listEventsFn: func(_ context.Context, _ string, _ gen.ListEventsParamsScope, _ int, _ *events.ListCursor) ([]events.EventRow, error) {
 			return []events.EventRow{row}, nil
 		},
-		getMyEffectiveAttendancesFn: func(_ context.Context, eventIDs []uuid.UUID, _ string) (map[uuid.UUID]events.EffectiveAttendance, error) {
+		getMyEffectiveAttendancesFn: func(_ context.Context, eventIDs []uuid.UUID, _, _ string) (map[uuid.UUID]events.EffectiveAttendance, error) {
 			return map[uuid.UUID]events.EffectiveAttendance{
 				row.Id: {Status: "yes", Auto: true},
 			}, nil
@@ -734,6 +734,17 @@ func (m *mockPermChecker) GetPermissions(_ context.Context, _, _ uuid.UUID) (tea
 	return m.perms, m.err
 }
 
+func (m *mockPermChecker) GetPermissionsForTeams(_ context.Context, teamIDs []uuid.UUID, _ uuid.UUID) (map[uuid.UUID]teams.PermissionsJSON, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	out := make(map[uuid.UUID]teams.PermissionsJSON, len(teamIDs))
+	for _, id := range teamIDs {
+		out[id] = m.perms
+	}
+	return out, nil
+}
+
 func TestEventService_SetAttendance_ForOtherMember_RequiresEventsWrite(t *testing.T) {
 	t.Parallel()
 
@@ -784,17 +795,20 @@ func TestEventService_SetAttendance_ForOtherMember_AllowedWithEventsWrite(t *tes
 }
 
 // mockJobEnqueuer satisfies jobEnqueuer for tests exercising the
-// best-effort attendance-notification enqueue path, recording the args of
-// the last call it received.
+// best-effort notification enqueue path, recording every call it received
+// (allCalls) as well as the last one (lastArgs/calledN, kept for existing
+// single-notification tests).
 type mockJobEnqueuer struct {
 	err      error
 	lastArgs *jobs.NotificationArgs
 	calledN  int
+	allCalls []jobs.NotificationArgs
 }
 
 func (m *mockJobEnqueuer) EnqueueNotification(_ context.Context, args jobs.NotificationArgs) error {
 	m.calledN++
 	m.lastArgs = &args
+	m.allCalls = append(m.allCalls, args)
 	return m.err
 }
 
@@ -1629,6 +1643,16 @@ func (m *mockPermCheckerPerTeam) GetPermissions(_ context.Context, teamID, _ uui
 	return teams.PermissionsJSON{}, nil
 }
 
+func (m *mockPermCheckerPerTeam) GetPermissionsForTeams(_ context.Context, teamIDs []uuid.UUID, _ uuid.UUID) (map[uuid.UUID]teams.PermissionsJSON, error) {
+	out := make(map[uuid.UUID]teams.PermissionsJSON, len(teamIDs))
+	for _, id := range teamIDs {
+		if p, ok := m.perms[id]; ok {
+			out[id] = p
+		}
+	}
+	return out, nil
+}
+
 // TestEventService_CreateEvent_CrossTeam_RequiresWriteInAllTargets covers
 // spec.md's "Missing permission in one target" scenario: the URL's own
 // {teamId} is never re-checked here (RequirePermission middleware already
@@ -1707,6 +1731,95 @@ func TestEventService_CreateEvent_CrossTeam_AllowedWithWriteInAllTargets(t *test
 	assert.True(t, createCalled)
 	require.NotNil(t, result.CrossTeamIds)
 	assert.ElementsMatch(t, []openapi_types.UUID{teamB}, *result.CrossTeamIds)
+}
+
+// TestEventService_CreateEvent_CrossTeam_NotifiesEveryTargetedTeam
+// regression-tests the gap where CreateEvent only ever enqueued the
+// "event_created" notification for the owning team, so a cross-team event's
+// other targeted teams never saw it in their own activity feed even though
+// they can see and RSVP to the event itself.
+func TestEventService_CreateEvent_CrossTeam_NotifiesEveryTargetedTeam(t *testing.T) {
+	t.Parallel()
+
+	teamB := uuid.New()
+	row := svcMakeEventRow("Joint Training")
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, _ string, _ *events.CreateEventParams) (*events.EventRow, error) {
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{
+				{TeamID: row.TeamId, TeamName: "Owning Team"},
+				{TeamID: teamB, TeamName: "Team B"},
+			}, nil
+		},
+	}
+	enq := &mockJobEnqueuer{}
+	svc := events.NewService(repo, enq, nil, nil, &mockPermCheckerPerTeam{
+		perms: map[uuid.UUID]teams.PermissionsJSON{
+			teamB: {Events: "write"},
+		},
+	}, slog.Default())
+
+	crossTeamIds := []openapi_types.UUID{teamB}
+	body := &gen.CreateEventRequest{
+		Type:         gen.Training,
+		Title:        "Joint Training",
+		Date:         openapi_types.Date{Time: time.Now().UTC()},
+		CrossTeamIds: &crossTeamIds,
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.NoError(t, err)
+
+	require.Len(t, enq.allCalls, 2, "must notify both the owning team and every crossTeamIds target")
+	notifiedTeams := make([]uuid.UUID, 0, len(enq.allCalls))
+	for _, call := range enq.allCalls {
+		assert.Equal(t, "event_created", call.Type)
+		notifiedTeams = append(notifiedTeams, call.TeamID)
+	}
+	assert.ElementsMatch(t, []uuid.UUID{row.TeamId, teamB}, notifiedTeams)
+}
+
+// TestEventService_SetStatus_Cancel_CrossTeam_NotifiesEveryTargetedTeam
+// mirrors TestEventService_CreateEvent_CrossTeam_NotifiesEveryTargetedTeam
+// for cancellation: SetStatus is itself deliberately reachable from any
+// targeted team's own URL (not just the owning team's), so the
+// "event_cancelled" notification must fan out the same way.
+func TestEventService_SetStatus_Cancel_CrossTeam_NotifiesEveryTargetedTeam(t *testing.T) {
+	t.Parallel()
+
+	teamB := uuid.New()
+	row := svcMakeEventRow("Joint Training")
+	row.Status = "cancelled"
+	repo := &mockSvcRepo{
+		setStatusFn: func(context.Context, string, string, string, string) (*events.EventRow, error) {
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{
+				{TeamID: row.TeamId, TeamName: "Owning Team"},
+				{TeamID: teamB, TeamName: "Team B"},
+			}, nil
+		},
+	}
+	enq := &mockJobEnqueuer{}
+	svc := events.NewService(repo, enq, nil, nil, nil, slog.Default())
+
+	_, err := svc.SetStatus(context.Background(), testUserID, row.Id.String(), teamB.String(), "cancelled", "single")
+	require.NoError(t, err)
+
+	require.Len(t, enq.allCalls, 2, "must notify both the owning team and every other targeted team")
+	notifiedTeams := make([]uuid.UUID, 0, len(enq.allCalls))
+	for _, call := range enq.allCalls {
+		assert.Equal(t, "event_cancelled", call.Type)
+		notifiedTeams = append(notifiedTeams, call.TeamID)
+	}
+	assert.ElementsMatch(t, []uuid.UUID{row.TeamId, teamB}, notifiedTeams)
 }
 
 // TestEventService_CreateEvent_CrossTeam_RejectsUnknownTeamID covers the
@@ -1900,6 +2013,60 @@ func TestEventService_ListAttendance_TeamBadge(t *testing.T) {
 	// status/auto/absent stay populated for everyone -- behavioral, not
 	// identifying (spec.md's "status/auto/absent stay populated" rule).
 	assert.Equal(t, gen.No, foreignRow.Status)
+}
+
+// TestEventService_ListAttendance_TeamBadge_FailsClosedOnMissingMembershipData
+// covers a roster row whose user has no entry at all in
+// ListEventMemberTeams' result (e.g. a race between that query and the
+// roster query itself -- see applyBadge's doc comment). Redaction must not
+// silently skip in that case just because there's no team name to label the
+// attendee with.
+func TestEventService_ListAttendance_TeamBadge_FailsClosedOnMissingMembershipData(t *testing.T) {
+	t.Parallel()
+
+	viewerTeam := uuid.MustParse(testTeamID)
+	teamAlpha := uuid.New()
+
+	mysteryUser := uuid.New()
+	mysteryMembershipID := uuid.New()
+	group := "U16"
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(context.Context, string, string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{
+					UserId:       mysteryUser,
+					MembershipId: mysteryMembershipID,
+					Name:         "Mystery Member",
+					AvatarColor:  "#333333",
+					Status:       "yes",
+					Group:        &group,
+				},
+			}, nil
+		},
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{
+				{TeamID: viewerTeam, TeamName: "Viewer Team"},
+				{TeamID: teamAlpha, TeamName: "Alpha"},
+			}, nil
+		},
+		// mysteryUser is deliberately absent here -- simulating the roster
+		// snapshot observing a user that this later, separate query's own
+		// snapshot no longer has membership data for.
+		listEventMemberTeamsFn: func(context.Context, string) (map[uuid.UUID][]events.EventTeamRow, error) {
+			return map[uuid.UUID][]events.EventTeamRow{}, nil
+		},
+	}
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+
+	rows, err := svc.ListAttendance(context.Background(), "event-1", testTeamID, mysteryUser.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+
+	row := rows[0]
+	assert.Nil(t, row.TeamName, "no confirmed team to label the badge with")
+	assert.Nil(t, row.MembershipId, "must still redact -- missing membership data must not be treated as 'shares the viewer's team'")
+	assert.Nil(t, row.Group, "must still redact group")
 }
 
 // TestEventService_ListAttendance_SingleTeam_NoBadgeEverAndNoExtraQueries
