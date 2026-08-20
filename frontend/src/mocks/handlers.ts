@@ -18,6 +18,7 @@ import {
   threeMonthsBeforeLocal,
   applyNominations,
   pushNotif,
+  paginate,
   DEFAULT_MEMBER_ROLE_NAME,
   DEFAULT_PUSH_CATEGORY_PREFERENCES,
   DEMO_PASSWORD,
@@ -872,14 +873,20 @@ export const handlers = [
   }),
 
   // ---- members ----
-  http.get(P('/teams/:teamId/members'), async ({ params }) => {
+  http.get(P('/teams/:teamId/members'), async ({ params, request }) => {
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
     const perm = requirePermission(auth, params.teamId as string, 'members', 'read');
     if (perm !== true) return perm;
-    const items = db.memberships.filter((m) => m.teamId === params.teamId).map(toWireMember).sort((a, b) => a.name.localeCompare(b.name, 'de'));
-    return HttpResponse.json({ items, nextCursor: null });
+    const all = db.memberships.filter((m) => m.teamId === params.teamId).map(toWireMember).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    // Genuinely paginated (unlike most other list handlers here, which
+    // return everything in one page) -- exercises serviceLayerReal.ts's
+    // fetchAllPages cursor-walking end-to-end; see paginate's doc comment in
+    // mocks/db.ts.
+    const cursor = new URL(request.url).searchParams.get('cursor');
+    const { items, nextCursor } = paginate(all, cursor);
+    return HttpResponse.json({ items, nextCursor });
   }),
 
   http.patch(P('/teams/:teamId/members/:membershipId'), async ({ params, request }) => {

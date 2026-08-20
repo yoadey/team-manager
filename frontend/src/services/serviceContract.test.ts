@@ -7,7 +7,7 @@
 // fixed behavior directly against the MSW demo backend.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { realApi as api } from './serviceLayerReal';
-import { db, perms, rid, DEMO_LOGIN_EMAIL, DEMO_PASSWORD } from '@/mocks/db';
+import { db, perms, rid, DEMO_LOGIN_EMAIL, DEMO_PASSWORD, MOCK_PAGE_SIZE } from '@/mocks/db';
 import { todayLocalDate } from '@/utils/date';
 import { AuthError, ForbiddenError, ValidationError } from '@/utils/errors';
 import type { Permissions, RoleDto } from '@/types';
@@ -677,5 +677,65 @@ describe('RBAC enforcement: self-service routes stay available to a read-only ca
     const option = poll.options[0]!;
 
     await expect(api.polls.vote(poll.id, [option.id], 't_a')).resolves.toBeUndefined();
+  });
+});
+
+// Every other MSW list handler hard-codes `nextCursor: null` and returns its
+// whole list in one page, which means serviceLayerReal.ts's fetchAllPages
+// cursor-walking (construction, consumption, multi-page ordering) is never
+// actually exercised by driving it through the mock -- only the trivial
+// one-page-and-done path is. GET /teams/:teamId/members is the one handler
+// (mocks/handlers.ts + mocks/db.ts's `paginate`) that genuinely paginates,
+// specifically so this can be tested end-to-end.
+describe("pagination: members.list walks every page via fetchAllPages", () => {
+  it('returns the full, correctly-ordered member list even though the mock backend pages it', async () => {
+    // t_b starts with 5 seeded members (see mocks/db.ts's createSeedData).
+    // Push it well past a couple of pages at the mock's page size so a
+    // single-page response could never satisfy this assertion by accident.
+    const before = await api.members.list('t_b');
+    expect(before.length).toBeGreaterThan(0);
+    expect(before.length).toBeLessThan(MOCK_PAGE_SIZE * 2);
+
+    const extra = Array.from({ length: MOCK_PAGE_SIZE * 2 }, (_, i) => {
+      const userId = rid('pgu');
+      db.users.push({
+        id: userId,
+        name: `Zzz Page Test ${String(i).padStart(2, '0')}`,
+        email: `${userId}@example.de`,
+        phone: '',
+        avatarColor: '#123456',
+        photo: null,
+        hasPhoto: false,
+        birthday: '',
+        address: '',
+      });
+      db.memberships.push({
+        id: rid('mem'),
+        teamId: 't_b',
+        userId,
+        roleIds: [],
+        group: '',
+        title: '',
+        joinedAt: new Date().toISOString(),
+        excludeFromStats: false,
+      });
+      return userId;
+    });
+
+    const totalExpected = before.length + extra.length;
+    expect(totalExpected).toBeGreaterThan(MOCK_PAGE_SIZE * 2); // spans 3+ pages, not just 2
+
+    const after = await api.members.list('t_b');
+
+    expect(after).toHaveLength(totalExpected);
+    // No duplicates and nothing dropped across the page boundary walk.
+    expect(new Set(after.map((m) => m.userId)).size).toBe(totalExpected);
+    extra.forEach((userId) => expect(after.some((m) => m.userId === userId)).toBe(true));
+    // Ordering is preserved end-to-end across pages: alphabetical (German
+    // collation), matching the handler's sort -- not just "all rows present
+    // in some order".
+    const names = after.map((m) => m.name);
+    const sorted = [...names].sort((a, b) => a.localeCompare(b, 'de'));
+    expect(names).toEqual(sorted);
   });
 });
