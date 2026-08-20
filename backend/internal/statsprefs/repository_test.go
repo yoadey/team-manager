@@ -134,6 +134,40 @@ func TestRepository_PresetCRUD(t *testing.T) {
 	require.NoError(t, repo.DeletePreset(ctx, teamID, userID, created.ID))
 }
 
+// Regression test: UpdateStatsPresetRequest's from/to are both optional, so
+// a single-bound PATCH can invert the stored range (here, a "from" past the
+// existing "to") -- this can only be caught by the DB's `CHECK (to_date >=
+// from_date)` constraint, since the merge happens inside the UPDATE
+// statement. It must surface as the typed ErrInvalidDateRange, not a bare
+// wrapped error, mirroring
+// absences_test.TestAbsenceRepository_Update_PartialPatch_RejectsExcessiveSpan's
+// equivalent partial-PATCH-only-catchable-here case.
+func TestRepository_UpdatePreset_PartialPatch_RejectsInvertedRange(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := statsprefs.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedTeam(t, ctx, pool, "Preset Invalid Range Team")
+	userID := seedUser(t, ctx, pool, "Preset Range User", "preset-range@example.com")
+
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	created, err := repo.CreatePreset(ctx, teamID, userID, "Half Year", from, to)
+	require.NoError(t, err)
+
+	newFrom := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	_, err = repo.UpdatePreset(ctx, teamID, userID, created.ID, nil, &newFrom, nil)
+	require.ErrorIs(t, err, statsprefs.ErrInvalidDateRange)
+
+	// The stored range must be left unchanged after the rejected update.
+	presets, err := repo.ListPresets(ctx, teamID, userID)
+	require.NoError(t, err)
+	require.Len(t, presets, 1)
+	assert.True(t, to.Equal(presets[0].ToDate), "to_date must be unchanged after a rejected update")
+}
+
 func TestRepository_DeletePreset_ScopedToOwner(t *testing.T) {
 	t.Parallel()
 

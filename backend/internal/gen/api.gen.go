@@ -751,8 +751,7 @@ type LoginRequest struct {
 
 // LoginResponse defines model for LoginResponse.
 type LoginResponse struct {
-	Token string `json:"token"`
-	User  User   `json:"user"`
+	User User `json:"user"`
 }
 
 // Member defines model for Member.
@@ -1062,6 +1061,7 @@ type SharedCalendarSource struct {
 
 // StatsOverview defines model for StatsOverview.
 type StatsOverview struct {
+	// Avg Mean attendance quote across members who have at least one counted event in the range. Members with no counted events (e.g. a brand-new member, or someone whose only events all fell under not_relevant_for_stats/exclude_from_stats) have no attendance data and are excluded from this average entirely -- they are not scored as 0%, matching how MemberStat.quote is null/absent-of-meaning for the same members below. If no member in the range has any counted events, avg is 0.
 	Avg       float32            `json:"avg"`
 	Events    []EventStat        `json:"events"`
 	From      openapi_types.Date `json:"from"`
@@ -1229,15 +1229,14 @@ type UpdateEventRequest struct {
 
 // UpdateMemberRequest defines model for UpdateMemberRequest.
 type UpdateMemberRequest struct {
-	Address          *string               `json:"address,omitempty"`
-	Birthday         *openapi_types.Date   `json:"birthday,omitempty"`
-	Email            *openapi_types.Email  `json:"email,omitempty"`
-	ExcludeFromStats *bool                 `json:"excludeFromStats,omitempty"`
-	Group            *string               `json:"group,omitempty"`
-	Name             *string               `json:"name,omitempty"`
-	Phone            *string               `json:"phone,omitempty"`
-	RoleIds          *[]openapi_types.UUID `json:"roleIds,omitempty"`
-	Title            *string               `json:"title,omitempty"`
+	Address          *string              `json:"address,omitempty"`
+	Birthday         *openapi_types.Date  `json:"birthday,omitempty"`
+	Email            *openapi_types.Email `json:"email,omitempty"`
+	ExcludeFromStats *bool                `json:"excludeFromStats,omitempty"`
+	Group            *string              `json:"group,omitempty"`
+	Name             *string              `json:"name,omitempty"`
+	Phone            *string              `json:"phone,omitempty"`
+	Title            *string              `json:"title,omitempty"`
 }
 
 // UpdateNewsRequest defines model for UpdateNewsRequest.

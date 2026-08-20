@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivertest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -130,7 +131,7 @@ func TestEventReminderWorker_Work_SendsReminderWhenDue(t *testing.T) {
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/due", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	fired := runReminderTick(t, ctx, pool, worker)
@@ -167,7 +168,7 @@ func TestEventReminderWorker_Work_SkipsWhenNotYetDue(t *testing.T) {
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/notyet", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	runReminderTick(t, ctx, pool, worker)
@@ -204,7 +205,7 @@ func TestEventReminderWorker_Work_SkipsWhenPreferenceDisabled(t *testing.T) {
 			userID: {EventReminderEnabled: false, EventReminderHoursBefore: 6},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	runReminderTick(t, ctx, pool, worker)
@@ -238,7 +239,7 @@ func TestEventReminderWorker_Work_SkipsWhenPermissionDenied(t *testing.T) {
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/noaccess", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "none"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "none"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	runReminderTick(t, ctx, pool, worker)
@@ -295,7 +296,7 @@ func TestEventReminderWorker_Work_IdempotentAcrossRuns(t *testing.T) {
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/idempotent", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	require.NoError(t, jobs.MigrateRiver(ctx, pool))
@@ -343,6 +344,62 @@ func TestEventReminderWorker_Work_IdempotentAcrossRuns(t *testing.T) {
 	assert.Equal(t, 1, count, "a repeated tick must not duplicate the event_reminders_sent row")
 }
 
+// TestEventReminderWorker_Work_MarkerNotOrphanedWhenEnqueueFails simulates a
+// crash (or transient error) between the event_reminders_sent marker insert
+// and the push-delivery enqueue: it deliberately skips jobs.MigrateRiver, so
+// the app-level event_reminders_sent table exists (via testutil.NewTestDB's
+// goose migrations) but the river_job table InsertTx needs does not. The
+// marker insert therefore succeeds while the enqueue that follows in the
+// same transaction fails with a genuine DB error -- exactly the gap the fix
+// closes by doing both in one transaction. Before the fix this would leave
+// a marker row with no corresponding push job, permanently blocking any
+// future retry for this (event, user) pair (ON CONFLICT DO NOTHING skips
+// it forever); after the fix, the failed enqueue rolls the marker insert
+// back too, so a later retry starts from a clean slate.
+func TestEventReminderWorker_Work_MarkerNotOrphanedWhenEnqueueFails(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	teamID, eventID, userID := uuid.New(), uuid.New(), uuid.New()
+	start := time.Now().Add(1 * time.Hour)
+	seedTeamUserEvent(t, ctx, pool, teamID, eventID, userID, "Enqueue Fails Event", "enqueue-fails@example.com", start)
+
+	eventsRepo := &mockEventsReminderLister{candidates: []jobs.ReminderCandidate{
+		{EventID: eventID, TeamID: teamID, Title: "Enqueue Fails Event", Start: start},
+	}}
+	pushRepo := &mockReminderSubscriptionLister{
+		subs: []push.SubscriptionForUser{
+			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/enqueue-fails", P256dh: "p", AuthKey: "a"}},
+		},
+	}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
+	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
+
+	// Note: jobs.MigrateRiver is intentionally NOT called here -- see the
+	// doc comment above for why that's what makes rc.InsertTx fail.
+	workers := river.NewWorkers()
+	river.AddWorker(workers, worker)
+	rc, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
+		Queues:  map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 2}},
+		Workers: workers,
+	})
+	require.NoError(t, err)
+
+	workCtx := rivertest.WorkContext(ctx, rc)
+	job := &river.Job[jobs.EventReminderArgs]{Args: jobs.EventReminderArgs{}}
+
+	err = worker.Work(workCtx, job)
+	require.Error(t, err, "Work must surface the enqueue failure so River retries the whole tick, instead of swallowing it")
+
+	var count int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM event_reminders_sent WHERE event_id = $1 AND user_id = $2`, eventID, userID,
+	).Scan(&count))
+	assert.Equal(t, 0, count, "the marker insert must roll back when the push-delivery enqueue fails in the same transaction, never left orphaned without its job")
+}
+
 // TestEventReminderWorker_Work_SkipsWithoutRiverClientInContext verifies
 // that calling Work() directly (as production code never does outside a
 // real River-processed job) doesn't panic when no river.Client is reachable
@@ -368,7 +425,7 @@ func TestEventReminderWorker_Work_SkipsWithoutRiverClientInContext(t *testing.T)
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/norc", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 	job := &river.Job[jobs.EventReminderArgs]{Args: jobs.EventReminderArgs{}}

@@ -5,23 +5,24 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/push"
 )
 
 func TestNotificationCategory(t *testing.T) {
 	t.Parallel()
 
-	cases := map[string]string{
-		"attendance":        "attendance",
-		"event_created":     "events",
-		"event_updated":     "events",
-		"event_cancelled":   "events",
-		"event_reactivated": "events",
-		"event_deleted":     "events",
-		"news":              "news",
-		"poll":              "polls",
-		"absence":           "absence",
-		"something_unknown": "",
+	cases := map[gen.NotificationType]string{
+		gen.NotificationTypeAttendance:            "attendance",
+		gen.NotificationTypeEventCreated:          "events",
+		gen.NotificationTypeEventUpdated:          "events",
+		gen.NotificationTypeEventCancelled:        "events",
+		gen.NotificationTypeEventReactivated:      "events",
+		gen.NotificationTypeEventDeleted:          "events",
+		gen.NotificationTypeNews:                  "news",
+		gen.NotificationTypePoll:                  "polls",
+		gen.NotificationTypeAbsence:               "absence",
+		gen.NotificationType("something_unknown"): "",
 	}
 	for notifType, want := range cases {
 		assert.Equal(t, want, push.NotificationCategory(notifType), "notifType=%s", notifType)

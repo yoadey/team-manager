@@ -109,6 +109,11 @@ func (s *S3Store) Put(ctx context.Context, key string, data []byte, contentType 
 // PresignGet returns a short-lived URL granting time-limited GET access to
 // the object at key.
 func (s *S3Store) PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	// Deliberate extra round-trip: a presigned URL is handed to a browser/client
+	// that can't distinguish "points at nothing" from a real infra failure, so we
+	// pay for a StatObject here in order to return a clean ErrObjectNotFound/404
+	// instead of a working-looking URL that itself 404s later. Revisit (e.g. cache
+	// object existence, or drop this check) if PresignGet becomes a hot path.
 	if _, err := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{}); err != nil {
 		var errResp minio.ErrorResponse
 		if errors.As(err, &errResp) && errResp.Code == "NoSuchKey" {

@@ -58,10 +58,14 @@ export interface Contribution {
   /** Optional free-text description beyond the short name. */
   description?: string | null;
   amount: number;
+  /** Same value as `amount`, in integer cents pre-conversion (see api/map.ts's centsToEuros). Sum groups of rows via this field, not `amount`, and convert to euros once -- summing already-converted euro floats accumulates rounding error. */
+  amountCents: number;
   /** Optional due date (YYYY-MM-DD). */
   dueDate?: string | null;
   /** Sum of every income transaction linked to this contribution, in euros. May exceed `amount` when overpaid -- not capped. */
   paidAmount: number;
+  /** Same value as `paidAmount`, in integer cents pre-conversion -- see `amountCents`. */
+  paidAmountCents: number;
   status: 'open' | 'partial' | 'paid';
   /** When true, excluded from the default display, the matrix, and the linking picker -- never affects linked transactions. */
   archived: boolean;

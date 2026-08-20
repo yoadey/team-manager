@@ -1,3 +1,7 @@
+## RENAMED Requirements
+- FROM: `### Requirement: Click a matrix cell to book or inspect a payment`
+- TO: `### Requirement: Click a matrix cell to open the contribution detail view`
+
 ## MODIFIED Requirements
 
 ### Requirement: Click a matrix cell to open the contribution detail view

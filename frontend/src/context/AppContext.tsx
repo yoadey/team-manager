@@ -48,6 +48,7 @@ import { canForTeam, isStaffForTeam } from '@/utils/permissions';
 import { ForbiddenError, reportActionError, retryable } from '@/utils/errors';
 import { captureException, setSentryUser } from '@/monitoring';
 import { t } from '@/i18n';
+import { unsubscribeWebPush } from '@/features/notifications/hooks/usePushActions';
 import { useFeatureActions } from './useFeatureActions';
 
 export type Phase = 'loading' | 'login' | 'noTeam' | 'app';
@@ -605,6 +606,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // surface as an unhandled rejection.
     api.auth.logout().catch((err: unknown) => {
       captureException(err, { context: 'logout' });
+    });
+    // Revoke this browser's Web Push registration too -- otherwise, on a
+    // shared/kiosk device, the push_subscriptions row would keep pointing at
+    // this account after logout and this browser would keep receiving its
+    // notifications (push delivery is keyed on team membership server-side,
+    // not on holding a live session). Same fire-and-forget treatment as
+    // api.auth.logout() above: a failure here (offline, unsupported
+    // browser, no active subscription) must never block logout.
+    unsubscribeWebPush(api).catch((err: unknown) => {
+      captureException(err, { context: 'push-unsubscribe-on-logout' });
     });
     setSentryUser(null);
     // Clear the persisted team selection on logout -- otherwise a second

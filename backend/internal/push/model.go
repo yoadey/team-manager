@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/yoadey/team-manager/backend/internal/gen"
 )
 
 // SubscriptionRow mirrors the push_subscriptions DB table.
@@ -78,9 +80,9 @@ func DefaultCategoryPreferences() CategoryPreferences {
 }
 
 // Allows reports whether category is enabled. An empty category (a
-// notification type NotificationCategory doesn't recognize) is always
-// allowed, mirroring notifications.HasReadAccess's treatment of an empty
-// module -- there's nothing to gate.
+// notification type NotificationCategory has no push-preference toggle for)
+// is always allowed, mirroring notifications.HasReadAccess's treatment of an
+// empty module -- there's nothing to gate.
 func (p CategoryPreferences) Allows(category string) bool {
 	switch category {
 	case "attendance":
@@ -105,26 +107,45 @@ func (p CategoryPreferences) Allows(category string) bool {
 }
 
 // NotificationCategory returns the push-preference category a
-// gen.NotificationType string belongs to. Deliberately independent of
+// gen.NotificationType belongs to. Deliberately independent of
 // notifications.NotificationModule: that function collapses "attendance"
 // into the "events" RBAC module (there's no separate events:attendance
 // permission), but the preference UI wants attendance responses
 // separately toggleable from event-lifecycle changes, matching the
 // notification feed's own "attendance" vs "events" filter chips
 // (frontend NotificationsSheet.tsx).
-func NotificationCategory(notifType string) string {
+//
+// Typed on gen.NotificationType (not a plain string), matching
+// notifications.NotificationModule's signature, so the repo-wide
+// "exhaustive" linter (see .golangci.yml) enforces that every case here is
+// revisited when a new value is added to that enum -- a plain string switch
+// is invisible to it. This is currently belt-and-suspenders (an unrecognized
+// type already fails closed via the independent RBAC permission gate in
+// notifications.HasReadAccess before push preferences are even consulted),
+// but keeps the two sibling functions' safety net identical rather than
+// leaving this one silently weaker.
+func NotificationCategory(notifType gen.NotificationType) string {
 	switch notifType {
-	case "attendance":
+	case gen.NotificationTypeAttendance:
 		return "attendance"
-	case "event_created", "event_updated", "event_cancelled", "event_reactivated", "event_deleted":
+	case gen.NotificationTypeEventCreated,
+		gen.NotificationTypeEventUpdated,
+		gen.NotificationTypeEventCancelled,
+		gen.NotificationTypeEventReactivated,
+		gen.NotificationTypeEventDeleted:
 		return "events"
-	case "news":
+	case gen.NotificationTypeNews:
 		return "news"
-	case "poll":
+	case gen.NotificationTypePoll:
 		return "polls"
-	case "absence":
+	case gen.NotificationTypeAbsence:
 		return "absence"
 	default:
+		// Safety net for a value outside the known enum (a malformed/future
+		// DB row) -- exhaustive's default-signifies-exhaustive check is off
+		// repo-wide, so this default does NOT suppress a missing-case warning
+		// when a new gen.NotificationType constant is added; it only covers
+		// values that were never valid to begin with.
 		return ""
 	}
 }

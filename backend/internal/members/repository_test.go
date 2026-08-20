@@ -988,6 +988,59 @@ func TestMembersRepository_SetRoles_InsufficientPermissionToGrant_Blocked(t *tes
 	}
 }
 
+// Same escalation ceiling as
+// TestMembersRepository_SetRoles_InsufficientPermissionToGrant_Blocked, but
+// for the stats module specifically -- enforceNoPermissionEscalation folds
+// all 7 modules identically (foldMax), so a settings:write-only caller must
+// be blocked from granting stats:write just as much as finances:write. This
+// mirrors roles.TestRolesRepository_UpdateRole_EscalationStatsBeyondCallersOwnPermissions_Blocked,
+// which proves the identical guard in the sibling roles package.
+func TestMembersRepository_SetRoles_InsufficientPermissionToGrantStats_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	// A settings-only role -- deliberately no other module write, so the
+	// caller below has authority to manage role assignments but nothing
+	// else (in particular, no stats permission).
+	settingsOnlyRole := seedRole(t, pool, teamID, "Settings Only",
+		`{"events":"none","members":"none","finances":"none","news":"none","polls":"none","settings":"write","stats":"none"}`)
+	// A second, pre-existing settings:write holder so none of the calls
+	// below can be confused with the (unrelated) last-settings-admin guard.
+	seedAdminCaller(t, pool, teamID)
+
+	statsAdminRole := seedRole(t, pool, teamID, "Stats Admin",
+		`{"events":"none","members":"none","finances":"none","news":"none","polls":"none","settings":"none","stats":"write"}`)
+
+	attacker := seedMember(t, pool, teamID, "Stats Attacker", "stats-attacker@example.com", settingsOnlyRole)
+
+	// The attacker tries to grant themselves stats:write, which they do not
+	// themselves hold.
+	_, err := repo.SetRoles(ctx, attacker.MembershipID.String(), teamID.String(), []string{statsAdminRole.String()}, attacker.UserID.String())
+	require.ErrorIs(t, err, members.ErrInsufficientPermissionToGrant)
+
+	// Same result granting it to a DIFFERENT membership (e.g. a colluding
+	// second account) rather than themselves -- the check isn't merely a
+	// self-assignment guard.
+	victim := seedMember(t, pool, teamID, "Stats Second Account", "stats-second-account@example.com")
+	_, err = repo.SetRoles(ctx, victim.MembershipID.String(), teamID.String(), []string{statsAdminRole.String()}, attacker.UserID.String())
+	require.ErrorIs(t, err, members.ErrInsufficientPermissionToGrant)
+
+	// The attacker's own role assignment must be untouched by the rejected
+	// attempt.
+	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
+	require.NoError(t, err)
+	for _, mr := range list {
+		if mr.MembershipID == attacker.MembershipID {
+			require.Len(t, mr.Roles, 1)
+			assert.Equal(t, settingsOnlyRole, mr.Roles[0].Id)
+		}
+	}
+}
+
 // Companion test: SetRoles fully replaces a membership's role set, so a
 // caller reorganizing/demoting an EXISTING permission holder's roles must
 // stay allowed even if the result still exceeds the caller's own permission

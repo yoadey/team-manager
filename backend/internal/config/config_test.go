@@ -713,3 +713,92 @@ func TestLoad_S3UsePathStyleInvalid(t *testing.T) {
 	_, err := config.Load()
 	require.Error(t, err)
 }
+
+func TestLoad_DBPoolDefaults(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, 25, cfg.DBPoolMaxConns)
+	assert.Equal(t, 2, cfg.DBPoolMinConns)
+	assert.Equal(t, time.Hour, cfg.DBPoolMaxConnLifetime)
+	assert.Equal(t, 30*time.Minute, cfg.DBPoolMaxConnIdleTime)
+}
+
+func TestLoad_DBPoolOverride(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("DB_POOL_MAX_CONNS", "50")
+	t.Setenv("DB_POOL_MIN_CONNS", "5")
+	t.Setenv("DB_POOL_MAX_CONN_LIFETIME_MINUTES", "120")
+	t.Setenv("DB_POOL_MAX_CONN_IDLE_TIME_MINUTES", "15")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, 50, cfg.DBPoolMaxConns)
+	assert.Equal(t, 5, cfg.DBPoolMinConns)
+	assert.Equal(t, 120*time.Minute, cfg.DBPoolMaxConnLifetime)
+	assert.Equal(t, 15*time.Minute, cfg.DBPoolMaxConnIdleTime)
+}
+
+func TestLoad_DBPoolMinConnsExceedsMaxRejected(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("DB_POOL_MAX_CONNS", "5")
+	t.Setenv("DB_POOL_MIN_CONNS", "10")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrDBPoolMinConnsExceedsMax)
+}
+
+func TestLoad_DBPoolMaxConnsInvalid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("DB_POOL_MAX_CONNS", "not-a-number")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DB_POOL_MAX_CONNS")
+}
+
+func TestLoad_DBPoolMinConnsInvalid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("DB_POOL_MIN_CONNS", "not-a-number")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DB_POOL_MIN_CONNS")
+}
+
+func TestLoad_DBPoolMaxConnsOutOfInt32RangeRejected(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	// One more than math.MaxInt32 (2147483647) -- pgxpool.Config.MaxConns is
+	// int32, so this must be rejected before it ever reaches that conversion.
+	t.Setenv("DB_POOL_MAX_CONNS", "2147483648")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrDBPoolConnsOutOfRange)
+}
+
+func TestLoad_DBPoolMaxConnLifetimeInvalid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("DB_POOL_MAX_CONN_LIFETIME_MINUTES", "not-a-number")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DB_POOL_MAX_CONN_LIFETIME_MINUTES")
+}
+
+func TestLoad_DBPoolMaxConnIdleTimeInvalid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("DB_POOL_MAX_CONN_IDLE_TIME_MINUTES", "not-a-number")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DB_POOL_MAX_CONN_IDLE_TIME_MINUTES")
+}

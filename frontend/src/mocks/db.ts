@@ -4,7 +4,8 @@
 // DTO types (which already mirror the OpenAPI wire shapes closely); handlers.ts
 // is responsible for converting a row into the exact `components['schemas']`
 // response shape.
-import type { Invite, Membership, ModuleKey, Permissions, PermLevel, RoleDto, Team, User } from '@/types';
+import { MODULE_KEYS } from '@/types';
+import type { Invite, Membership, Permissions, PermLevel, RoleDto, Team, User } from '@/types';
 import type { Absence, AttendanceDto, EventComment, EventDto, ResponseMode } from '@/features/events';
 import type { Penalty, Transaction } from '@/features/finances';
 import type { NewsItem } from '@/features/news';
@@ -79,7 +80,7 @@ export function perms(overrides: Partial<Permissions> = {}): Permissions {
   };
 }
 
-export const MODULES: ModuleKey[] = ['events', 'members', 'finances', 'news', 'polls', 'settings', 'stats'];
+export const MODULES = MODULE_KEYS;
 const LEVEL: Record<PermLevel, number> = { none: 0, read: 1, write: 2 };
 
 export function mergePerms(roles: RoleDto[]): Permissions {
@@ -95,6 +96,17 @@ export function mergePerms(roles: RoleDto[]): Permissions {
 export function primaryRole(roles: RoleDto[]): RoleDto | null {
   const score = (r: RoleDto) => MODULES.reduce((s, m) => s + LEVEL[r.permissions[m]], 0);
   return [...roles].sort((a, b) => score(b) - score(a))[0] || null;
+}
+
+// The caller's effective permissions for a team -- mirrors
+// backend/internal/members.Repository.GetPermissions (folded via mergePerms
+// above, same max-across-roles rule): 'none' on every module for a
+// non-member, since they have no membership row (and thus no roles) to fold.
+// Used by handlers.ts's requirePermission to replicate the real backend's
+// RBAC enforcement (backend/internal/middleware/authz.go) in the mock.
+export function permissionFor(userId: string, teamId: string): Permissions {
+  const m = db.memberships.find((x) => x.teamId === teamId && x.userId === userId);
+  return m ? mergePerms(rolesOf(m)) : perms();
 }
 
 // The seeded default role newly-accepted invitees get (see handlers.ts's

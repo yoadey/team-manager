@@ -3,6 +3,7 @@ package calendarfeed
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -38,19 +39,30 @@ func icsEscape(s string) string {
 
 // icsFoldWidth matches buildIcs()'s fold() -- 73 octets, not the RFC 5545
 // §3.1-recommended 75, so the two renderers stay recognizably equivalent.
+// NOTE: buildIcs()'s fold() counts UTF-16 code units (JS string indexing),
+// not UTF-8 octets, so for any non-ASCII content the two implementations
+// don't actually fold at the same point despite sharing this width.
 const icsFoldWidth = 73
 
 // icsFold folds a content line at icsFoldWidth octets, continuation lines
-// prefixed with a single space per RFC 5545 §3.1.
+// prefixed with a single space per RFC 5545 §3.1. The split point is backed
+// off to the nearest preceding rune boundary so a multi-byte UTF-8 character
+// (umlauts, ß, ...) is never split across two lines, which would produce
+// invalid UTF-8 -- RFC 5545 §3.1 explicitly forbids breaking a line within a
+// UTF-8 multi-octet sequence.
 func icsFold(line string) string {
 	if len(line) <= icsFoldWidth {
 		return line
 	}
 	var b strings.Builder
 	for len(line) > icsFoldWidth {
-		b.WriteString(line[:icsFoldWidth])
+		cut := icsFoldWidth
+		for cut > 0 && !utf8.RuneStart(line[cut]) {
+			cut--
+		}
+		b.WriteString(line[:cut])
 		b.WriteString("\r\n ")
-		line = line[icsFoldWidth:]
+		line = line[cut:]
 	}
 	b.WriteString(line)
 	return b.String()

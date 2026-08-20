@@ -12,6 +12,7 @@ import {
   rolesOf,
   primaryRole,
   mergePerms,
+  permissionFor,
   effectiveStatus,
   rawCountedStatus,
   threeMonthsBeforeLocal,
@@ -25,7 +26,7 @@ import {
   DEMO_SSO_PROVIDER_IDS,
 } from './db';
 import type { UserRow, TeamRow, StatsPresetRow } from './db';
-import type { RoleDto } from '@/types';
+import type { ModuleKey, PermLevel, RoleDto } from '@/types';
 import type { EventDto } from '@/features/events';
 import { isRsvpCutoffPassed } from '@/features/events/rsvpCutoff';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
@@ -73,6 +74,32 @@ function problem(status: number, detail: string): HttpResponse<S['Problem']> {
 function requireAuth(): string | HttpResponse<S['Problem']> {
   if (!session.userId) return problem(401, 'Not authenticated');
   return session.userId;
+}
+
+const LEVEL_RANK: Record<PermLevel, number> = { none: 0, read: 1, write: 2 };
+
+// Mirrors backend/internal/middleware/authz.go's RequirePermission: looks up
+// the caller's effective permission for `module` on this team (max across
+// their roles, folded by db.ts's permissionFor/mergePerms -- 'write' implies
+// 'read' via LEVEL_RANK) and returns a 403 Problem response when it falls
+// short of `level`, or `true` when the caller may proceed.
+//
+// Callers pass the *already-resolved* required level for the specific route
+// being handled, exactly as backend/internal/middleware/authz.go's
+// hasRequiredPermission computes it: 'read' for GET/HEAD/OPTIONS and for any
+// x-rbac-self-service route regardless of method (self-service exempts a
+// caller from `write` on their own record, never from `none`), 'write' for
+// every other mutating route. A module of 'none' therefore blocks GET too,
+// not just writes -- there is no separate "unauthenticated" bypass here.
+function requirePermission(
+  userId: string,
+  teamId: string,
+  module: ModuleKey,
+  level: PermLevel,
+): true | HttpResponse<S['Problem']> {
+  const perms = permissionFor(userId, teamId);
+  if (LEVEL_RANK[perms[module]] < LEVEL_RANK[level]) return problem(403, `insufficient permissions for ${module}`);
+  return true;
 }
 
 function requireUser(id: string): UserRow {
@@ -505,7 +532,7 @@ export const handlers = [
     if (DEMO_SSO_PROVIDER_IDS.includes(body.email)) {
       const u = requireUser(DEMO_LOGIN_USER_ID);
       session.userId = u.id;
-      const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
+      const resp: S['LoginResponse'] = { user: toWireUser(u) };
       return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
     }
     const u = db.users.find((x) => x.email.toLowerCase() === body.email?.toLowerCase());
@@ -515,14 +542,14 @@ export const handlers = [
       if (body.password !== u.password) return problem(401, 'Invalid email or password');
       if (!u.emailVerifiedAt) return problem(403, 'please verify your email before logging in');
       session.userId = u.id;
-      const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
+      const resp: S['LoginResponse'] = { user: toWireUser(u) };
       return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
     }
     if (!u || u.id !== DEMO_LOGIN_USER_ID || body.password !== DEMO_PASSWORD) {
       return problem(401, 'Invalid email or password');
     }
     session.userId = u.id;
-    const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
+    const resp: S['LoginResponse'] = { user: toWireUser(u) };
     return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
   }),
 
@@ -576,7 +603,7 @@ export const handlers = [
     const u = requireUser(entry.userId);
     u.emailVerifiedAt = new Date().toISOString();
     session.userId = u.id;
-    const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
+    const resp: S['LoginResponse'] = { user: toWireUser(u) };
     return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
   }),
 
@@ -614,7 +641,7 @@ export const handlers = [
     const u = requireUser(entry.userId);
     u.password = body.password;
     session.userId = u.id;
-    const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
+    const resp: S['LoginResponse'] = { user: toWireUser(u) };
     return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
   }),
 
@@ -729,6 +756,10 @@ export const handlers = [
 
   http.patch(P('/teams/:teamId'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     const t = db.teams.find((x) => x.id === params.teamId);
     if (!t) return problem(404, 'Team not found');
     const body = (await request.json()) as S['UpdateTeamRequest'];
@@ -744,6 +775,10 @@ export const handlers = [
 
   http.put(P('/teams/:teamId/photo'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     const t = db.teams.find((x) => x.id === params.teamId);
     if (!t) return problem(404, 'Team not found');
     t.hasPhoto = true;
@@ -751,12 +786,20 @@ export const handlers = [
   }),
   http.delete(P('/teams/:teamId/photo'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     const t = db.teams.find((x) => x.id === params.teamId);
     if (t) t.hasPhoto = false;
     return new HttpResponse(null, { status: 204 });
   }),
   http.put(P('/teams/:teamId/logo'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     const t = db.teams.find((x) => x.id === params.teamId);
     if (!t) return problem(404, 'Team not found');
     t.hasLogo = true;
@@ -764,6 +807,10 @@ export const handlers = [
   }),
   http.delete(P('/teams/:teamId/logo'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     const t = db.teams.find((x) => x.id === params.teamId);
     if (t) t.hasLogo = false;
     return new HttpResponse(null, { status: 204 });
@@ -771,6 +818,10 @@ export const handlers = [
 
   http.post(P('/teams/:teamId/invite'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     // An invite code grants team membership, so it's a security-sensitive
     // value like the tokens above -- generate it with a CSPRNG, not Math.random().
@@ -823,12 +874,20 @@ export const handlers = [
   // ---- members ----
   http.get(P('/teams/:teamId/members'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'members', 'read');
+    if (perm !== true) return perm;
     const items = db.memberships.filter((m) => m.teamId === params.teamId).map(toWireMember).sort((a, b) => a.name.localeCompare(b.name, 'de'));
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
   http.patch(P('/teams/:teamId/members/:membershipId'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'members', 'write');
+    if (perm !== true) return perm;
     const m = db.memberships.find((x) => x.id === params.membershipId);
     if (!m) return problem(404, 'Member not found');
     const u = requireUser(m.userId);
@@ -841,15 +900,15 @@ export const handlers = [
     if (body.group !== undefined) m.group = body.group;
     if (body.title !== undefined) m.title = body.title;
     if (body.excludeFromStats !== undefined) m.excludeFromStats = body.excludeFromStats;
-    // An explicitly empty array clears all roles (matches the real backend's
-    // SetRoles, only guarded by ErrLastSettingsAdmin server-side) — only an
-    // absent field should be a no-op, not an empty one.
-    if (body.roleIds !== undefined) m.roleIds = body.roleIds;
     return HttpResponse.json(toWireMember(m));
   }),
 
   http.put(P('/teams/:teamId/members/:membershipId/roles'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     const m = db.memberships.find((x) => x.id === params.membershipId);
     if (!m) return problem(404, 'Member not found');
     const body = (await request.json()) as S['SetRolesRequest'];
@@ -858,11 +917,15 @@ export const handlers = [
   }),
 
   // Self-service: mirrors backend/internal/members's SetMemberTitle -- a
-  // member can set/clear only their own title, regardless of members:write.
+  // member can set/clear only their own title, regardless of members:write
+  // (but still needs at least members:read, since the response reads back
+  // module data -- see backend/internal/middleware/authz.go's doc comment).
   http.put(P('/teams/:teamId/members/:membershipId/title'), async ({ params, request }) => {
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'members', 'read');
+    if (perm !== true) return perm;
     const m = db.memberships.find((x) => x.id === params.membershipId);
     if (!m) return problem(404, 'Member not found');
     if (m.userId !== auth) return problem(403, "Only a member can set or clear their own title");
@@ -875,6 +938,10 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/members/:membershipId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'members', 'write');
+    if (perm !== true) return perm;
     if (!db.memberships.some((x) => x.id === params.membershipId)) return problem(404, 'Member not found');
     db.memberships = db.memberships.filter((x) => x.id !== params.membershipId);
     return new HttpResponse(null, { status: 204 });
@@ -883,12 +950,20 @@ export const handlers = [
   // ---- roles ----
   http.get(P('/teams/:teamId/roles'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'read');
+    if (perm !== true) return perm;
     const body = db.roles.filter((r) => r.teamId === params.teamId).map(toWireRole);
     return HttpResponse.json(body);
   }),
 
   http.post(P('/teams/:teamId/roles'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateRoleRequest'];
     const r: RoleDto = { id: rid('role'), teamId, name: body.name, system: false, color: body.color || '#888888', permissions: body.permissions };
@@ -898,6 +973,10 @@ export const handlers = [
 
   http.patch(P('/teams/:teamId/roles/:roleId'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     const r = db.roles.find((x) => x.id === params.roleId);
     if (!r) return problem(404, 'Role not found');
     const body = (await request.json()) as S['UpdateRoleRequest'];
@@ -909,6 +988,10 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/roles/:roleId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     if (!db.roles.some((x) => x.id === params.roleId)) return problem(404, 'Role not found');
     db.roles = db.roles.filter((x) => x.id !== params.roleId);
     return new HttpResponse(null, { status: 204 });
@@ -917,6 +1000,10 @@ export const handlers = [
   // ---- calendar shares ----
   http.get(P('/teams/:teamId/calendar-shares'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'read');
+    if (perm !== true) return perm;
     const body: S['CalendarShare'][] = db.calendarShares
       .filter((s) => s.ownerTeamId === params.teamId)
       .map((s) => ({
@@ -929,6 +1016,10 @@ export const handlers = [
 
   http.post(P('/teams/:teamId/calendar-shares'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     const ownerTeamId = params.teamId as string;
     const body = (await request.json()) as S['CreateCalendarShareRequest'];
     if (body.viewerTeamId === ownerTeamId) return problem(400, 'cannot share a calendar with its own team');
@@ -945,6 +1036,10 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/calendar-shares/:viewerTeamId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'write');
+    if (perm !== true) return perm;
     db.calendarShares = db.calendarShares.filter(
       (s) => !(s.ownerTeamId === params.teamId && s.viewerTeamId === params.viewerTeamId),
     );
@@ -996,6 +1091,10 @@ export const handlers = [
   // ---- events ----
   http.get(P('/teams/:teamId/events'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
+    if (perm !== true) return perm;
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'all' | 'upcoming' | 'past' | null) ?? 'all';
     const today = todayLocalDate();
@@ -1015,6 +1114,10 @@ export const handlers = [
 
   http.post(P('/teams/:teamId/events'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateEventRequest'];
     const created: EventDto[] = [];
@@ -1089,6 +1192,10 @@ export const handlers = [
 
   http.get(P('/teams/:teamId/events/:eventId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
+    if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
     if (!e) return problem(404, 'Event not found');
     return HttpResponse.json(toWireEvent(e));
@@ -1096,6 +1203,10 @@ export const handlers = [
 
   http.patch(P('/teams/:teamId/events/:eventId'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'write');
+    if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
     if (!e) return problem(404, 'Event not found');
     const url = new URL(request.url);
@@ -1109,6 +1220,10 @@ export const handlers = [
 
   http.post(P('/teams/:teamId/events/:eventId/status'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'write');
+    if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
     if (!e) return problem(404, 'Event not found');
     const url = new URL(request.url);
@@ -1122,6 +1237,10 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/events/:eventId'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'write');
+    if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
@@ -1135,6 +1254,10 @@ export const handlers = [
 
   http.get(P('/teams/:teamId/events/:eventId/comments'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
+    if (perm !== true) return perm;
     // Keyset { items, nextCursor } envelope (oldest-first). The mock returns
     // everything in one page (nextCursor: null), which fetchAllPages consumes
     // exactly like the real multi-page envelope.
@@ -1145,24 +1268,43 @@ export const handlers = [
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
+  // Self-service: any member may add their own comment (auth is used as the
+  // comment's userId below, so there is no "acting on another member" case
+  // to escalate against).
   http.post(P('/teams/:teamId/events/:eventId/comments'), async ({ params, request }) => {
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
+    if (perm !== true) return perm;
     const body = (await request.json()) as S['AddCommentRequest'];
     const c = { id: rid('cm'), eventId: params.eventId as string, userId: auth, text: body.text, createdAt: new Date().toISOString() };
     db.eventComments.push(c);
     return HttpResponse.json(toWireComment(c, params.teamId as string), { status: 201 });
   }),
 
+  // Self-service: mirrors backend/internal/events/repository.go's
+  // DeleteComment -- a caller may only delete their own comment (regardless
+  // of events:write), and an ownership mismatch 404s exactly like a missing
+  // comment, for the same enumeration-safety reason as the real endpoint.
   http.delete(P('/teams/:teamId/events/:eventId/comments/:commentId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
+    if (perm !== true) return perm;
+    const c = db.eventComments.find((x) => x.id === params.commentId);
+    if (!c || c.userId !== auth) return problem(404, 'comment not found or not owned by user');
     db.eventComments = db.eventComments.filter((x) => x.id !== params.commentId);
     return new HttpResponse(null, { status: 204 });
   }),
 
   http.get(P('/teams/:teamId/events/:eventId/attendance'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
+    if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
     if (!e) return problem(404, 'Event not found');
     const rows = db.memberships.filter((m) => m.teamId === e.teamId).map((m) => toWireAttendanceRow(e, m));
@@ -1171,19 +1313,19 @@ export const handlers = [
 
   http.post(P('/teams/:teamId/events/:eventId/attendance'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
     const eventId = params.eventId as string;
     const body = (await request.json()) as S['SetAttendanceRequest'];
+    // Self-service: setting one's own attendance only needs events:read;
+    // acting on another member's attendance needs events:write -- mirrors
+    // backend/internal/events/service.go's SetAttendance.
+    const actingOnSelf = body.userId === auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', actingOnSelf ? 'read' : 'write');
+    if (perm !== true) return perm;
     const e = eventDate(eventId);
     if (!e) return problem(404, 'Event not found');
     if (e.status === 'cancelled') return problem(409, 'cannot change attendance on a cancelled event');
-    // Setting another member's attendance is only reachable through UI
-    // already gated behind events:write (see AttendanceRowItem's canEdit),
-    // matching the backend's identical "acting on another member requires
-    // events:write, which also bypasses the cancelLeadMinutes cutoff" rule
-    // (events.Service.SetAttendance) -- the mock has no broader RBAC model
-    // to consult, so self-vs-other is used as the proxy for whether the
-    // caller holds that permission.
-    const actingOnSelf = body.userId === session.userId;
     if (actingOnSelf && isRsvpCutoffPassed(e)) {
       return problem(409, 'the cancellation lead time has passed');
     }
@@ -1215,6 +1357,10 @@ export const handlers = [
 
   http.put(P('/teams/:teamId/events/:eventId/attendance/nominations'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'write');
+    if (perm !== true) return perm;
     const eventId = params.eventId as string;
     const body = (await request.json()) as S['SetNominationRequest'];
     if (body.nominated) {
@@ -1245,6 +1391,8 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const token = rid('calfeed');
     db.calendarFeedTokens[`${auth}:${teamId}`] = token;
@@ -1256,6 +1404,8 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
+    if (perm !== true) return perm;
     delete db.calendarFeedTokens[`${auth}:${params.teamId as string}`];
     return new HttpResponse(null, { status: 204 });
   }),
@@ -1264,6 +1414,8 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
+    if (perm !== true) return perm;
     const settings = db.calendarFeedSettings[`${auth}:${params.teamId as string}`] ?? {
       types: ['training', 'auftritt', 'event'],
       includeBirthdays: true,
@@ -1276,6 +1428,8 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'events', 'read');
+    if (perm !== true) return perm;
     const body = (await request.json()) as S['CalendarFeedSettings'];
     db.calendarFeedSettings[`${auth}:${params.teamId as string}`] = { types: body.types, includeBirthdays: body.includeBirthdays };
     return HttpResponse.json(body);
@@ -1345,6 +1499,10 @@ export const handlers = [
   // ---- news ----
   http.get(P('/teams/:teamId/news'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'news', 'read');
+    if (perm !== true) return perm;
     const items = db.news
       .filter((n) => n.teamId === params.teamId)
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt.localeCompare(a.createdAt))
@@ -1356,6 +1514,8 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'news', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateNewsRequest'];
     const n = { id: rid('news'), teamId, authorId: auth, title: body.title, body: body.body, pinned: !!body.pinned, createdAt: new Date().toISOString() };
@@ -1366,6 +1526,10 @@ export const handlers = [
 
   http.patch(P('/teams/:teamId/news/:newsId'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'news', 'write');
+    if (perm !== true) return perm;
     const n = db.news.find((x) => x.id === params.newsId);
     if (!n) return problem(404, 'News not found');
     const body = (await request.json()) as S['UpdateNewsRequest'];
@@ -1377,6 +1541,10 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/news/:newsId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'news', 'write');
+    if (perm !== true) return perm;
     if (!db.news.some((x) => x.id === params.newsId)) return problem(404, 'News not found');
     db.news = db.news.filter((x) => x.id !== params.newsId);
     return new HttpResponse(null, { status: 204 });
@@ -1385,12 +1553,20 @@ export const handlers = [
   // ---- polls ----
   http.get(P('/teams/:teamId/polls'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'polls', 'read');
+    if (perm !== true) return perm;
     const items = db.polls.filter((p) => p.teamId === params.teamId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(toWirePoll);
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
   http.post(P('/teams/:teamId/polls'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'polls', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreatePollRequest'];
     const p = {
@@ -1410,6 +1586,10 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/polls/:pollId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'polls', 'write');
+    if (perm !== true) return perm;
     if (!db.polls.some((x) => x.id === params.pollId)) return problem(404, 'Poll not found');
     db.polls = db.polls.filter((x) => x.id !== params.pollId);
     return new HttpResponse(null, { status: 204 });
@@ -1419,10 +1599,14 @@ export const handlers = [
   // >1 optionIds on a single-choice (multiple=false) poll with
   // ErrSingleChoiceMultipleOptions (422) — the old localStorage mock instead
   // silently truncated to `optionIds[0]`.
+  // Self-service: a vote always acts on the caller's own ballot (no
+  // userId in the request body), so only polls:read is required.
   http.post(P('/teams/:teamId/polls/:pollId/vote'), async ({ params, request }) => {
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'polls', 'read');
+    if (perm !== true) return perm;
     const p = db.polls.find((x) => x.id === params.pollId);
     if (!p) return problem(404, 'Poll not found');
     const body = (await request.json()) as S['VotePollRequest'];
@@ -1506,6 +1690,10 @@ export const handlers = [
   // ---- finances ----
   http.get(P('/teams/:teamId/finances'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'read');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const tx = db.transactions.filter((x) => x.teamId === teamId).sort((a, b) => b.date.localeCompare(a.date));
     const income = tx.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
@@ -1546,6 +1734,10 @@ export const handlers = [
   // multi-page envelope.
   http.get(P('/teams/:teamId/finances/transactions'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'read');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const tx = db.transactions
       .filter((x) => x.teamId === teamId)
@@ -1555,6 +1747,10 @@ export const handlers = [
 
   http.post(P('/teams/:teamId/finances/transactions'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateTransactionRequest'];
     if (body.contributionId && body.penaltyAssignmentId) {
@@ -1592,6 +1788,10 @@ export const handlers = [
 
   http.patch(P('/teams/:teamId/finances/transactions/:transactionId'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     const t = db.transactions.find((x) => x.id === params.transactionId);
     if (!t) return problem(404, 'Transaction not found');
     const body = (await request.json()) as S['UpdateTransactionRequest'];
@@ -1606,6 +1806,10 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/finances/transactions/:transactionId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     if (!db.transactions.some((x) => x.id === params.transactionId)) return problem(404, 'Transaction not found');
     db.transactions = db.transactions.filter((x) => x.id !== params.transactionId);
     return new HttpResponse(null, { status: 204 });
@@ -1613,6 +1817,10 @@ export const handlers = [
 
   http.post(P('/teams/:teamId/finances/penalties'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreatePenaltyRequest'];
     const p = { id: rid('pen'), teamId, label: body.label, amount: body.amount };
@@ -1622,6 +1830,10 @@ export const handlers = [
 
   http.patch(P('/teams/:teamId/finances/penalties/:penaltyId'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     const p = db.penalties.find((x) => x.id === params.penaltyId);
     if (!p) return problem(404, 'Penalty not found');
     const body = (await request.json()) as S['UpdatePenaltyRequest'];
@@ -1637,6 +1849,10 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/finances/penalties/:penaltyId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     if (!db.penalties.some((x) => x.id === params.penaltyId)) return problem(404, 'Penalty not found');
     db.penalties = db.penalties.filter((x) => x.id !== params.penaltyId);
     db.penaltyAssignments = db.penaltyAssignments.filter((x) => x.penaltyId !== params.penaltyId);
@@ -1645,6 +1861,10 @@ export const handlers = [
 
   http.post(P('/teams/:teamId/finances/penalty-assignments'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreatePenaltyAssignmentRequest'];
     const penalty = db.penalties.find((p) => p.id === body.penaltyId);
@@ -1666,6 +1886,10 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/finances/penalty-assignments/:assignmentId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     if (!db.penaltyAssignments.some((x) => x.id === params.assignmentId)) return problem(404, 'Penalty assignment not found');
     db.penaltyAssignments = db.penaltyAssignments.filter((x) => x.id !== params.assignmentId);
     // Unlink (not delete) any transaction that paid this fine -- mirrors the
@@ -1678,6 +1902,10 @@ export const handlers = [
 
   http.post(P('/teams/:teamId/finances/contributions'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateContributionRequest'];
     // Mirrors finances.Service.CreateContributions' atomic per-userId
@@ -1704,6 +1932,10 @@ export const handlers = [
 
   http.patch(P('/teams/:teamId/finances/contributions/:contributionId'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     const c = db.contributions.find((x) => x.id === params.contributionId);
     if (!c) return problem(404, 'Contribution not found');
     const body = (await request.json()) as S['UpdateContributionRequest'];
@@ -1717,6 +1949,10 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/finances/contributions/:contributionId'), async ({ params }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'finances', 'write');
+    if (perm !== true) return perm;
     if (!db.contributions.some((x) => x.id === params.contributionId)) return problem(404, 'Contribution not found');
     db.contributions = db.contributions.filter((x) => x.id !== params.contributionId);
     // Unlink (not delete) any transaction that paid this fee -- mirrors the
@@ -1730,6 +1966,10 @@ export const handlers = [
   // ---- stats ----
   http.get(P('/teams/:teamId/stats'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'stats', 'read');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const url = new URL(request.url);
     const today = todayLocalDate();
@@ -1780,6 +2020,10 @@ export const handlers = [
 
   http.get(P('/teams/:teamId/stats/members/:userId'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'stats', 'read');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const userId = params.userId as string;
     // Mirrors backend/internal/stats/repository.go's SingleMemberStats: 404
@@ -1813,6 +2057,10 @@ export const handlers = [
   // single "unknown" bucket. Rows sorted by yes desc then name; columns by date.
   http.get(P('/teams/:teamId/stats/attendance-matrix'), async ({ params, request }) => {
     await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'stats', 'read');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const url = new URL(request.url);
     const today = todayLocalDate();
@@ -1861,6 +2109,8 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'stats', 'read');
+    if (perm !== true) return perm;
     const sel = db.statsLastSelection[`${auth}:${params.teamId as string}`];
     const body: S['StatsPreferences'] = sel
       ? { from: sel.from, to: sel.to, ...(sel.presetId ? { presetId: sel.presetId } : {}) }
@@ -1868,10 +2118,14 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
+  // Self-service: acts only on the caller's own last-selected range, so it
+  // only needs stats:read (see stats-access-control's design.md).
   http.put(P('/teams/:teamId/stats-preferences'), async ({ params, request }) => {
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'stats', 'read');
+    if (perm !== true) return perm;
     const body = (await request.json()) as S['SetStatsPreferencesRequest'];
     db.statsLastSelection[`${auth}:${params.teamId as string}`] = {
       from: body.from,
@@ -1885,6 +2139,8 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'stats', 'read');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const items: S['StatsPreset'][] = db.statsPresets
       .filter((p) => p.teamId === teamId && p.userId === auth)
@@ -1899,6 +2155,8 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'stats', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     const count = db.statsPresets.filter((p) => p.teamId === teamId && p.userId === auth).length;
     if (count >= 20) return problem(400, 'maximum number of saved statistics presets reached');
@@ -1913,6 +2171,8 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'stats', 'write');
+    if (perm !== true) return perm;
     const preset = db.statsPresets.find(
       (p) => p.id === params.presetId && p.teamId === (params.teamId as string) && p.userId === auth,
     );
@@ -1932,6 +2192,8 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'stats', 'write');
+    if (perm !== true) return perm;
     const teamId = params.teamId as string;
     db.statsPresets = db.statsPresets.filter(
       (p) => !(p.id === params.presetId && p.teamId === teamId && p.userId === auth),

@@ -1331,6 +1331,12 @@ paths:
       operationId: listAbsences
       x-rbac-module: public
       summary: List absences for the team
+      description: >-
+        Visible to any team member regardless of module permissions -- there
+        is no `absences` RBAC module. This includes each entry's free-text
+        `reason`, which every member can read even if every other module
+        permission is set to `none`. This is a deliberate product decision
+        (a team-wide "who's out and why" view), not an oversight.
       parameters:
         - $ref: "#/components/parameters/limit"
         - $ref: "#/components/parameters/cursor"
@@ -1761,6 +1767,13 @@ paths:
       operationId: updateTransaction
       x-rbac-module: finances
       summary: Update transaction
+      description: >-
+        Changing `type` away from `income` is rejected (400) while the
+        transaction still has `contributionId`/`penaltyAssignmentId` set --
+        it would silently detach a booked fee/fine payment from its target
+        with no warning. Delete and recreate the transaction instead;
+        `amount`/other fields may still be edited freely on a linked
+        transaction.
       requestBody:
         required: true
         content:
@@ -2385,10 +2398,8 @@ components:
 
     LoginResponse:
       type: object
-      required: [token, user]
+      required: [user]
       properties:
-        token:
-          type: string
         user:
           $ref: "#/components/schemas/User"
 
@@ -2715,11 +2726,6 @@ components:
           format: date
         address:
           type: string
-        roleIds:
-          type: array
-          items:
-            type: string
-            format: uuid
         group:
           type: string
         title:
@@ -4041,6 +4047,15 @@ components:
         avg:
           type: number
           format: float
+          description: >-
+            Mean attendance quote across members who have at least one
+            counted event in the range. Members with no counted events
+            (e.g. a brand-new member, or someone whose only events all
+            fell under not_relevant_for_stats/exclude_from_stats) have no
+            attendance data and are excluded from this average entirely --
+            they are not scored as 0%, matching how MemberStat.quote is
+            null/absent-of-meaning for the same members below. If no
+            member in the range has any counted events, avg is 0.
         members:
           type: array
           items:

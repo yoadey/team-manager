@@ -93,9 +93,20 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 
 	genMembers := make([]gen.MemberStat, 0, len(members))
 	var totalQuote float32
+	var membersWithData int
 	for _, m := range members {
 		q := quote(m.Yes, m.Counted)
-		totalQuote += q
+		// Members with no counted events in the range (Counted == 0) have no
+		// attendance data, not a 0% attendance record -- exclude them from
+		// both the numerator and denominator of the average so they aren't
+		// scored as a hard 0%. Mirrors the per-member breakdown, where the
+		// frontend maps this same Counted == 0 state to "no data" (quote:
+		// null, rendered "-") instead of 0% (see mapMemberStat in
+		// frontend/src/api/map.ts).
+		if m.Counted > 0 {
+			totalQuote += q
+			membersWithData++
+		}
 		hp := m.HasPhoto
 		genMembers = append(genMembers, gen.MemberStat{
 			UserId:      m.UserID,
@@ -108,9 +119,16 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 		})
 	}
 
+	// avg is the mean attendance quote across members who have at least one
+	// counted event in the range. Members with Counted == 0 (no data --
+	// e.g. a brand-new member, or someone whose only events all fell under
+	// not_relevant_for_stats/exclude_from_stats) are excluded entirely
+	// rather than averaged in as 0%; if no member in the range has any
+	// counted events, avg is 0 (nothing to average, not a real 0%
+	// attendance rate).
 	var avg float32
-	if len(members) > 0 {
-		avg = totalQuote / float32(len(members))
+	if membersWithData > 0 {
+		avg = totalQuote / float32(membersWithData)
 	}
 
 	genEvents := make([]gen.EventStat, 0, len(events))

@@ -119,6 +119,20 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 // ListCursor is the keyset position for member pagination
 // (ORDER BY name ASC, membership id ASC).
 //
+// TeamID binds the cursor to the team list it was issued for.
+// pagination.Paginator.Decode has no notion of "scope" -- it validates only
+// that the token wasn't tampered with, independent of which team's list
+// endpoint the caller replays it against. Without TeamID, a cursor
+// legitimately issued for team A's member list, if replayed by a caller who
+// is also a member of team B against team B's list endpoint, would decode
+// successfully and get applied to team B's query -- not a cross-team data
+// leak (team_id is still enforced in the SQL WHERE clause independent of
+// the cursor), just pagination silently starting from an arbitrary/wrong
+// offset relative to team B's actual roster order. members.Service.ListMembers
+// rejects a decoded cursor whose TeamID doesn't match the request's teamId,
+// via the same error path (pagination.ErrInvalidCursor -> 400) as a
+// malformed/tampered cursor.
+//
 // Known, accepted limitation: name is mutable (UpdateMember, and GDPR
 // erasure rewriting it to a fixed placeholder). If a row's name changes to
 // fall on the other side of an in-progress pagination's cursor while a
@@ -131,8 +145,9 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 // sorting by an immutable column (changing the roster's user-visible
 // alphabetical order) or a materially larger pagination redesign.
 type ListCursor struct {
-	Name string    `json:"n"`
-	ID   uuid.UUID `json:"i"`
+	TeamID string    `json:"t"`
+	Name   string    `json:"n"`
+	ID     uuid.UUID `json:"i"`
 }
 
 // ListMembers returns up to limit members of a team (with their roles), ordered

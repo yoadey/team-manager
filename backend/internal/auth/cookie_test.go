@@ -109,8 +109,11 @@ func TestStrictMiddleware_SetsCookieOnLogin(t *testing.T) {
 
 	codec := newCodec(t)
 	handler := codec.StrictMiddleware()(
-		func(_ context.Context, _ http.ResponseWriter, _ *http.Request, _ any) (any, error) {
-			return gen.Login200JSONResponse{Token: "signed.jwt.value"}, nil
+		func(ctx context.Context, _ http.ResponseWriter, _ *http.Request, _ any) (any, error) {
+			// The token is handed to the middleware via SetSessionToken, not
+			// through the JSON response body -- see cookie.go's applyCookie.
+			auth.SetSessionToken(ctx, "signed.jwt.value")
+			return gen.Login200JSONResponse{}, nil
 		},
 		"Login",
 	)

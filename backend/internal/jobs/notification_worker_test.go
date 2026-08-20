@@ -23,14 +23,23 @@ import (
 // ─── push-delivery gating mocks ────────────────────────────────────────────
 
 type mockPermsChecker struct {
-	perms   teams.PermissionsJSON
+	// perms, keyed by userID, controls GetPermissions' return value per
+	// subscriber; a userID with no entry gets the zero value of
+	// teams.PermissionsJSON (every module ""), which
+	// notifications.HasReadAccess treats as no access -- fail-closed default
+	// for a member this mock wasn't told about, mirroring
+	// mockSubscriptionLister.prefs' keyed-by-userID shape.
+	perms   map[uuid.UUID]teams.PermissionsJSON
 	err     error
 	calledN int
 }
 
-func (m *mockPermsChecker) GetPermissions(context.Context, uuid.UUID, uuid.UUID) (teams.PermissionsJSON, error) {
+func (m *mockPermsChecker) GetPermissions(_ context.Context, _, userID uuid.UUID) (teams.PermissionsJSON, error) {
 	m.calledN++
-	return m.perms, m.err
+	if m.err != nil {
+		return teams.PermissionsJSON{}, m.err
+	}
+	return m.perms[userID], nil
 }
 
 type mockSubscriptionLister struct {
@@ -250,9 +259,10 @@ func TestNotificationWorker_Work_PushDelivery_GatesOnNewInsertOnly(t *testing.T)
 		actorID)
 	require.NoError(t, err)
 
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{News: "read"}}
+	subscriberID := uuid.New()
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{subscriberID: {News: "read"}}}
 	lister := &mockSubscriptionLister{subs: []push.SubscriptionForUser{
-		{Id: uuid.New(), UserId: uuid.New(), Subscription: push.Subscription{Endpoint: "https://push.example/x", P256dh: "p", AuthKey: "a"}},
+		{Id: uuid.New(), UserId: subscriberID, Subscription: push.Subscription{Endpoint: "https://push.example/x", P256dh: "p", AuthKey: "a"}},
 	}}
 
 	worker := jobs.NewNotificationWorker(pool).WithPushDelivery(perms, lister)
@@ -321,9 +331,10 @@ func TestNotificationWorker_Work_PushDelivery_SkipsWithoutRiverClientInContext(t
 		actorID)
 	require.NoError(t, err)
 
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{News: "read"}}
+	subscriberID := uuid.New()
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{subscriberID: {News: "read"}}}
 	lister := &mockSubscriptionLister{subs: []push.SubscriptionForUser{
-		{Id: uuid.New(), UserId: uuid.New(), Subscription: push.Subscription{Endpoint: "https://push.example/y", P256dh: "p", AuthKey: "a"}},
+		{Id: uuid.New(), UserId: subscriberID, Subscription: push.Subscription{Endpoint: "https://push.example/y", P256dh: "p", AuthKey: "a"}},
 	}}
 
 	worker := jobs.NewNotificationWorker(pool).WithPushDelivery(perms, lister)
@@ -375,7 +386,13 @@ func TestNotificationWorker_Work_PushDelivery_PreferenceGate(t *testing.T) {
 		actorID)
 	require.NoError(t, err)
 
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{News: "read"}}
+	// Both subscribers pass the permission check identically here -- this test
+	// isolates the preference gate, not the permission gate (see
+	// TestNotificationWorker_Work_PushDelivery_PermissionGate for that).
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{
+		optedOutUser: {News: "read"},
+		optedInUser:  {News: "read"},
+	}}
 	lister := &mockSubscriptionLister{
 		subs: []push.SubscriptionForUser{
 			{Id: uuid.New(), UserId: optedOutUser, Subscription: push.Subscription{Endpoint: "https://push.example/opted-out", P256dh: "p", AuthKey: "a"}},
@@ -418,6 +435,85 @@ func TestNotificationWorker_Work_PushDelivery_PreferenceGate(t *testing.T) {
 	select {
 	case got := <-fired:
 		t.Fatalf("unexpected second push delivery to %q; the opted-out subscriber's 'news' preference must have suppressed it", got.Endpoint)
+	case <-time.After(500 * time.Millisecond):
+		// Expected: no further delivery.
+	}
+}
+
+// TestNotificationWorker_Work_PushDelivery_PermissionGate is an end-to-end
+// regression test (via a real river.Client, not a direct Work() call) for the
+// module-permission gate itself: this is the property the package doc
+// comments call "must not open a side channel around the same
+// module-permission check the in-app feed already enforces" -- push delivery
+// for one subscriber with events:read must fire while a second subscriber
+// with events:none (the mockPermsChecker zero value for an unlisted user)
+// must not, even though both hold an identical, allowing push-category
+// preference. Before mockPermsChecker was keyed by userID, this scenario
+// could not be expressed at all: every subscriber shared one perms value.
+func TestNotificationWorker_Work_PushDelivery_PermissionGate(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+	require.NoError(t, jobs.MigrateRiver(ctx, pool))
+
+	teamID := uuid.New()
+	actorID := uuid.New()
+	deniedUser := uuid.New()
+	allowedUser := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Permission Gate Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Actor7', 'actor7@example.com', '#00ff00')`,
+		actorID)
+	require.NoError(t, err)
+
+	// deniedUser has no entry -> teams.PermissionsJSON{} zero value -> every
+	// module "" -> notifications.HasReadAccess denies it (fail-closed).
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{
+		allowedUser: {Events: "read"},
+	}}
+	lister := &mockSubscriptionLister{
+		subs: []push.SubscriptionForUser{
+			{Id: uuid.New(), UserId: deniedUser, Subscription: push.Subscription{Endpoint: "https://push.example/denied", P256dh: "p", AuthKey: "a"}},
+			{Id: uuid.New(), UserId: allowedUser, Subscription: push.Subscription{Endpoint: "https://push.example/allowed", P256dh: "p", AuthKey: "a"}},
+		},
+		// No prefs entries for either user -> both get
+		// DefaultCategoryPreferences() (events enabled), so the preference
+		// gate can't be what's suppressing deniedUser's delivery.
+	}
+
+	notifWorker := jobs.NewNotificationWorker(pool).WithPushDelivery(perms, lister)
+	fired := make(chan jobs.PushDeliveryArgs, 4)
+	captureWorker := &capturingPushDeliveryWorker{fired: fired}
+
+	workers := river.NewWorkers()
+	river.AddWorker(workers, notifWorker)
+	river.AddWorker(workers, captureWorker)
+
+	rc, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
+		Queues:  map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 2}},
+		Workers: workers,
+	})
+	require.NoError(t, err)
+	require.NoError(t, rc.Start(ctx))
+	t.Cleanup(func() { _ = rc.Stop(context.Background()) })
+
+	eventTitle := "Permission gate test"
+	_, err = rc.Insert(ctx, jobs.NotificationArgs{TeamID: teamID, Type: "event_created", ActorID: actorID, EventTitle: &eventTitle}, nil)
+	require.NoError(t, err)
+
+	// Exactly one delivery (the allowed user's) must fire; the denied user's
+	// must not, even though both share an identical, allowing push preference.
+	select {
+	case got := <-fired:
+		assert.Equal(t, "https://push.example/allowed", got.Endpoint, "only the subscriber with events:read must receive a push")
+	case <-time.After(10 * time.Second):
+		t.Fatal("expected one push delivery for the allowed subscriber, got none")
+	}
+	select {
+	case got := <-fired:
+		t.Fatalf("unexpected second push delivery to %q; the denied subscriber's missing events permission must have suppressed it", got.Endpoint)
 	case <-time.After(500 * time.Millisecond):
 		// Expected: no further delivery.
 	}

@@ -118,7 +118,9 @@ describe('finance mappers convert amount fields from cents to euros', () => {
       archived: false,
     });
     expect(c.amount).toBe(25);
+    expect(c.amountCents).toBe(2500);
     expect(c.paidAmount).toBe(10);
+    expect(c.paidAmountCents).toBe(1000);
     expect(c.label).toBe('Mitgliedsbeitrag Januar 2025');
     expect(c.status).toBe('partial');
     expect(c.archived).toBe(false);
