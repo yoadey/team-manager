@@ -809,7 +809,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** List absences for the team */
+        /**
+         * List absences for the team
+         * @description Visible to any team member regardless of module permissions -- there is no `absences` RBAC module. This includes each entry's free-text `reason`, which every member can read even if every other module permission is set to `none`. This is a deliberate product decision (a team-wide "who's out and why" view), not an oversight.
+         */
         get: operations["listAbsences"];
         put?: never;
         /** Create absence entry */
