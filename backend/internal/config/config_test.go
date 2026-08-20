@@ -772,6 +772,17 @@ func TestLoad_DBPoolMinConnsInvalid(t *testing.T) {
 	assert.Contains(t, err.Error(), "DB_POOL_MIN_CONNS")
 }
 
+func TestLoad_DBPoolMaxConnsOutOfInt32RangeRejected(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	// One more than math.MaxInt32 (2147483647) -- pgxpool.Config.MaxConns is
+	// int32, so this must be rejected before it ever reaches that conversion.
+	t.Setenv("DB_POOL_MAX_CONNS", "2147483648")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrDBPoolConnsOutOfRange)
+}
+
 func TestLoad_DBPoolMaxConnLifetimeInvalid(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
 	t.Setenv("COOKIE_SECURE", "false")
