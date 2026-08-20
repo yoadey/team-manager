@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -145,6 +146,23 @@ const gomemlimitHeadroomFactor = 0.9
 // A no-op when GOMEMLIMIT is unset or unparseable (local dev, tests, or a
 // future non-numeric GOMEMLIMIT format like "256MiB" that this intentionally
 // doesn't attempt to parse -- the chart only ever sets the raw-byte form).
+// clampToInt32 saturates v into int32's range. pgxpool.Config's MaxConns/
+// MinConns are int32; config.loadDBPoolConfig already rejects values outside
+// [0, math.MaxInt32] at startup, so this never actually clamps in practice --
+// it exists so the conversion itself is a provably bounded, single-function
+// operation (satisfying both golangci-lint's gosec G115 and CodeQL's
+// architecture-dependent-integer-conversion check) rather than relying on a
+// caller-side check the analyzer can't trace across a struct field.
+func clampToInt32(v int) int32 {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(v)
+}
+
 func applyMemoryLimitHeadroom() {
 	raw := os.Getenv("GOMEMLIMIT")
 	if raw == "" {
@@ -333,8 +351,8 @@ func main() {
 	ctx := context.Background()
 
 	pool, err := db.Connect(ctx, cfg.DatabaseURL, db.PoolConfig{
-		MaxConns:        int32(cfg.DBPoolMaxConns), //nolint:gosec // G115: config.loadDBPoolConfig rejects values outside [0, math.MaxInt32]
-		MinConns:        int32(cfg.DBPoolMinConns), //nolint:gosec // G115: config.loadDBPoolConfig rejects values outside [0, math.MaxInt32]
+		MaxConns:        clampToInt32(cfg.DBPoolMaxConns),
+		MinConns:        clampToInt32(cfg.DBPoolMinConns),
 		MaxConnLifetime: cfg.DBPoolMaxConnLifetime,
 		MaxConnIdleTime: cfg.DBPoolMaxConnIdleTime,
 	})
