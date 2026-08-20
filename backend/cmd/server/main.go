@@ -137,15 +137,6 @@ func warnIfPaginationKeyOpen(cfg *config.Config) {
 // GOMEMLIMIT exists to provide (see deployment.yaml's env block comment).
 const gomemlimitHeadroomFactor = 0.9
 
-// applyMemoryLimitHeadroom re-applies GOMEMLIMIT (set by the Helm chart from
-// the downward API as a raw byte count -- limits.memory with no divisor,
-// see deployment.yaml) scaled down by gomemlimitHeadroomFactor. Kubernetes'
-// resourceFieldRef has no built-in percentage option, so the Go runtime's
-// automatic env-var handling alone can't add this margin; calling
-// debug.SetMemoryLimit here overrides whatever it applied at process init.
-// A no-op when GOMEMLIMIT is unset or unparseable (local dev, tests, or a
-// future non-numeric GOMEMLIMIT format like "256MiB" that this intentionally
-// doesn't attempt to parse -- the chart only ever sets the raw-byte form).
 // clampToInt32 saturates v into int32's range. pgxpool.Config's MaxConns/
 // MinConns are int32; config.loadDBPoolConfig already rejects values outside
 // [0, math.MaxInt32] at startup, so this never actually clamps in practice --
@@ -163,6 +154,15 @@ func clampToInt32(v int) int32 {
 	return int32(v)
 }
 
+// applyMemoryLimitHeadroom re-applies GOMEMLIMIT (set by the Helm chart from
+// the downward API as a raw byte count -- limits.memory with no divisor,
+// see deployment.yaml) scaled down by gomemlimitHeadroomFactor. Kubernetes'
+// resourceFieldRef has no built-in percentage option, so the Go runtime's
+// automatic env-var handling alone can't add this margin; calling
+// debug.SetMemoryLimit here overrides whatever it applied at process init.
+// A no-op when GOMEMLIMIT is unset or unparseable (local dev, tests, or a
+// future non-numeric GOMEMLIMIT format like "256MiB" that this intentionally
+// doesn't attempt to parse -- the chart only ever sets the raw-byte form).
 func applyMemoryLimitHeadroom() {
 	raw := os.Getenv("GOMEMLIMIT")
 	if raw == "" {
