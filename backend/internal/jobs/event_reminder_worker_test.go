@@ -374,7 +374,7 @@ func TestEventReminderWorker_Work_MarkerNotOrphanedWhenEnqueueFails(t *testing.T
 			{Id: uuid.New(), UserId: userID, Subscription: push.Subscription{Endpoint: "https://push.example/enqueue-fails", P256dh: "p", AuthKey: "a"}},
 		},
 	}
-	perms := &mockPermsChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	perms := &mockPermsChecker{perms: map[uuid.UUID]teams.PermissionsJSON{userID: {Events: "read"}}}
 	worker := jobs.NewEventReminderWorker(pool, eventsRepo, pushRepo, perms)
 
 	// Note: jobs.MigrateRiver is intentionally NOT called here -- see the
