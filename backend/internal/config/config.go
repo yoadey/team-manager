@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -73,6 +74,11 @@ var ErrVAPIDConfigRequired = errors.New("VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and
 // connections open under a lower MaxConns ceiling, so this is almost always a
 // misconfiguration worth failing startup over.
 var ErrDBPoolMinConnsExceedsMax = errors.New("DB_POOL_MIN_CONNS must not exceed DB_POOL_MAX_CONNS")
+
+// ErrDBPoolConnsOutOfRange is returned when DB_POOL_MAX_CONNS/DB_POOL_MIN_CONNS
+// fall outside what pgxpool.Config (which takes int32) can represent, so the
+// later int32(...) conversion in cmd/server/main.go is provably safe.
+var ErrDBPoolConnsOutOfRange = fmt.Errorf("DB_POOL_MAX_CONNS and DB_POOL_MIN_CONNS must be within [0, %d]", math.MaxInt32)
 
 // cookieKeySize is the AES-256 key length required for session cookie encryption.
 const cookieKeySize = 32
@@ -296,11 +302,7 @@ func Load() (*Config, error) {
 	}
 	vapid := extra.VAPID
 	imageDeliveryProxyEnabled := extra.ImageDeliveryProxyEnabled
-
-	dbPool, err := loadDBPoolConfig()
-	if err != nil {
-		return nil, err
-	}
+	dbPool := extra.DBPool
 
 	return &Config{
 		Port:                              envOr("PORT", "8080"),
@@ -361,8 +363,12 @@ func Load() (*Config, error) {
 type additionalConfig struct {
 	VAPID                     vapidSettings
 	ImageDeliveryProxyEnabled bool
+	DBPool                    dbPoolSettings
 }
 
+// loadAdditionalConfig also folds in loadDBPoolConfig -- this keeps Load
+// itself to one err-check per grouped concern instead of one per individual
+// loader, since cyclop counts every branch in Load directly.
 func loadAdditionalConfig(cookieSecure bool) (additionalConfig, error) {
 	vapid, err := loadVAPIDConfig(cookieSecure)
 	if err != nil {
@@ -372,7 +378,11 @@ func loadAdditionalConfig(cookieSecure bool) (additionalConfig, error) {
 	if err != nil {
 		return additionalConfig{}, err
 	}
-	return additionalConfig{VAPID: vapid, ImageDeliveryProxyEnabled: imageDeliveryProxyEnabled}, nil
+	dbPool, err := loadDBPoolConfig()
+	if err != nil {
+		return additionalConfig{}, err
+	}
+	return additionalConfig{VAPID: vapid, ImageDeliveryProxyEnabled: imageDeliveryProxyEnabled, DBPool: dbPool}, nil
 }
 
 // vapidSettings mirrors the VAPID-related Config fields; kept as its own
@@ -710,6 +720,9 @@ func loadDBPoolConfig() (dbPoolSettings, error) {
 	}
 	if minConns > maxConns {
 		return dbPoolSettings{}, ErrDBPoolMinConnsExceedsMax
+	}
+	if minConns < 0 || maxConns < 0 || maxConns > math.MaxInt32 {
+		return dbPoolSettings{}, ErrDBPoolConnsOutOfRange
 	}
 	maxConnLifetimeMinutes, err := parseInt(os.Getenv("DB_POOL_MAX_CONN_LIFETIME_MINUTES"), 60)
 	if err != nil {

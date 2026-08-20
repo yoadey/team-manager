@@ -333,8 +333,8 @@ func main() {
 	ctx := context.Background()
 
 	pool, err := db.Connect(ctx, cfg.DatabaseURL, db.PoolConfig{
-		MaxConns:        int32(cfg.DBPoolMaxConns),
-		MinConns:        int32(cfg.DBPoolMinConns),
+		MaxConns:        int32(cfg.DBPoolMaxConns), //nolint:gosec // G115: config.loadDBPoolConfig rejects values outside [0, math.MaxInt32]
+		MinConns:        int32(cfg.DBPoolMinConns), //nolint:gosec // G115: config.loadDBPoolConfig rejects values outside [0, math.MaxInt32]
 		MaxConnLifetime: cfg.DBPoolMaxConnLifetime,
 		MaxConnIdleTime: cfg.DBPoolMaxConnIdleTime,
 	})
