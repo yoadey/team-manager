@@ -3,7 +3,7 @@
 # building the shipped image with a different toolchain would mean the
 # binary CI actually tests/scans (go test -race, govulncheck, CodeQL) is not
 # the one built into the container. Bump both together.
-FROM golang:1.25.13@sha256:cbff9d1a9041b316010f2da6b701b6c0d597718cb90928c85eb597334a0d23d4 AS builder
+FROM golang:1.26.6@sha256:0d1d3a794be25f809dd2cb3160d8c73276c4056a9f8242a138e908ddeee7b6b6 AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
