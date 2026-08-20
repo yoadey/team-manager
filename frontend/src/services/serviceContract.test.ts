@@ -7,13 +7,35 @@
 // fixed behavior directly against the MSW demo backend.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { realApi as api } from './serviceLayerReal';
-import { db, DEMO_LOGIN_EMAIL, DEMO_PASSWORD } from '@/mocks/db';
+import { db, perms, rid, DEMO_LOGIN_EMAIL, DEMO_PASSWORD } from '@/mocks/db';
 import { todayLocalDate } from '@/utils/date';
 import { AuthError, ForbiddenError, ValidationError } from '@/utils/errors';
+import type { Permissions, RoleDto } from '@/types';
 
 beforeEach(async () => {
   await api.auth.login(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
 });
+
+// Replaces the logged-in demo caller's (u1's) roles on `teamId` with a
+// single freshly-minted role carrying exactly `overrides` (every module not
+// listed defaults to 'none' via db.ts's `perms`), so a test can exercise a
+// specific effective permission level in isolation. u1 is normally an admin
+// on t_a (see db.ts's seed data) -- without this, every RBAC test below
+// would trivially pass regardless of what the mock enforces.
+function grantOnly(teamId: string, userId: string, overrides: Partial<Permissions>): void {
+  const membership = db.memberships.find((m) => m.teamId === teamId && m.userId === userId);
+  if (!membership) throw new Error(`no membership for ${userId} on ${teamId}`);
+  const role: RoleDto = {
+    id: rid('role'),
+    teamId,
+    name: 'RBAC test role',
+    system: false,
+    color: '#888888',
+    permissions: perms(overrides),
+  };
+  db.roles.push(role);
+  membership.roleIds = [role.id];
+}
 
 function onlyVerificationToken(): string {
   const tokens = Object.keys(db.verificationTokens);
@@ -563,5 +585,97 @@ describe('per-team statistics view preferences and named presets', () => {
     const reloaded = await api.statsPrefs.getPreferences('t_a');
     expect(reloaded.presetId).toBeNull();
     expect(reloaded.range).toEqual({ from: preset.from, to: preset.to });
+  });
+});
+
+// Pins the mock backend's RBAC enforcement (frontend/src/mocks/handlers.ts's
+// requirePermission, backed by db.ts's permissionFor) against
+// backend/openapi/openapi.yaml's x-rbac-module/x-rbac-self-service
+// extensions -- the same contract backend/internal/middleware/authz.go
+// enforces for real. Without these, a regression that silently dropped a
+// permission check (mock or real) would pass every other test in this file.
+describe('RBAC enforcement: module-gated routes reject an under-permissioned caller', () => {
+  it('a caller with a module set to none gets Forbidden on a representative GET per module', async () => {
+    grantOnly('t_a', 'u1', {});
+    await expect(api.events.list('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.members.list('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.finances.overview('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.news.list('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.polls.list('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.roles.list('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.stats.teamOverview('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it('a read-only caller gets Forbidden on a representative mutating request per module', async () => {
+    grantOnly('t_a', 'u1', {
+      events: 'read',
+      members: 'read',
+      finances: 'read',
+      news: 'read',
+      polls: 'read',
+      settings: 'read',
+      stats: 'read',
+    });
+    const today = todayLocalDate();
+    const u4Membership = db.memberships.find((m) => m.teamId === 't_a' && m.userId === 'u4')!;
+
+    await expect(api.events.create('t_a', { type: 'training', title: 'Nope', date: today })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    await expect(api.members.update(u4Membership.id, { group: 'Nope' }, 't_a')).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    await expect(
+      api.finances.addTransaction('t_a', { type: 'income', title: 'Nope', amount: 1 }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.news.create('t_a', { title: 'Nope', body: 'Nope' })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.polls.create('t_a', { question: 'Nope?', options: ['A', 'B'] })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    await expect(api.teams.updateSettings('t_a', { name: 'Nope' })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      api.statsPrefs.createPreset('t_a', 'Nope', { from: '2026-01-01', to: '2026-01-31' }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe('RBAC enforcement: self-service routes stay available to a read-only caller acting on their own record', () => {
+  it("lets a read-only caller set/clear their OWN member title (members:read, not members:write)", async () => {
+    grantOnly('t_a', 'u1', { members: 'read' });
+    const me = db.memberships.find((m) => m.teamId === 't_a' && m.userId === 'u1')!;
+
+    const updated = await api.members.setMyTitle(me.id, 'Testkapitän', 't_a');
+    expect(updated.title).toBe('Testkapitän');
+  });
+
+  it('lets a read-only caller add and remove their OWN event comment (events:read, not events:write)', async () => {
+    grantOnly('t_a', 'u1', { events: 'read' });
+    const event = db.events.find((e) => e.teamId === 't_a')!;
+
+    const comment = await api.events.addComment(event.id, 'Bin dabei!', 't_a');
+    expect(comment.text).toBe('Bin dabei!');
+
+    await expect(api.events.removeComment(comment.id, event.id, 't_a')).resolves.toBeUndefined();
+  });
+
+  it('lets a read-only caller set their OWN attendance, but not another member\'s (events:read vs. events:write)', async () => {
+    grantOnly('t_a', 'u1', { events: 'read' });
+    const event = db.events.find((e) => e.teamId === 't_a' && e.status === 'active')!;
+
+    await expect(api.attendance.set(event.id, 'u1', { status: 'yes' }, 't_a')).resolves.toBeTruthy();
+    await expect(api.attendance.set(event.id, 'u4', { status: 'yes' }, 't_a')).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+
+    grantOnly('t_a', 'u1', { events: 'write' });
+    await expect(api.attendance.set(event.id, 'u4', { status: 'yes' }, 't_a')).resolves.toBeTruthy();
+  });
+
+  it('lets a read-only caller cast their OWN poll vote (polls:read, not polls:write)', async () => {
+    grantOnly('t_a', 'u1', { polls: 'read' });
+    const poll = db.polls.find((p) => p.teamId === 't_a' && !p.multiple)!;
+    const option = poll.options[0]!;
+
+    await expect(api.polls.vote(poll.id, [option.id], 't_a')).resolves.toBeUndefined();
   });
 });

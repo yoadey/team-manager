@@ -98,6 +98,17 @@ export function primaryRole(roles: RoleDto[]): RoleDto | null {
   return [...roles].sort((a, b) => score(b) - score(a))[0] || null;
 }
 
+// The caller's effective permissions for a team -- mirrors
+// backend/internal/members.Repository.GetPermissions (folded via mergePerms
+// above, same max-across-roles rule): 'none' on every module for a
+// non-member, since they have no membership row (and thus no roles) to fold.
+// Used by handlers.ts's requirePermission to replicate the real backend's
+// RBAC enforcement (backend/internal/middleware/authz.go) in the mock.
+export function permissionFor(userId: string, teamId: string): Permissions {
+  const m = db.memberships.find((x) => x.teamId === teamId && x.userId === userId);
+  return m ? mergePerms(rolesOf(m)) : perms();
+}
+
 // The seeded default role newly-accepted invitees get (see handlers.ts's
 // POST /invites/:code/accept) — a stable name, not derived by excluding the
 // admin role, so it still resolves correctly even if a team has several
