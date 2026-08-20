@@ -1331,6 +1331,12 @@ paths:
       operationId: listAbsences
       x-rbac-module: public
       summary: List absences for the team
+      description: >-
+        Visible to any team member regardless of module permissions -- there
+        is no `absences` RBAC module. This includes each entry's free-text
+        `reason`, which every member can read even if every other module
+        permission is set to `none`. This is a deliberate product decision
+        (a team-wide "who's out and why" view), not an oversight.
       parameters:
         - $ref: "#/components/parameters/limit"
         - $ref: "#/components/parameters/cursor"
