@@ -182,8 +182,13 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
   const allGroupRows = allContribs.filter((c) => groupKey(c) === sel);
   const groupFullyArchived = allGroupRows.length > 0 && allGroupRows.every((c) => c.archived);
   const paidRows = rows.filter((c) => c.status === 'paid');
-  const sum = paidRows.reduce((s, c) => s + c.paidAmount, 0);
-  const total = rows.reduce((s, c) => s + c.amount, 0);
+  // Sum in integer cents, then convert to euros once -- summing the
+  // already-converted euro floats (c.paidAmount/c.amount) directly can
+  // accumulate visible floating-point rounding error for larger groups,
+  // same as the cents-then-convert-once pattern used everywhere else
+  // (see api/map.ts's centsToEuros/mapFinanceOverview).
+  const sum = paidRows.reduce((s, c) => s + c.paidAmountCents, 0) / 100;
+  const total = rows.reduce((s, c) => s + c.amountCents, 0) / 100;
   const pct = rows.length ? Math.round((paidRows.length / rows.length) * 100) : 0;
 
   const groupChips = (
