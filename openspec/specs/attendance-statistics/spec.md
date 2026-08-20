@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change align-stats-with-effective-attendance. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Statistics use effective attendance
 Attendance statistics MUST be computed from the effective attendance status (explicit response, else an overlapping absence → not attending, else an opt-out default → attending), identical to the status shown on the event summary.
 
@@ -45,13 +47,23 @@ The matrix MUST order rows by attendance frequency (most attending first) and co
 - **THEN** the columns are ordered by event date ascending
 
 ### Requirement: Matrix range and authorization
-The matrix endpoint MUST apply the same date-range defaulting and clamping as the stats overview, and MUST require the same `events`-module read authorization; an unauthenticated request MUST be rejected.
+The overview, matrix, and single-member statistics endpoints MUST all
+apply the same date-range defaulting and clamping, and MUST all require
+the same `stats`-module read authorization; an unauthenticated request
+MUST be rejected.
 
 #### Scenario: Default range when unspecified
-- **WHEN** the matrix is requested without `from`/`to`
-- **THEN** the same default window as the overview (last 3 months) is used
+- **WHEN** any of the three statistics endpoints is requested without
+  `from`/`to`
+- **THEN** the same default window (last 3 months) is used
+
+#### Scenario: Single-member view honors an explicit range
+- **WHEN** the single-member statistics endpoint is requested with
+  explicit `from`/`to`
+- **THEN** the returned statistics are computed for that range, not the
+  default
 
 #### Scenario: Unauthenticated request
-- **WHEN** the matrix is requested without a valid session
+- **WHEN** any of the three statistics endpoints is requested without a
+  valid session
 - **THEN** the request is rejected with 401
-

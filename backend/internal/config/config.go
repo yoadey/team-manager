@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -67,6 +68,17 @@ var ErrSMTPConfigRequired = errors.New("SMTP_HOST and SMTP_FROM_ADDRESS are requ
 // or VAPID_SUBJECT is missing while COOKIE_SECURE is true (production) --
 // Web Push would otherwise silently never deliver.
 var ErrVAPIDConfigRequired = errors.New("VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are all required when COOKIE_SECURE=true")
+
+// ErrDBPoolMinConnsExceedsMax is returned when DB_POOL_MIN_CONNS is greater
+// than DB_POOL_MAX_CONNS -- pgxpool would never actually keep MinConns idle
+// connections open under a lower MaxConns ceiling, so this is almost always a
+// misconfiguration worth failing startup over.
+var ErrDBPoolMinConnsExceedsMax = errors.New("DB_POOL_MIN_CONNS must not exceed DB_POOL_MAX_CONNS")
+
+// ErrDBPoolConnsOutOfRange is returned when DB_POOL_MAX_CONNS/DB_POOL_MIN_CONNS
+// fall outside what pgxpool.Config (which takes int32) can represent, so the
+// later int32(...) conversion in cmd/server/main.go is provably safe.
+var ErrDBPoolConnsOutOfRange = fmt.Errorf("DB_POOL_MAX_CONNS and DB_POOL_MIN_CONNS must be within [0, %d]", math.MaxInt32)
 
 // cookieKeySize is the AES-256 key length required for session cookie encryption.
 const cookieKeySize = 32
@@ -199,6 +211,23 @@ type Config struct {
 	// -- for deployments where the object store is not reachable from the
 	// browser. Set via IMAGE_DELIVERY_PROXY_ENABLED.
 	ImageDeliveryProxyEnabled bool
+	// DBPoolMaxConns is the maximum number of connections pgxpool opens
+	// against Postgres. Default: 25. Set via DB_POOL_MAX_CONNS. Tune this
+	// down when scaling replica count against a fixed DB max_connections
+	// budget.
+	DBPoolMaxConns int
+	// DBPoolMinConns is the minimum number of idle connections pgxpool keeps
+	// open in the pool. Default: 2. Set via DB_POOL_MIN_CONNS. Must not
+	// exceed DBPoolMaxConns.
+	DBPoolMinConns int
+	// DBPoolMaxConnLifetime is the maximum lifetime of a pooled connection
+	// before pgxpool closes and replaces it. Default: 1h. Set via
+	// DB_POOL_MAX_CONN_LIFETIME_MINUTES.
+	DBPoolMaxConnLifetime time.Duration
+	// DBPoolMaxConnIdleTime is the maximum time a pooled connection may sit
+	// idle before pgxpool closes it. Default: 30m. Set via
+	// DB_POOL_MAX_CONN_IDLE_TIME_MINUTES.
+	DBPoolMaxConnIdleTime time.Duration
 }
 
 func Load() (*Config, error) {
@@ -273,6 +302,7 @@ func Load() (*Config, error) {
 	}
 	vapid := extra.VAPID
 	imageDeliveryProxyEnabled := extra.ImageDeliveryProxyEnabled
+	dbPool := extra.DBPool
 
 	return &Config{
 		Port:                              envOr("PORT", "8080"),
@@ -319,6 +349,10 @@ func Load() (*Config, error) {
 		VAPIDPrivateKey:                   vapid.PrivateKey,
 		VAPIDSubject:                      vapid.Subject,
 		ImageDeliveryProxyEnabled:         imageDeliveryProxyEnabled,
+		DBPoolMaxConns:                    dbPool.MaxConns,
+		DBPoolMinConns:                    dbPool.MinConns,
+		DBPoolMaxConnLifetime:             dbPool.MaxConnLifetime,
+		DBPoolMaxConnIdleTime:             dbPool.MaxConnIdleTime,
 	}, nil
 }
 
@@ -329,8 +363,12 @@ func Load() (*Config, error) {
 type additionalConfig struct {
 	VAPID                     vapidSettings
 	ImageDeliveryProxyEnabled bool
+	DBPool                    dbPoolSettings
 }
 
+// loadAdditionalConfig also folds in loadDBPoolConfig -- this keeps Load
+// itself to one err-check per grouped concern instead of one per individual
+// loader, since cyclop counts every branch in Load directly.
 func loadAdditionalConfig(cookieSecure bool) (additionalConfig, error) {
 	vapid, err := loadVAPIDConfig(cookieSecure)
 	if err != nil {
@@ -340,7 +378,11 @@ func loadAdditionalConfig(cookieSecure bool) (additionalConfig, error) {
 	if err != nil {
 		return additionalConfig{}, err
 	}
-	return additionalConfig{VAPID: vapid, ImageDeliveryProxyEnabled: imageDeliveryProxyEnabled}, nil
+	dbPool, err := loadDBPoolConfig()
+	if err != nil {
+		return additionalConfig{}, err
+	}
+	return additionalConfig{VAPID: vapid, ImageDeliveryProxyEnabled: imageDeliveryProxyEnabled, DBPool: dbPool}, nil
 }
 
 // vapidSettings mirrors the VAPID-related Config fields; kept as its own
@@ -649,6 +691,53 @@ func loadRetentionDays() (notifications, sessions, auditLog int, err error) {
 		return 0, 0, 0, fmt.Errorf("RETENTION_AUDIT_LOG_DAYS: %w", err)
 	}
 	return notifications, sessions, auditLog, nil
+}
+
+// dbPoolSettings mirrors the DBPool*-related Config fields; kept as its own
+// return type so loadDBPoolConfig has a single value to return, mirroring
+// s3Settings/smtpSettings.
+type dbPoolSettings struct {
+	MaxConns        int
+	MinConns        int
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
+}
+
+// loadDBPoolConfig reads the DB_POOL_* env vars governing Postgres
+// connection-pool sizing (DB_POOL_MAX_CONNS, DB_POOL_MIN_CONNS,
+// DB_POOL_MAX_CONN_LIFETIME_MINUTES, DB_POOL_MAX_CONN_IDLE_TIME_MINUTES),
+// defaulting to the settings this codebase used to hardcode in db.Connect
+// (MaxConns 25, MinConns 2, MaxConnLifetime 1h, MaxConnIdleTime 30m). See
+// ErrDBPoolMinConnsExceedsMax for the one cross-field validation.
+func loadDBPoolConfig() (dbPoolSettings, error) {
+	maxConns, err := parseInt(os.Getenv("DB_POOL_MAX_CONNS"), 25)
+	if err != nil {
+		return dbPoolSettings{}, fmt.Errorf("DB_POOL_MAX_CONNS: %w", err)
+	}
+	minConns, err := parseInt(os.Getenv("DB_POOL_MIN_CONNS"), 2)
+	if err != nil {
+		return dbPoolSettings{}, fmt.Errorf("DB_POOL_MIN_CONNS: %w", err)
+	}
+	if minConns > maxConns {
+		return dbPoolSettings{}, ErrDBPoolMinConnsExceedsMax
+	}
+	if minConns < 0 || maxConns < 0 || maxConns > math.MaxInt32 {
+		return dbPoolSettings{}, ErrDBPoolConnsOutOfRange
+	}
+	maxConnLifetimeMinutes, err := parseInt(os.Getenv("DB_POOL_MAX_CONN_LIFETIME_MINUTES"), 60)
+	if err != nil {
+		return dbPoolSettings{}, fmt.Errorf("DB_POOL_MAX_CONN_LIFETIME_MINUTES: %w", err)
+	}
+	maxConnIdleTimeMinutes, err := parseInt(os.Getenv("DB_POOL_MAX_CONN_IDLE_TIME_MINUTES"), 30)
+	if err != nil {
+		return dbPoolSettings{}, fmt.Errorf("DB_POOL_MAX_CONN_IDLE_TIME_MINUTES: %w", err)
+	}
+	return dbPoolSettings{
+		MaxConns:        maxConns,
+		MinConns:        minConns,
+		MaxConnLifetime: time.Duration(maxConnLifetimeMinutes) * time.Minute,
+		MaxConnIdleTime: time.Duration(maxConnIdleTimeMinutes) * time.Minute,
+	}, nil
 }
 
 // loadTrustedProxyCIDRs parses TRUSTED_PROXY_CIDRS into a slice of trimmed,

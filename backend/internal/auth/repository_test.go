@@ -6,18 +6,38 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/auth"
+	"github.com/yoadey/team-manager/backend/internal/jobs"
+	"github.com/yoadey/team-manager/backend/internal/mailer"
 	"github.com/yoadey/team-manager/backend/internal/testutil"
 )
+
+// newTestRepo builds an auth.Repository backed by a real River client (a
+// FakeMailer-backed jobs.Client) so CreateEmailVerificationToken/
+// CreatePasswordResetToken's transactional token-insert-plus-job-enqueue can
+// be exercised end-to-end against Postgres, the same way jobs_test's own
+// worker tests use a real river.Client rather than mocking River itself.
+// InsertTx doesn't require the client to be Start()ed (see river.Client.
+// InsertTx's doc comment -- it inserts directly on the given tx, with no
+// dependency on the run loop), so this never starts or stops riverClient.
+func newTestRepo(t *testing.T, pool *pgxpool.Pool) *auth.Repository {
+	t.Helper()
+	ctx := context.Background()
+	require.NoError(t, jobs.MigrateRiver(ctx, pool))
+	jobsClient, _, err := jobs.NewClient(pool, nil, nil, nil, mailer.NewFakeMailer(nil))
+	require.NoError(t, err)
+	return auth.NewRepository(pool, jobsClient)
+}
 
 func TestRepository_FindUserByEmail(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	// Insert a test user directly.
@@ -48,7 +68,7 @@ func TestRepository_FindUserByEmail_CaseInsensitive(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	_, err := pool.Exec(
@@ -68,7 +88,7 @@ func TestRepository_FindUserByID(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	_, err := pool.Exec(
@@ -93,7 +113,7 @@ func TestRepository_FindUserByID_ExposesHasPhotoFromObjectKey(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	_, err := pool.Exec(
@@ -116,7 +136,7 @@ func TestRepository_CreateAndFindSession(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	// Need a user first (FK constraint).
@@ -146,7 +166,7 @@ func TestRepository_EraseUser_SoleSettingsAdmin_Blocked(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	teamID := "aaaaaaaa-1111-1111-1111-111111111111"
@@ -184,7 +204,7 @@ func TestRepository_EraseUser_SoleSettingsAdminOfMultipleTeams_ListsAllTeams(t *
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	userID := "cccccccc-2222-2222-2222-222222222222"
@@ -216,7 +236,7 @@ func TestRepository_EraseUser_AnotherSettingsAdminExists_Succeeds(t *testing.T) 
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	teamID := "bbbbbbbb-1111-1111-1111-111111111111"
@@ -263,7 +283,7 @@ func TestRepository_EraseUser_TakesAdvisoryLockForUserTeams(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	teamID := "dddddddd-1111-1111-1111-111111111111"
@@ -323,7 +343,7 @@ func TestRepository_DeleteSession(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	_, err := pool.Exec(
@@ -355,7 +375,7 @@ func TestRepository_ExportUserData_PenaltyAssignmentUsesSnapshotNotLiveDefinitio
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	userID := "55555555-5555-5555-5555-555555555555"
@@ -408,7 +428,7 @@ func TestRepository_UpdateUserPhoto_RejectsErasedUser(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	userID := "cccccccc-1111-1111-1111-111111111111"
@@ -428,11 +448,54 @@ func TestRepository_UpdateUserPhoto_RejectsErasedUser(t *testing.T) {
 	assert.Nil(t, photoKey, "no photo_object_key should have been written to an erased user's row")
 }
 
+// Regression test for the account-enumeration timing fix (mirrors
+// TestRepository_CreatePasswordResetToken_EnqueuesMailJobAtomically):
+// CreateEmailVerificationToken's token-row insert and mail-job enqueue must
+// land in the same DB transaction too, so Register/ResendVerification never
+// block on SMTP either. See openspec/changes/async-auth-email-delivery/design.md.
+func TestRepository_CreateEmailVerificationToken_EnqueuesMailJobAtomically(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := newTestRepo(t, pool)
+	ctx := context.Background()
+
+	userID := "dddddddd-8888-8888-8888-888888888888"
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Jack', 'jack@example.com', '#112233')`,
+		userID)
+	require.NoError(t, err)
+
+	expiresAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Millisecond)
+	require.NoError(t, repo.CreateEmailVerificationToken(ctx, userID, "verifytokenhash", expiresAt, "jack@example.com", "https://example.com/verify-email/verifyraw"))
+
+	found, err := repo.FindEmailVerificationToken(ctx, "verifytokenhash")
+	require.NoError(t, err)
+	assert.Equal(t, userID, found.UserId.String())
+
+	var (
+		kind  string
+		state string
+		args  []byte
+	)
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT kind, state, args FROM river_job WHERE kind = 'send_verification_email' ORDER BY id DESC LIMIT 1`,
+	).Scan(&kind, &state, &args))
+	assert.Equal(t, "send_verification_email", kind)
+	assert.Equal(t, "available", state, "the job must be immediately available to a worker, not blocked on anything else")
+	assert.Contains(t, string(args), "jack@example.com")
+	assert.Contains(t, string(args), "verifyraw")
+
+	require.NoError(t, repo.ConsumeEmailVerificationToken(ctx, "verifytokenhash"))
+	_, err = repo.FindEmailVerificationToken(ctx, "verifytokenhash")
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "a consumed token must no longer be findable")
+}
+
 func TestRepository_CreateFindConsumePasswordResetToken(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	userID := "dddddddd-1111-1111-1111-111111111111"
@@ -442,7 +505,7 @@ func TestRepository_CreateFindConsumePasswordResetToken(t *testing.T) {
 	require.NoError(t, err)
 
 	expiresAt := time.Now().Add(time.Hour).UTC().Truncate(time.Millisecond)
-	require.NoError(t, repo.CreatePasswordResetToken(ctx, userID, "tokenhash123", expiresAt))
+	require.NoError(t, repo.CreatePasswordResetToken(ctx, userID, "tokenhash123", expiresAt, "dave@example.com", "https://example.com/reset-password/rawtoken123"))
 
 	found, err := repo.FindPasswordResetToken(ctx, "tokenhash123")
 	require.NoError(t, err)
@@ -460,11 +523,46 @@ func TestRepository_CreateFindConsumePasswordResetToken(t *testing.T) {
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
+// Regression test for the account-enumeration timing fix: the token-row
+// insert and the mail-job enqueue must land in the same DB transaction, so a
+// row appears in river_job for every CreatePasswordResetToken call --
+// without ever calling a mailer.Mailer or blocking on SMTP -- see
+// openspec/changes/async-auth-email-delivery/design.md.
+func TestRepository_CreatePasswordResetToken_EnqueuesMailJobAtomically(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := newTestRepo(t, pool)
+	ctx := context.Background()
+
+	userID := "dddddddd-7777-7777-7777-777777777777"
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color, password_hash) VALUES ($1, 'Ivy', 'ivy@example.com', '#112233', 'old-hash')`,
+		userID)
+	require.NoError(t, err)
+
+	expiresAt := time.Now().Add(time.Hour).UTC().Truncate(time.Millisecond)
+	require.NoError(t, repo.CreatePasswordResetToken(ctx, userID, "atomictokenhash", expiresAt, "ivy@example.com", "https://example.com/reset-password/atomicraw"))
+
+	var (
+		kind  string
+		state string
+		args  []byte
+	)
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT kind, state, args FROM river_job WHERE kind = 'send_password_reset_email' ORDER BY id DESC LIMIT 1`,
+	).Scan(&kind, &state, &args))
+	assert.Equal(t, "send_password_reset_email", kind)
+	assert.Equal(t, "available", state, "the job must be immediately available to a worker, not blocked on anything else")
+	assert.Contains(t, string(args), "ivy@example.com")
+	assert.Contains(t, string(args), "atomicraw")
+}
+
 func TestRepository_FindPasswordResetToken_ExpiredIsRejected(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	userID := "dddddddd-2222-2222-2222-222222222222"
@@ -474,7 +572,7 @@ func TestRepository_FindPasswordResetToken_ExpiredIsRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	expiredAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Millisecond)
-	require.NoError(t, repo.CreatePasswordResetToken(ctx, userID, "expiredtokenhash", expiredAt))
+	require.NoError(t, repo.CreatePasswordResetToken(ctx, userID, "expiredtokenhash", expiredAt, "erin@example.com", "https://example.com/reset-password/expiredraw"))
 
 	_, err = repo.FindPasswordResetToken(ctx, "expiredtokenhash")
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
@@ -484,7 +582,7 @@ func TestRepository_UpdateUserPassword(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	userID := "dddddddd-3333-3333-3333-333333333333"
@@ -507,7 +605,7 @@ func TestRepository_UpdateUserPassword_RejectsErasedUser(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	userID := "dddddddd-4444-4444-4444-444444444444"
@@ -530,7 +628,7 @@ func TestRepository_DeleteSessionsForUser(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	repo := auth.NewRepository(pool)
+	repo := newTestRepo(t, pool)
 	ctx := context.Background()
 
 	userID := "dddddddd-5555-5555-5555-555555555555"

@@ -809,7 +809,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** List absences for the team */
+        /**
+         * List absences for the team
+         * @description Visible to any team member regardless of module permissions -- there is no `absences` RBAC module. This includes each entry's free-text `reason`, which every member can read even if every other module permission is set to `none`. This is a deliberate product decision (a team-wide "who's out and why" view), not an oversight.
+         */
         get: operations["listAbsences"];
         put?: never;
         /** Create absence entry */
@@ -1078,7 +1081,10 @@ export interface paths {
         delete: operations["deleteTransaction"];
         options?: never;
         head?: never;
-        /** Update transaction */
+        /**
+         * Update transaction
+         * @description Changing `type` away from `income` is rejected (400) while the transaction still has `contributionId`/`penaltyAssignmentId` set -- it would silently detach a booked fee/fine payment from its target with no warning. Delete and recreate the transaction instead; `amount`/other fields may still be edited freely on a linked transaction.
+         */
         patch: operations["updateTransaction"];
         trace?: never;
     };
@@ -1381,7 +1387,6 @@ export interface components {
             password: string;
         };
         LoginResponse: {
-            token: string;
             user: components["schemas"]["User"];
         };
         RegisterRequest: {
@@ -1531,7 +1536,6 @@ export interface components {
             /** Format: date */
             birthday?: string;
             address?: string;
-            roleIds?: string[];
             group?: string;
             title?: string;
             excludeFromStats?: boolean;
@@ -2204,7 +2208,10 @@ export interface components {
             enough: boolean;
         };
         StatsOverview: {
-            /** Format: float */
+            /**
+             * Format: float
+             * @description Mean attendance quote across members who have at least one counted event in the range. Members with no counted events (e.g. a brand-new member, or someone whose only events all fell under not_relevant_for_stats/exclude_from_stats) have no attendance data and are excluded from this average entirely -- they are not scored as 0%, matching how MemberStat.quote is null/absent-of-meaning for the same members below. If no member in the range has any counted events, avg is 0.
+             */
             avg: number;
             members: components["schemas"]["MemberStat"][];
             events: components["schemas"]["EventStat"][];

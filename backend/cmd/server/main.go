@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -136,6 +137,23 @@ func warnIfPaginationKeyOpen(cfg *config.Config) {
 // GOMEMLIMIT exists to provide (see deployment.yaml's env block comment).
 const gomemlimitHeadroomFactor = 0.9
 
+// clampToInt32 saturates v into int32's range. pgxpool.Config's MaxConns/
+// MinConns are int32; config.loadDBPoolConfig already rejects values outside
+// [0, math.MaxInt32] at startup, so this never actually clamps in practice --
+// it exists so the conversion itself is a provably bounded, single-function
+// operation (satisfying both golangci-lint's gosec G115 and CodeQL's
+// architecture-dependent-integer-conversion check) rather than relying on a
+// caller-side check the analyzer can't trace across a struct field.
+func clampToInt32(v int) int32 {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(v)
+}
+
 // applyMemoryLimitHeadroom re-applies GOMEMLIMIT (set by the Helm chart from
 // the downward API as a raw byte count -- limits.memory with no divisor,
 // see deployment.yaml) scaled down by gomemlimitHeadroomFactor. Kubernetes'
@@ -184,16 +202,20 @@ func initAuthComponents(
 	pool *pgxpool.Pool,
 	cfg *config.Config,
 	objectStore storage.ObjectStore,
-	mailSender mailer.Mailer,
+	jobsClient *jobs.Client,
 	logger *slog.Logger,
 	auditLogger *audit.Logger,
 ) (*auth.Handler, *auth.SessionCookieCodec, error) {
 	if cfg.JWTPrivateKey == "" && cfg.JWTPublicKey == "" {
 		slog.Warn("JWT_PRIVATE_KEY/JWT_PUBLIC_KEY not set; generating an ephemeral RSA key pair for this process — sessions will not survive a restart and won't verify across replicas")
 	}
-	repo := auth.NewRepository(pool)
+	// jobsClient backs the durable, transactional mail-job enqueue in
+	// Repository.CreateEmailVerificationToken/CreatePasswordResetToken (see
+	// openspec/changes/async-auth-email-delivery/design.md) -- the actual
+	// mailer.Mailer lives on jobsClient's registered SendVerificationEmailWorker/
+	// SendPasswordResetEmailWorker (wired up by jobs.NewClient) instead of here.
+	repo := auth.NewRepository(pool, jobsClient)
 	svc, err := auth.NewService(repo, objectStore, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL, auth.RegistrationConfig{
-		Mailer:                  mailSender,
 		PublicBaseURL:           cfg.PublicBaseURL,
 		EmailVerificationTTL:    cfg.EmailVerificationTTL,
 		SelfRegistrationEnabled: cfg.SelfRegistrationEnabled,
@@ -332,7 +354,12 @@ func main() {
 
 	ctx := context.Background()
 
-	pool, err := db.Connect(ctx, cfg.DatabaseURL)
+	pool, err := db.Connect(ctx, cfg.DatabaseURL, db.PoolConfig{
+		MaxConns:        clampToInt32(cfg.DBPoolMaxConns),
+		MinConns:        clampToInt32(cfg.DBPoolMinConns),
+		MaxConnLifetime: cfg.DBPoolMaxConnLifetime,
+		MaxConnIdleTime: cfg.DBPoolMaxConnIdleTime,
+	})
 	if err != nil {
 		slog.Error("database connection failed", "err", err)
 		os.Exit(1)
@@ -374,11 +401,16 @@ func main() {
 
 	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays, cfg.RetentionAuditLogDays, cfg.RetentionUnverifiedAccountDays)
 	eventReminderWorker := jobs.NewEventReminderWorker(pool, eventsReminderAdapter{repo: eventsRepo}, pushRepo, membersRepo)
+	// mailSender is constructed here (ahead of the "Auth" section below,
+	// which used to build it) because jobs.NewClient needs it to register
+	// SendVerificationEmailWorker/SendPasswordResetEmailWorker -- auth's own
+	// handlers no longer hold a mailer.Mailer at all, see initAuthComponents.
+	mailSender := initMailer(cfg, logger)
 	jobsClient, riverClient, err := jobs.NewClient(pool, retentionWorker, &jobs.PushDeps{
 		Pusher: pusher,
 		Repo:   pushRepo,
 		Perms:  membersRepo,
-	}, eventReminderWorker)
+	}, eventReminderWorker, mailSender)
 	if err != nil {
 		slog.Error("river client init failed", "err", err)
 		os.Exit(1)
@@ -401,8 +433,7 @@ func main() {
 
 	// ─── Auth ────────────────────────────────────────────────────────────────
 
-	mailSender := initMailer(cfg, logger)
-	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, objectStore, mailSender, logger, auditLogger)
+	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, objectStore, jobsClient, logger, auditLogger)
 	if err != nil {
 		slog.Error("auth init failed", "err", err)
 		os.Exit(1)

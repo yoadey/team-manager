@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -161,4 +162,42 @@ func TestRender_FoldsLongLines(t *testing.T) {
 		assert.LessOrEqual(t, len(line), 74, "no unfolded line may exceed 73 octets plus the leading space on continuations")
 	}
 	assert.Contains(t, string(out), "\r\n A") // continuation line prefixed with a single space
+}
+
+// TestRender_FoldsMultiByteUTF8WithoutSplittingRunes guards against folding
+// SUMMARY/LOCATION/DESCRIPTION mid-rune. The padding lengths below are
+// chosen (verified with a byte-offset calculation, not by trial and error at
+// test time) so that under the *old* line[:73]/line[73:] byte-slicing logic,
+// the fold cutoff lands exactly one byte into a following two-byte UTF-8
+// rune (an "ä", 0xC3 0xA4) -- i.e. right after its leading byte -- which
+// splits that rune's bytes across two output lines and produces invalid
+// UTF-8. This test fails under the old logic and passes once folding
+// backs off to a rune boundary.
+func TestRender_FoldsMultiByteUTF8WithoutSplittingRunes(t *testing.T) {
+	t.Parallel()
+
+	title := strings.Repeat("A", 64) + "äöüß Vereinsausflug ins Grüne mit Übernachtung und Frühstück"
+	location := strings.Repeat("A", 63) + "äöüß Größenstraße direkt gegenüber vom Vereinsheim"
+	note := strings.Repeat("A", 60) + "äöüß Bitte über Änderungen der Abfahrtszeit Bescheid geben"
+
+	e := events.EventRow{
+		Id:       uuid.New(),
+		Type:     "training",
+		Title:    title,
+		Date:     time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC),
+		Location: &location,
+		Note:     &note,
+		Status:   "active",
+	}
+
+	out := calendarfeed.Render("Test Team", []events.EventRow{e}, nil)
+
+	require.True(t, utf8.Valid(out), "rendered ICS must be valid UTF-8 -- folding must never split a multi-byte rune")
+
+	// Unfolding (removing every CRLF+space continuation marker) must
+	// reconstruct each field's original text exactly.
+	unfolded := strings.ReplaceAll(string(out), "\r\n ", "")
+	assert.Contains(t, unfolded, "SUMMARY:"+title)
+	assert.Contains(t, unfolded, "LOCATION:"+location)
+	assert.Contains(t, unfolded, note)
 }

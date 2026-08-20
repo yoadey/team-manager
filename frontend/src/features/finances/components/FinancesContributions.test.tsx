@@ -76,15 +76,23 @@ function makeFinances(overrides = {}) {
   };
 }
 
-function makeContrib(overrides = {}) {
+function makeContrib(overrides: Record<string, unknown> = {}) {
+  // Cents fields default from the euro fields (possibly overridden below) so
+  // callers that only pass `amount`/`paidAmount` still get consistent cents,
+  // unless the test explicitly overrides `amountCents`/`paidAmountCents` too
+  // (see the float-vs-cents summation regression test below).
+  const amount = (overrides as { amount?: number }).amount ?? 20;
+  const paidAmount = (overrides as { paidAmount?: number }).paidAmount ?? 0;
   return {
     id: 'c1',
     teamId: 't1',
     userId: 'u1',
     label: 'Monatsbeitrag',
     dueDate: null,
-    amount: 20,
-    paidAmount: 0,
+    amount,
+    amountCents: Math.round(amount * 100),
+    paidAmount,
+    paidAmountCents: Math.round(paidAmount * 100),
     status: 'open' as const,
     archived: false,
     name: 'Anna Müller',
@@ -440,6 +448,24 @@ describe('FinancesContributions', () => {
     });
     expect(screen.getByText(/30 €/)).toBeTruthy();
     expect(screen.getAllByText('finances.contribOverpaid').length).toBeGreaterThan(0);
+  });
+
+  // Regression test: the group summary used to sum already-converted euro
+  // floats (c.paidAmount/c.amount) directly, which accumulates visible
+  // IEEE754 rounding error over many rows with amounts that don't divide
+  // evenly (e.g. 0.29 € summed 100 times drifts to 28.99999999999994
+  // instead of the exact 29). Summing the pre-conversion integer cents and
+  // converting once must not exhibit that drift.
+  it('sums group totals from integer cents, avoiding float drift across many rows', async () => {
+    const i18n = await import('@/i18n');
+    const app = makeApp();
+    const rows = Array.from({ length: 100 }, (_, i) =>
+      makeContrib({ id: `c${i}`, userId: `u${i}`, name: `M${i}`, amount: 0.29, paidAmount: 0.29, status: 'paid' }),
+    );
+    renderList({ app: app as never, t: tk, f: makeFinances({ contributions: rows }), canFin: false });
+
+    const summaryCall = vi.mocked(i18n.t).mock.calls.find((call) => call[0] === 'finances.contribSummary');
+    expect(summaryCall?.[1]).toMatchObject({ paidAmt: '29 €', totalAmt: '29 €' });
   });
 
   it('clicking a matrix cell opens the contribution detail sheet', () => {

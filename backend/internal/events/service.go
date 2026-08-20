@@ -726,7 +726,6 @@ func (s *Service) requireCallerEventsWrite(ctx context.Context, callerID, teamID
 	return nil
 }
 
-// SetNomination sets or removes a user's nomination on an event scoped to teamID.
 // SetNomination sets or clears a member's nomination for an event. Unlike
 // SetAttendance, this is never self-service — nominating (even oneself) is
 // an organizer action gated on events:write, matching the frontend's

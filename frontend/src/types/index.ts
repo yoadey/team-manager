@@ -5,7 +5,13 @@
 // =============================================================================
 
 export type PermLevel = 'none' | 'read' | 'write';
-export type ModuleKey = 'events' | 'members' | 'finances' | 'news' | 'polls' | 'settings' | 'stats';
+// Canonical list of RBAC modules — the single source of truth `ModuleKey` is
+// derived from. Reference this array (not a hand-written literal list)
+// wherever code needs to enumerate all modules, so a new module can't
+// silently be missed in one of the copies (e.g. serviceLayerReal.ts's and
+// mocks/db.ts's `MODULES`).
+export const MODULE_KEYS = ['events', 'members', 'finances', 'news', 'polls', 'settings', 'stats'] as const;
+export type ModuleKey = (typeof MODULE_KEYS)[number];
 export type Permissions = Record<ModuleKey, PermLevel>;
 
 export type EventType = 'training' | 'auftritt' | 'event';

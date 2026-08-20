@@ -4,7 +4,8 @@
 // DTO types (which already mirror the OpenAPI wire shapes closely); handlers.ts
 // is responsible for converting a row into the exact `components['schemas']`
 // response shape.
-import type { Invite, Membership, ModuleKey, Permissions, PermLevel, RoleDto, Team, User } from '@/types';
+import { MODULE_KEYS } from '@/types';
+import type { Invite, Membership, Permissions, PermLevel, RoleDto, Team, User } from '@/types';
 import type { Absence, AttendanceDto, EventComment, EventDto, ResponseMode } from '@/features/events';
 import type { Penalty, Transaction } from '@/features/finances';
 import type { NewsItem } from '@/features/news';
@@ -79,7 +80,7 @@ export function perms(overrides: Partial<Permissions> = {}): Permissions {
   };
 }
 
-export const MODULES: ModuleKey[] = ['events', 'members', 'finances', 'news', 'polls', 'settings', 'stats'];
+export const MODULES = MODULE_KEYS;
 const LEVEL: Record<PermLevel, number> = { none: 0, read: 1, write: 2 };
 
 export function mergePerms(roles: RoleDto[]): Permissions {
@@ -95,6 +96,17 @@ export function mergePerms(roles: RoleDto[]): Permissions {
 export function primaryRole(roles: RoleDto[]): RoleDto | null {
   const score = (r: RoleDto) => MODULES.reduce((s, m) => s + LEVEL[r.permissions[m]], 0);
   return [...roles].sort((a, b) => score(b) - score(a))[0] || null;
+}
+
+// The caller's effective permissions for a team -- mirrors
+// backend/internal/members.Repository.GetPermissions (folded via mergePerms
+// above, same max-across-roles rule): 'none' on every module for a
+// non-member, since they have no membership row (and thus no roles) to fold.
+// Used by handlers.ts's requirePermission to replicate the real backend's
+// RBAC enforcement (backend/internal/middleware/authz.go) in the mock.
+export function permissionFor(userId: string, teamId: string): Permissions {
+  const m = db.memberships.find((x) => x.teamId === teamId && x.userId === userId);
+  return m ? mergePerms(rolesOf(m)) : perms();
 }
 
 // The seeded default role newly-accepted invitees get (see handlers.ts's
@@ -923,4 +935,42 @@ export function applyNominations(event: EventDto, nominatedRoleIds: string[]): v
 
 export function pushNotif(o: Partial<AppNotification>): void {
   db.notifications.push(Object.assign({ id: rid('ntf'), createdAt: iso(new Date()) }, o) as AppNotification);
+}
+
+// Default page size for `paginate` below. Deliberately tiny (unlike the real
+// backend's 500-row PAGE_LIMIT default in serviceLayerReal.ts) so a handful
+// of seeded rows already spans multiple pages -- that's what makes
+// fetchAllPages's cursor-walking logic exercisable at all through the mock;
+// see paginate's doc comment.
+export const MOCK_PAGE_SIZE = 3;
+
+// A handful of MSW list handlers use this to genuinely paginate instead of
+// hard-coding `nextCursor: null` (which returns every row in one page and
+// makes fetchAllPages's cursor-walking logic in serviceLayerReal.ts
+// structurally untestable through the mock). The cursor is just a
+// base64-encoded offset into `items` -- opaque to callers exactly like the
+// real backend's keyset cursor (see PAGINATION_HMAC_KEY in CLAUDE.md), but
+// unsigned since there's nothing to protect in an in-memory test double.
+// `items` must already be sorted the same way the real endpoint orders its
+// SQL query -- paginate itself doesn't sort.
+export function paginate<T>(
+  items: T[],
+  cursor: string | null | undefined,
+  pageSize: number = MOCK_PAGE_SIZE,
+): { items: T[]; nextCursor: string | null } {
+  const offset = decodeCursor(cursor);
+  const page = items.slice(offset, offset + pageSize);
+  const nextOffset = offset + pageSize;
+  const nextCursor = nextOffset < items.length ? encodeCursor(nextOffset) : null;
+  return { items: page, nextCursor };
+}
+
+function encodeCursor(offset: number): string {
+  return btoa(String(offset));
+}
+
+function decodeCursor(cursor: string | null | undefined): number {
+  if (!cursor) return 0;
+  const n = Number(atob(cursor));
+  return Number.isInteger(n) && n >= 0 ? n : 0;
 }

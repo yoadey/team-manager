@@ -1497,6 +1497,82 @@ func TestEventRepository_ListAttendance_OptOutAndAbsenceDefaulting(t *testing.T)
 	assert.Equal(t, summary, summaries[ev.Id], "batched summary must agree with the single-event summary")
 }
 
+// TestEventRepository_MultiDayEvent_AbsenceCoversLaterPortion pins the fix
+// for a multi-day event whose covering-absence check only looked at the
+// event's start date: a 3-day event (date..end_date) with a member whose
+// planned absence covers only the later two days (not the start date) must
+// still resolve to "no" (absent), across ListAttendance, GetAttendanceSummary/
+// GetAttendanceSummaries, and GetMyEffectiveAttendance/GetMyEffectiveAttendances
+// -- not fall through to pending/attending because the absence doesn't cover
+// e.date specifically.
+func TestEventRepository_MultiDayEvent_AbsenceCoversLaterPortion(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	memberID := uuid.New()
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES
+		($1, 'Camp Member', 'multiday-absence@example.com', '#555555')
+	`, memberID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Multi-Day Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, memberID)
+	require.NoError(t, err)
+
+	day1 := time.Now().UTC().Truncate(24 * time.Hour)
+	day2 := day1.AddDate(0, 0, 1)
+	day3 := day1.AddDate(0, 0, 2)
+
+	params := makeCreateParams("3-Day Camp", day1)
+	params.EndDate = &day3
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+	require.NotNil(t, ev.EndDate)
+
+	// Absence covers only day2..day3 -- the later portion of the span --
+	// deliberately not day1 (the event's start/`date` column), which is
+	// exactly the case the start-date-only predicate used to miss.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO absences (user_id, team_id, from_date, to_date) VALUES ($1, $2, $3, $4)
+	`, memberID, teamID, day2, day3)
+	require.NoError(t, err)
+
+	rows, err := repo.ListAttendance(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	row := findAttendanceRow(rows, memberID)
+	require.NotNil(t, row)
+	assert.Equal(t, "no", row.Status, "absence overlapping only the later part of the event's span must still default to absent")
+	assert.True(t, row.Auto)
+	assert.True(t, row.Absent)
+
+	summary, err := repo.GetAttendanceSummary(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.No)
+	assert.Equal(t, 0, summary.Pending)
+	assert.Equal(t, 0, summary.Yes)
+
+	summaries, err := repo.GetAttendanceSummaries(ctx, []uuid.UUID{ev.Id})
+	require.NoError(t, err)
+	assert.Equal(t, summary, summaries[ev.Id], "batched summary must agree with the single-event summary")
+
+	eff, err := repo.GetMyEffectiveAttendance(ctx, eventID, memberID.String(), teamID.String())
+	require.NoError(t, err)
+	require.NotNil(t, eff)
+	assert.Equal(t, "no", eff.Status, "GetMyEffectiveAttendance must also treat a later-portion-only absence as covering")
+	assert.True(t, eff.Absent)
+
+	effs, err := repo.GetMyEffectiveAttendances(ctx, []uuid.UUID{ev.Id}, memberID.String())
+	require.NoError(t, err)
+	assert.Equal(t, *eff, effs[ev.Id], "batched GetMyEffectiveAttendances must agree with the single-event lookup")
+}
+
 func TestEventRepository_SetStatus_CrossTeamBlocked(t *testing.T) {
 	t.Parallel()
 
@@ -2158,6 +2234,42 @@ func TestEventRepository_UpdateEvent_MultiDay_PartialUpdate_RejectsEndDateBefore
 		Date: &newDate,
 	}, "single")
 	require.ErrorIs(t, err, events.ErrMultiDayEndDateBeforeDate)
+}
+
+// TestEventRepository_UpdateEvent_MultiDay_PartialUpdate_RejectsSpanTooLong
+// exercises the events_multiday_span_within_limit CHECK constraint's
+// backstop for updates: a partial update that only changes date (leaving the
+// previously-stored end_date untouched) can only be caught once the merge
+// happens inside the UPDATE statement, since Service.CreateEvent's own
+// maxMultiDaySpanDays check never runs for UpdateEvent. UpdateEvent must map
+// the violation to the same ErrMultiDaySpanTooLong the create-time check
+// returns.
+func TestEventRepository_UpdateEvent_MultiDay_PartialUpdate_RejectsSpanTooLong(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Multi-Day Span Update Team')`, teamID)
+	require.NoError(t, err)
+
+	start := time.Now().UTC().Truncate(24 * time.Hour)
+	end := start.AddDate(0, 0, 2)
+	params := makeCreateParams("Camp", start)
+	params.EndDate = &end
+	created, err := repo.CreateEvent(ctx, teamID, &params)
+	require.NoError(t, err)
+
+	// Partial update: push the start date far enough before the stored
+	// end_date that the span exceeds maxMultiDaySpanDays (1095), without
+	// touching end_date itself.
+	newDate := end.AddDate(0, 0, -1096)
+	_, err = repo.UpdateEvent(ctx, created.Id.String(), teamID, &events.UpdateEventParams{
+		Date: &newDate,
+	}, "single")
+	require.ErrorIs(t, err, events.ErrMultiDaySpanTooLong)
 }
 
 func TestEventRepository_UpdateEvent_MultiDay_RejectedOnSeriesEvent(t *testing.T) {

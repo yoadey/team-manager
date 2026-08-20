@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/members"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/storage"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
@@ -105,6 +106,52 @@ func TestMemberService_ListMembers(t *testing.T) {
 	assert.Equal(t, "Admin", result[0].Roles[0].Name)
 	require.NotNil(t, result[0].Perms)
 	assert.Equal(t, "write", string(result[0].Perms.Events))
+}
+
+// TestMemberService_ListMembers_CursorRejectedForDifferentTeam is the
+// regression test for the cross-team cursor robustness gap: a cursor
+// legitimately issued for team A's member list must be rejected -- not
+// silently applied -- when replayed against team B's list endpoint, even by
+// a caller who is a member of both teams. Uses a real, HMAC-signed
+// pagination.Paginator (not the nil/unsigned default) so the test exercises
+// the same Encode/Decode path production traffic does.
+func TestMemberService_ListMembers_CursorRejectedForDifferentTeam(t *testing.T) {
+	t.Parallel()
+
+	teamA := uuid.New().String()
+	teamB := uuid.New().String()
+	row := fixedMemberRow()
+	pager := pagination.New([]byte("test-hmac-key-0123456789abcdef"))
+
+	// Page 1 for team A: force a next-page cursor by requesting a limit of 1
+	// against a "there are 2" repository response.
+	repoA := &mockMemberRepo{
+		listMembers: func(_ context.Context, tid string, _ int, cur *members.ListCursor) ([]members.MemberRow, error) {
+			assert.Equal(t, teamA, tid)
+			assert.Nil(t, cur)
+			return []members.MemberRow{row, fixedMemberRow()}, nil
+		},
+	}
+	svcA := members.NewService(repoA, storage.NewFakeStore(), pager)
+	_, next, err := svcA.ListMembers(context.Background(), teamA, 1, "")
+	require.NoError(t, err)
+	require.NotNil(t, next, "expected a next-page cursor for team A")
+
+	// Replay that team-A cursor against team B's list endpoint. The
+	// repository must never be reached with it -- the mismatch is caught
+	// before the query is issued, same as a malformed/tampered cursor.
+	repoBCalled := false
+	repoB := &mockMemberRepo{
+		listMembers: func(context.Context, string, int, *members.ListCursor) ([]members.MemberRow, error) {
+			repoBCalled = true
+			return nil, nil
+		},
+	}
+	svcB := members.NewService(repoB, storage.NewFakeStore(), pager)
+	_, _, err = svcB.ListMembers(context.Background(), teamB, 50, *next)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pagination.ErrInvalidCursor)
+	assert.False(t, repoBCalled, "cross-team cursor must be rejected before hitting the repository")
 }
 
 func TestMemberService_UpdateMember_PassesTeamID(t *testing.T) {

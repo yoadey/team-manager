@@ -82,7 +82,10 @@ func TestService_GetOverview_ComputesQuotesAndAverage(t *testing.T) {
 	assert.InDelta(t, 0.2, overview.Members[1].Quote, 0.001)
 	assert.InDelta(t, 0, overview.Members[2].Quote, 0.001, "a member with 0 counted events must have a 0 quote, not NaN or a divide-by-zero panic")
 
-	assert.InDelta(t, 1.0/3.0, overview.Avg, 0.001, "average should be the mean of the three members' quotes above")
+	// Carol has no counted events (no data yet), so she must be excluded
+	// from the average entirely rather than averaged in as a 0% -- the
+	// average is the mean of only Alice's and Bob's quotes.
+	assert.InDelta(t, 0.5, overview.Avg, 0.001, "average should exclude members with zero counted events (no data), not score them as 0%")
 
 	require.Len(t, overview.Events, 2)
 	assert.True(t, overview.Events[0].Enough, "0.6 attendance ratio should meet the 0.5 threshold")
@@ -92,6 +95,71 @@ func TestService_GetOverview_ComputesQuotesAndAverage(t *testing.T) {
 	assert.Equal(t, gen.EventType("auftritt"), overview.Events[0].Type)
 	assert.Equal(t, gen.EventType("training"), overview.Events[1].Type)
 	assert.Equal(t, 2, overview.PastCount)
+}
+
+// TestService_GetOverview_AverageExcludesMembersWithNoCountedEvents pins the
+// no-data-vs-0% distinction for the team-wide average in isolation: members
+// with Counted == 0 must be dropped from both the numerator and denominator,
+// and the all-zero case must yield avg == 0 without panicking (no
+// division by zero).
+func TestService_GetOverview_AverageExcludesMembersWithNoCountedEvents(t *testing.T) {
+	t.Parallel()
+
+	t.Run("mix of members with and without counted events", func(t *testing.T) {
+		t.Parallel()
+
+		repo := &mockRepo{
+			memberStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.MemberStatRow, error) {
+				return []stats.MemberStatRow{
+					{UserID: uuid.New(), Name: "Alice", Yes: 10, Counted: 10}, // 1.0
+					{UserID: uuid.New(), Name: "Bob", Yes: 0, Counted: 0},     // no data -- excluded
+					{UserID: uuid.New(), Name: "Carol", Yes: 0, Counted: 0},   // no data -- excluded
+				}, nil
+			},
+			eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) {
+				return nil, nil
+			},
+		}
+
+		svc := stats.NewService(repo)
+		overview, err := svc.GetOverview(context.Background(), uuid.New(), nil, nil)
+		require.NoError(t, err)
+
+		require.Len(t, overview.Members, 3)
+		// Per-member quotes are unaffected: the two no-data members still
+		// report 0 individually (the frontend maps this to "-", not this
+		// backend field).
+		assert.InDelta(t, 1.0, overview.Members[0].Quote, 0.001)
+		assert.InDelta(t, 0, overview.Members[1].Quote, 0.001)
+		assert.InDelta(t, 0, overview.Members[2].Quote, 0.001)
+
+		// The average must be Alice's 1.0 alone -- Bob and Carol contribute
+		// neither to the sum nor the count.
+		assert.InDelta(t, 1.0, overview.Avg, 0.001, "average must only be computed over members with at least one counted event")
+	})
+
+	t.Run("no member has any counted events", func(t *testing.T) {
+		t.Parallel()
+
+		repo := &mockRepo{
+			memberStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.MemberStatRow, error) {
+				return []stats.MemberStatRow{
+					{UserID: uuid.New(), Name: "Alice", Yes: 0, Counted: 0},
+					{UserID: uuid.New(), Name: "Bob", Yes: 0, Counted: 0},
+				}, nil
+			},
+			eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) {
+				return nil, nil
+			},
+		}
+
+		svc := stats.NewService(repo)
+		overview, err := svc.GetOverview(context.Background(), uuid.New(), nil, nil)
+		require.NoError(t, err)
+
+		require.Len(t, overview.Members, 2)
+		assert.InDelta(t, 0, overview.Avg, 0.001, "with nothing to average, avg must be 0 rather than NaN or a panic")
+	})
 }
 
 func TestService_GetOverview_DefaultsDateRangeWhenUnset(t *testing.T) {

@@ -28,6 +28,18 @@ var (
 	ErrPenaltyAssignmentNotInTeam      = errors.New("penalty assignment does not belong to this team")
 	ErrPenaltyAssignmentRequiresIncome = errors.New("a transaction linked to a penalty assignment must have type income")
 	ErrTransactionLinksMultipleTargets = errors.New("a transaction can be linked to at most one of contributionId or penaltyAssignmentId")
+	// ErrCannotChangeTypeOfLinkedTransaction is returned when UpdateTransaction
+	// would move a transaction's type away from income while it is still
+	// linked to a contribution or penalty assignment. Without this guard the
+	// change would silently detach a booked fee/fine payment: the arithmetic
+	// stays correct (paidAmount sums already filter type = 'income'), but
+	// there'd be no error or audit trail marking that a previously-linked
+	// payment just stopped counting. To actually unlink a wrongly-linked
+	// transaction, delete and recreate it -- the same correction path
+	// design.md's "Linking is income-only, and only enforced at creation"
+	// decision already prescribes for a wrongly-linked transaction, since
+	// UpdateTransactionRequest has never supported repairing the link itself.
+	ErrCannotChangeTypeOfLinkedTransaction = errors.New("cannot change type away from income on a transaction linked to a contribution or penalty assignment; delete and recreate the transaction instead")
 )
 
 // ErrTooManyTransactions / ErrTooManyAssignments are returned once a team
@@ -78,6 +90,7 @@ type financeRepo interface {
 	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error)
 	CountTransactions(ctx context.Context, teamID uuid.UUID) (int, error)
 	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID, note *string) (*TransactionRow, error)
+	GetTransaction(ctx context.Context, id, teamID uuid.UUID) (*TransactionRow, error)
 	UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch TransactionPatch) (*TransactionRow, error)
 	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
 
@@ -357,6 +370,23 @@ func (s *Service) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, b
 	if body.Note != nil {
 		patch.Note = body.Note
 	}
+
+	// Reject moving a still-linked transaction's type away from income --
+	// see ErrCannotChangeTypeOfLinkedTransaction's doc comment. Only checked
+	// when the patch actually changes type to something other than income;
+	// an update that leaves type untouched (the common case) never pays for
+	// the extra read, and a type patch that keeps/sets income is never a
+	// detachment.
+	if patch.Type != nil && *patch.Type != string(gen.Income) {
+		existing, err := s.repo.GetTransaction(ctx, id, teamID)
+		if err != nil {
+			return nil, fmt.Errorf("finances.Service.UpdateTransaction: %w", err)
+		}
+		if existing.ContributionID != nil || existing.PenaltyAssignmentID != nil {
+			return nil, ErrCannotChangeTypeOfLinkedTransaction
+		}
+	}
+
 	t, err := s.repo.UpdateTransaction(ctx, id, teamID, patch)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.UpdateTransaction: %w", err)

@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Single-contribution detail view is read-only
 Opening a single member's contribution row MUST show a read-only detail
@@ -21,7 +21,7 @@ archive/unarchive or delete actions.
 - **THEN** the transaction-booking form opens, pre-linked to that
   contribution row
 - **AND** this is available regardless of whether a payment has already
-  been recorded against the row
+  been recorded
 
 ### Requirement: Editing a fee period is a group-level action
 Changing a contribution's `label`, `amount`, `description`, or `dueDate`
@@ -43,3 +43,24 @@ row.
   rows in the group
 - **THEN** the member is told how many of the group's rows failed to update
 - **AND** re-running the edit action is safe
+
+## MODIFIED Requirements
+
+### Requirement: Contribution description
+A contribution MAY carry an optional free-text description (≤2000 characters).
+The system MUST store it as provided and MUST make it editable after creation
+alongside the contribution's name/amount/due date, via the group-level edit
+action described under "Editing a fee period is a group-level action" (not a
+per-row update).
+
+#### Scenario: Adding a description to an existing fee
+- **WHEN** the treasurer uses the group-level edit action on a fee period and
+  sets a description
+- **THEN** every row in that group is updated with that description
+- **AND** the description does not affect the contribution's amount, name, due
+  date, or paid status
+
+#### Scenario: Description omitted
+- **WHEN** a contribution is created or updated without a description
+- **THEN** it has no description
+- **AND** this is not an error

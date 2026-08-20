@@ -256,6 +256,62 @@ func TestMemberHandler_UpdateMember_TitleTooLong_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 }
 
+// Regression test: applyMaxLenFields (used by the general UpdateMember PATCH
+// for Title/Phone/Address/Group) must trim whitespace the same way
+// SetMemberTitle does for the identical memberships.title column, instead of
+// persisting raw, untrimmed spaces. A whitespace-only value normalizes to a
+// trimmed "" (not nil) here rather than SetMemberTitle's nil: unlike
+// SetMemberTitle's always-required title, these are optional MemberPatch
+// fields whose repository UPDATE is itself gated on "not nil" (nil means
+// "field omitted from this PATCH, leave column untouched" -- see
+// TestMembersRepository_UpdateMember_PartialPatch); mapping blank to nil
+// here would collide with that and silently no-op instead of clearing the
+// field. A non-nil trimmed "" still clears the stored value while keeping
+// the write itself intact.
+func TestMemberHandler_UpdateMember_TrimsWhitespaceAndClearsOnEmpty(t *testing.T) {
+	t.Parallel()
+
+	var capturedPatch members.MemberPatch
+	svc := &mockMemberService{
+		updateMember: func(_ context.Context, _, _, _ string, patch members.MemberPatch) (*gen.Member, error) {
+			capturedPatch = patch
+			return &gen.Member{}, nil
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+
+	blank := "   "
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.UpdateMemberJSONRequestBody{Title: &blank, Phone: &blank, Address: &blank, Group: &blank},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedPatch.Title, "field must still be written (not skipped as if omitted), just cleared")
+	assert.Empty(t, *capturedPatch.Title, "whitespace-only title must clear to empty, not store raw blank spaces")
+	require.NotNil(t, capturedPatch.Phone)
+	assert.Empty(t, *capturedPatch.Phone, "whitespace-only phone must clear to empty, not store raw blank spaces")
+	require.NotNil(t, capturedPatch.Address)
+	assert.Empty(t, *capturedPatch.Address, "whitespace-only address must clear to empty, not store raw blank spaces")
+	require.NotNil(t, capturedPatch.Group)
+	assert.Empty(t, *capturedPatch.Group, "whitespace-only group must clear to empty, not store raw blank spaces")
+
+	padded := "  Kassenwart  "
+	_, err = h.UpdateMember(ctx, gen.UpdateMemberRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.UpdateMemberJSONRequestBody{Title: &padded, Phone: &padded, Address: &padded, Group: &padded},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedPatch.Title)
+	assert.Equal(t, "Kassenwart", *capturedPatch.Title)
+	require.NotNil(t, capturedPatch.Phone)
+	assert.Equal(t, "Kassenwart", *capturedPatch.Phone)
+	require.NotNil(t, capturedPatch.Address)
+	assert.Equal(t, "Kassenwart", *capturedPatch.Address)
+	require.NotNil(t, capturedPatch.Group)
+	assert.Equal(t, "Kassenwart", *capturedPatch.Group)
+}
+
 func TestMemberHandler_SetMemberTitle_TooLong_Returns400(t *testing.T) {
 	t.Parallel()
 

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
@@ -624,6 +625,83 @@ func TestRateLimit_TrustedPeer_ForwardedFor_UsesSecondHeaderLine(t *testing.T) {
 
 	assert.Equal(t, http.StatusTooManyRequests, rec2.Code,
 		"a trusted proxy's hop appended as a second X-Forwarded-For header line must still be found, not dropped by only reading the first line")
+}
+
+// ─── PerIPRateLimit wiring (mirrors cmd/server/main.go) ───────────────────────
+//
+// The tests above exercise RateLimit/PerIPRateLimit as bare middleware, which
+// is thorough for the underlying httprate/IP-spoofing mechanism but never
+// proves that cmd/server/main.go actually wires PerIPRateLimit onto the real
+// route the way it's supposed to. main.go has no extracted router-builder
+// function to call directly (routing is assembled inline in main(), which
+// also wires up a DB pool and every feature service), so this test mirrors
+// its registration as closely as possible instead: same route
+// (POST /api/v1/auth/login), same rate-limit config value/period
+// (LOGIN_RATE_LIMIT_PER_MIN's default of 5 per minute, see
+// internal/config/config.go's loadRateLimits), and the same
+// r.Route("/api/v1", ...) / r.With(...).Post(...) chi structure main.go
+// uses. If a future edit to main.go dropped the PerIPRateLimit wrapper from
+// this route (e.g. during a refactor) while leaving the middleware itself
+// intact, this test would catch it; TestRateLimit_* above would not, since
+// they never touch the route registration at all.
+const loginRateLimitPerMinForTest = 5 // must match config.go's LOGIN_RATE_LIMIT_PER_MIN default
+
+func newLoginRouter(t *testing.T) http.Handler {
+	t.Helper()
+	router := chi.NewRouter()
+	router.Route("/api/v1", func(r chi.Router) {
+		r.With(middleware.PerIPRateLimit(loginRateLimitPerMinForTest, time.Minute, nil)).
+			Post("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+	})
+	return router
+}
+
+func TestPerIPRateLimit_LoginRoute_BlocksAfterConfiguredLimit(t *testing.T) {
+	router := newLoginRouter(t)
+
+	// The first loginRateLimitPerMinForTest requests from the same IP must
+	// succeed; the next one must be rejected with 429.
+	for i := 1; i <= loginRateLimitPerMinForTest; i++ {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/login", http.NoBody)
+		req.RemoteAddr = "203.0.113.50:1111"
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, "request %d of %d within the limit should be allowed", i, loginRateLimitPerMinForTest)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/login", http.NoBody)
+	req.RemoteAddr = "203.0.113.50:2222" // same peer IP, different port
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusTooManyRequests, rec.Code,
+		"the request past the configured per-IP login rate limit must be rejected via the actual /api/v1/auth/login wiring")
+}
+
+func TestPerIPRateLimit_LoginRoute_DifferentIPsHaveSeparateBuckets(t *testing.T) {
+	router := newLoginRouter(t)
+
+	// Exhaust the limit for one IP.
+	for i := 1; i <= loginRateLimitPerMinForTest; i++ {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/login", http.NoBody)
+		req.RemoteAddr = "203.0.113.60:1111"
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+	blocked := httptest.NewRecorder()
+	blockedReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/login", http.NoBody)
+	blockedReq.RemoteAddr = "203.0.113.60:1111"
+	router.ServeHTTP(blocked, blockedReq)
+	require.Equal(t, http.StatusTooManyRequests, blocked.Code)
+
+	// A different client IP must still be allowed through the same route.
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/login", http.NoBody)
+	req.RemoteAddr = "203.0.113.61:1111"
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code, "a different client IP must get its own rate-limit bucket on the login route")
 }
 
 // ─── Metrics ─────────────────────────────────────────────────────────────────

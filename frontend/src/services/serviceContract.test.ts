@@ -7,13 +7,35 @@
 // fixed behavior directly against the MSW demo backend.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { realApi as api } from './serviceLayerReal';
-import { db, DEMO_LOGIN_EMAIL, DEMO_PASSWORD } from '@/mocks/db';
+import { db, perms, rid, DEMO_LOGIN_EMAIL, DEMO_PASSWORD, MOCK_PAGE_SIZE } from '@/mocks/db';
 import { todayLocalDate } from '@/utils/date';
 import { AuthError, ForbiddenError, ValidationError } from '@/utils/errors';
+import type { Permissions, RoleDto } from '@/types';
 
 beforeEach(async () => {
   await api.auth.login(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
 });
+
+// Replaces the logged-in demo caller's (u1's) roles on `teamId` with a
+// single freshly-minted role carrying exactly `overrides` (every module not
+// listed defaults to 'none' via db.ts's `perms`), so a test can exercise a
+// specific effective permission level in isolation. u1 is normally an admin
+// on t_a (see db.ts's seed data) -- without this, every RBAC test below
+// would trivially pass regardless of what the mock enforces.
+function grantOnly(teamId: string, userId: string, overrides: Partial<Permissions>): void {
+  const membership = db.memberships.find((m) => m.teamId === teamId && m.userId === userId);
+  if (!membership) throw new Error(`no membership for ${userId} on ${teamId}`);
+  const role: RoleDto = {
+    id: rid('role'),
+    teamId,
+    name: 'RBAC test role',
+    system: false,
+    color: '#888888',
+    permissions: perms(overrides),
+  };
+  db.roles.push(role);
+  membership.roleIds = [role.id];
+}
 
 function onlyVerificationToken(): string {
   const tokens = Object.keys(db.verificationTokens);
@@ -34,9 +56,12 @@ describe('self-service registration: enumeration safety and verification flow', 
     expect(resp.message).toBeTruthy();
 
     const token = onlyVerificationToken();
-    const { token: sessionToken, user } = await api.auth.verifyEmail(token);
-    expect(sessionToken).toBeTruthy();
+    const { user } = await api.auth.verifyEmail(token);
     expect(user.email).toBe('new-user@example.com');
+    // verifyEmail establishes a session via the httpOnly cookie (never in
+    // the response body -- see backend/internal/auth/handler.go); confirm
+    // it actually took effect rather than asserting on a body field.
+    await expect(api.auth.currentUser()).resolves.toMatchObject({ email: 'new-user@example.com' });
   });
 
   it('register/resend-verification return the identical response across available, verified, and pending emails', async () => {
@@ -122,9 +147,12 @@ describe('password reset: enumeration safety and reset flow', () => {
     await api.auth.forgotPassword('reset-target@example.com');
     const token = onlyPasswordResetToken();
 
-    const { token: sessionToken, user } = await api.auth.resetPassword(token, 'brandnewpassword123');
-    expect(sessionToken).toBeTruthy();
+    const { user } = await api.auth.resetPassword(token, 'brandnewpassword123');
     expect(user.email.toLowerCase()).toBe('reset-target@example.com');
+    // resetPassword establishes a session via the httpOnly cookie (never in
+    // the response body -- see backend/internal/auth/handler.go); confirm
+    // it actually took effect rather than asserting on a body field.
+    await expect(api.auth.currentUser()).resolves.toMatchObject({ email: 'reset-target@example.com' });
 
     await expect(api.auth.login('reset-target@example.com', 'brandnewpassword123')).resolves.toBeTruthy();
   });
@@ -557,5 +585,157 @@ describe('per-team statistics view preferences and named presets', () => {
     const reloaded = await api.statsPrefs.getPreferences('t_a');
     expect(reloaded.presetId).toBeNull();
     expect(reloaded.range).toEqual({ from: preset.from, to: preset.to });
+  });
+});
+
+// Pins the mock backend's RBAC enforcement (frontend/src/mocks/handlers.ts's
+// requirePermission, backed by db.ts's permissionFor) against
+// backend/openapi/openapi.yaml's x-rbac-module/x-rbac-self-service
+// extensions -- the same contract backend/internal/middleware/authz.go
+// enforces for real. Without these, a regression that silently dropped a
+// permission check (mock or real) would pass every other test in this file.
+describe('RBAC enforcement: module-gated routes reject an under-permissioned caller', () => {
+  it('a caller with a module set to none gets Forbidden on a representative GET per module', async () => {
+    grantOnly('t_a', 'u1', {});
+    await expect(api.events.list('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.members.list('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.finances.overview('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.news.list('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.polls.list('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.roles.list('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.stats.teamOverview('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it('a read-only caller gets Forbidden on a representative mutating request per module', async () => {
+    grantOnly('t_a', 'u1', {
+      events: 'read',
+      members: 'read',
+      finances: 'read',
+      news: 'read',
+      polls: 'read',
+      settings: 'read',
+      stats: 'read',
+    });
+    const today = todayLocalDate();
+    const u4Membership = db.memberships.find((m) => m.teamId === 't_a' && m.userId === 'u4')!;
+
+    await expect(api.events.create('t_a', { type: 'training', title: 'Nope', date: today })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    await expect(api.members.update(u4Membership.id, { group: 'Nope' }, 't_a')).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    await expect(
+      api.finances.addTransaction('t_a', { type: 'income', title: 'Nope', amount: 1 }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.news.create('t_a', { title: 'Nope', body: 'Nope' })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.polls.create('t_a', { question: 'Nope?', options: ['A', 'B'] })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    await expect(api.teams.updateSettings('t_a', { name: 'Nope' })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      api.statsPrefs.createPreset('t_a', 'Nope', { from: '2026-01-01', to: '2026-01-31' }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe('RBAC enforcement: self-service routes stay available to a read-only caller acting on their own record', () => {
+  it("lets a read-only caller set/clear their OWN member title (members:read, not members:write)", async () => {
+    grantOnly('t_a', 'u1', { members: 'read' });
+    const me = db.memberships.find((m) => m.teamId === 't_a' && m.userId === 'u1')!;
+
+    const updated = await api.members.setMyTitle(me.id, 'Testkapitän', 't_a');
+    expect(updated.title).toBe('Testkapitän');
+  });
+
+  it('lets a read-only caller add and remove their OWN event comment (events:read, not events:write)', async () => {
+    grantOnly('t_a', 'u1', { events: 'read' });
+    const event = db.events.find((e) => e.teamId === 't_a')!;
+
+    const comment = await api.events.addComment(event.id, 'Bin dabei!', 't_a');
+    expect(comment.text).toBe('Bin dabei!');
+
+    await expect(api.events.removeComment(comment.id, event.id, 't_a')).resolves.toBeUndefined();
+  });
+
+  it('lets a read-only caller set their OWN attendance, but not another member\'s (events:read vs. events:write)', async () => {
+    grantOnly('t_a', 'u1', { events: 'read' });
+    const event = db.events.find((e) => e.teamId === 't_a' && e.status === 'active')!;
+
+    await expect(api.attendance.set(event.id, 'u1', { status: 'yes' }, 't_a')).resolves.toBeTruthy();
+    await expect(api.attendance.set(event.id, 'u4', { status: 'yes' }, 't_a')).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+
+    grantOnly('t_a', 'u1', { events: 'write' });
+    await expect(api.attendance.set(event.id, 'u4', { status: 'yes' }, 't_a')).resolves.toBeTruthy();
+  });
+
+  it('lets a read-only caller cast their OWN poll vote (polls:read, not polls:write)', async () => {
+    grantOnly('t_a', 'u1', { polls: 'read' });
+    const poll = db.polls.find((p) => p.teamId === 't_a' && !p.multiple)!;
+    const option = poll.options[0]!;
+
+    await expect(api.polls.vote(poll.id, [option.id], 't_a')).resolves.toBeUndefined();
+  });
+});
+
+// Every other MSW list handler hard-codes `nextCursor: null` and returns its
+// whole list in one page, which means serviceLayerReal.ts's fetchAllPages
+// cursor-walking (construction, consumption, multi-page ordering) is never
+// actually exercised by driving it through the mock -- only the trivial
+// one-page-and-done path is. GET /teams/:teamId/members is the one handler
+// (mocks/handlers.ts + mocks/db.ts's `paginate`) that genuinely paginates,
+// specifically so this can be tested end-to-end.
+describe("pagination: members.list walks every page via fetchAllPages", () => {
+  it('returns the full, correctly-ordered member list even though the mock backend pages it', async () => {
+    // t_b starts with 5 seeded members (see mocks/db.ts's createSeedData).
+    // Push it well past a couple of pages at the mock's page size so a
+    // single-page response could never satisfy this assertion by accident.
+    const before = await api.members.list('t_b');
+    expect(before.length).toBeGreaterThan(0);
+    expect(before.length).toBeLessThan(MOCK_PAGE_SIZE * 2);
+
+    const extra = Array.from({ length: MOCK_PAGE_SIZE * 2 }, (_, i) => {
+      const userId = rid('pgu');
+      db.users.push({
+        id: userId,
+        name: `Zzz Page Test ${String(i).padStart(2, '0')}`,
+        email: `${userId}@example.de`,
+        phone: '',
+        avatarColor: '#123456',
+        photo: null,
+        hasPhoto: false,
+        birthday: '',
+        address: '',
+      });
+      db.memberships.push({
+        id: rid('mem'),
+        teamId: 't_b',
+        userId,
+        roleIds: [],
+        group: '',
+        title: '',
+        joinedAt: new Date().toISOString(),
+        excludeFromStats: false,
+      });
+      return userId;
+    });
+
+    const totalExpected = before.length + extra.length;
+    expect(totalExpected).toBeGreaterThan(MOCK_PAGE_SIZE * 2); // spans 3+ pages, not just 2
+
+    const after = await api.members.list('t_b');
+
+    expect(after).toHaveLength(totalExpected);
+    // No duplicates and nothing dropped across the page boundary walk.
+    expect(new Set(after.map((m) => m.userId)).size).toBe(totalExpected);
+    extra.forEach((userId) => expect(after.some((m) => m.userId === userId)).toBe(true));
+    // Ordering is preserved end-to-end across pages: alphabetical (German
+    // collation), matching the handler's sort -- not just "all rows present
+    // in some order".
+    const names = after.map((m) => m.name);
+    const sorted = [...names].sort((a, b) => a.localeCompare(b, 'de'));
+    expect(names).toEqual(sorted);
   });
 });

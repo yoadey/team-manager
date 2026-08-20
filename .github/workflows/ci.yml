@@ -134,6 +134,15 @@ jobs:
             echo "::warning::license-checker failed (exit $status) — the GPL/AGPL check below is skipped and cannot be trusted this run. See the uploaded license-checker.stderr artifact."
             cat license-checker.stderr
             echo "failed=true" >> "$GITHUB_OUTPUT"
+            # A ::warning:: annotation is easy to miss on an otherwise-green run --
+            # write to the job summary too so a crashed scan (which is deliberately
+            # not a job failure, see the comment above) can't slip by unnoticed. A
+            # real GPL/AGPL violation could be hiding behind this same crash.
+            {
+              echo "### :warning: License scan did not complete"
+              echo
+              echo "\`license-checker\` crashed (exit $status) — the GPL/AGPL compliance check was **not verified** this run. This is not a license violation, but the scan could not confirm there isn't one. See the job logs and the \`frontend-licenses\` artifact (\`license-checker.stderr\`) for details."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "failed=false" >> "$GITHUB_OUTPUT"
           fi
@@ -604,6 +613,15 @@ jobs:
             echo "::warning::go-licenses report failed (exit $status) — the GPL/AGPL check below is skipped and cannot be trusted this run. See the uploaded go-licenses.stderr artifact."
             cat go-licenses.stderr
             echo "failed=true" >> "$GITHUB_OUTPUT"
+            # A ::warning:: annotation is easy to miss on an otherwise-green run --
+            # write to the job summary too so a crashed scan (which is deliberately
+            # not a job failure, see the comment above) can't slip by unnoticed. A
+            # real GPL/AGPL violation could be hiding behind this same crash.
+            {
+              echo "### :warning: License scan did not complete"
+              echo
+              echo "\`go-licenses report\` crashed (exit $status) — the GPL/AGPL compliance check was **not verified** this run. This is not a license violation, but the scan could not confirm there isn't one. See the job logs and the \`backend-licenses\` artifact (\`go-licenses.stderr\`) for details."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "failed=false" >> "$GITHUB_OUTPUT"
           fi
@@ -734,7 +752,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
+        image: postgres:17@sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
@@ -1051,7 +1069,7 @@ jobs:
       - name: Scan postgres (backup pg_dump initContainer)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
+          image-ref: postgres:17@sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449
           format: table
           exit-code: '1'
           severity: CRITICAL,HIGH
@@ -1130,7 +1148,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
+        image: postgres:17@sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449
         env:
           POSTGRES_PASSWORD: testpassword
           POSTGRES_DB: testdb
