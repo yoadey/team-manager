@@ -332,7 +332,12 @@ func main() {
 
 	ctx := context.Background()
 
-	pool, err := db.Connect(ctx, cfg.DatabaseURL)
+	pool, err := db.Connect(ctx, cfg.DatabaseURL, db.PoolConfig{
+		MaxConns:        int32(cfg.DBPoolMaxConns),
+		MinConns:        int32(cfg.DBPoolMinConns),
+		MaxConnLifetime: cfg.DBPoolMaxConnLifetime,
+		MaxConnIdleTime: cfg.DBPoolMaxConnIdleTime,
+	})
 	if err != nil {
 		slog.Error("database connection failed", "err", err)
 		os.Exit(1)
