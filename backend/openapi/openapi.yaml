@@ -2826,6 +2826,15 @@ components:
           items:
             type: string
             format: uuid
+        crossTeamIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: >-
+            Other teams (besides teamId, the owning team) this event targets.
+            Members of any of these teams see the event and its merged
+            attendance. Empty for a single-team event.
         recurring:
           type: boolean
         status:
@@ -2893,6 +2902,17 @@ components:
           items:
             type: string
             format: uuid
+        crossTeamIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: >-
+            Additional teams (besides teamId, the owning team) to target with
+            this event. Every listed team must be a real team, and the
+            caller must hold events:write in all of them (as well as in
+            teamId) -- otherwise the request is rejected. Empty/absent
+            creates a normal single-team event, unchanged from today.
         recurring:
           type: boolean
         repeatWeeks:
@@ -2976,6 +2996,19 @@ components:
           items:
             type: string
             format: uuid
+        crossTeamIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: >-
+            When present, replaces the full set of additional target teams
+            (besides teamId, the owning team) -- an empty array un-shares
+            the event back to single-team. Absent leaves the current target
+            set unchanged. Every listed team must be a real team, and the
+            caller must hold events:write across the full resulting set
+            (teamId plus every id here) -- otherwise the request is
+            rejected.
         cancelLeadMinutes:
           type: integer
           minimum: 0
@@ -3098,6 +3131,19 @@ components:
           type: boolean
         absent:
           type: boolean
+        teamName:
+          type: string
+          description: >-
+            Cross-team event only: set when this attendee does not belong to
+            the viewer's own (currently active) team -- the alphabetically-
+            first (by team name, case-insensitive) team name from the
+            intersection of the attendee's own memberships and the event's
+            targeted teams. Absent/null for an attendee who shares the
+            viewer's own team, and always absent/null on a single-team
+            event. When set, membershipId/group/title/primaryRole/reason/
+            reasonId/reasonVisibility are omitted -- a foreign attendee on a
+            cross-team event exposes only name/avatar/status, never
+            profile-identifying or free-text fields.
 
     SetAttendanceRequest:
       type: object

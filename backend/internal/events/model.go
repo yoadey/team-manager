@@ -96,13 +96,24 @@ type CommentRow struct {
 	AuthorMembershipId *uuid.UUID
 }
 
-// AttendanceEnriched is a roster row (one per current team member) enriched
-// with that member's effective attendance for one event -- an explicit
-// SetAttendance/SetNomination record if one exists, otherwise the result of
-// applying opt_out/absence-based defaulting (see computeEffectiveAttendance).
+// AttendanceEnriched is a roster row (one per current team member, or --
+// for a cross-team event -- per distinct user across every targeted team's
+// membership list) enriched with that member's effective attendance for one
+// event -- an explicit SetAttendance/SetNomination record if one exists,
+// otherwise the result of applying opt_out/absence-based defaulting (see
+// computeEffectiveAttendance). MembershipId/Group/Title/PrimaryRole describe
+// whichever single membership was picked to represent this user (the
+// viewer's own team's membership when the user has one, else an arbitrary
+// targeted team's) -- see Repository.ListAttendance. MemberTeamId is that
+// same membership's team, used by Service.ListAttendance together with
+// EventTeams to decide the display-rule team badge.
 type AttendanceEnriched struct {
-	UserId           uuid.UUID
-	MembershipId     uuid.UUID
+	UserId       uuid.UUID
+	MembershipId uuid.UUID
+	// MemberTeamId is the team the picked membership (MembershipId) belongs
+	// to. Equal to the viewing team whenever the user is a member of it;
+	// otherwise an arbitrary one of the event's other targeted teams.
+	MemberTeamId     uuid.UUID
 	Status           string
 	Reason           *string
 	ReasonId         *string
@@ -121,6 +132,15 @@ type AttendanceEnriched struct {
 	// respond and still have a later-logged overlapping absence.
 	Absent      bool
 	PrimaryRole *teams.RoleRow
+}
+
+// EventTeamRow is one team an event targets (id + name), or -- when
+// returned from Repository.ListEventMemberTeams -- one of the targeted
+// teams a specific attendee belongs to. The shape is identical for both
+// uses.
+type EventTeamRow struct {
+	TeamID   uuid.UUID
+	TeamName string
 }
 
 // EffectiveAttendance is the resolved attendance state for a single
@@ -179,8 +199,14 @@ type CreateEventParams struct {
 	MeetTimeMandatory *bool
 	ResponseMode      *string
 	NominatedRoleIds  []uuid.UUID
-	Recurring         bool
-	RepeatWeeks       int
+	// CrossTeamIds are additional teams (besides the owning team the event
+	// is created under) this event targets. Every generated event/series
+	// occurrence gets one event_teams row per team in {owning} ∪
+	// CrossTeamIds (see Repository.CreateEvent/CreateSeries). Nil/empty
+	// creates a normal single-team event.
+	CrossTeamIds []uuid.UUID
+	Recurring    bool
+	RepeatWeeks  int
 	// RepeatEndDate, when set, takes precedence over RepeatWeeks: the
 	// repository generates weekly occurrences from Date up to and
 	// including RepeatEndDate instead of a fixed count.
@@ -215,6 +241,12 @@ type UpdateEventParams struct {
 	MeetTimeMandatory *bool
 	ResponseMode      *string
 	NominatedRoleIds  []uuid.UUID
+	// CrossTeamIds, when non-nil, replaces the full set of additional
+	// target teams (besides the owning team). An explicit empty (non-nil)
+	// slice un-shares the event back to single-team; nil means "not
+	// provided in this patch" -- leave the current target set unchanged.
+	// Mirrors NominatedRoleIds' identical nil-vs-empty convention.
+	CrossTeamIds      []uuid.UUID
 	CancelLeadMinutes *int
 	ExcludeFromStats  *bool
 }

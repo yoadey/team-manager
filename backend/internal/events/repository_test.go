@@ -1284,7 +1284,7 @@ func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 
 	eventIDs := []uuid.UUID{e1.Id, e2.Id, e3.Id}
 
-	summaries, err := repo.GetAttendanceSummaries(ctx, eventIDs)
+	summaries, err := repo.GetAttendanceSummaries(ctx, eventIDs, teamID.String())
 	require.NoError(t, err)
 	assert.Equal(t, 1, summaries[e1.Id].Yes)
 	assert.Equal(t, 1, summaries[e1.Id].No)
@@ -1319,7 +1319,7 @@ func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 	assert.False(t, e3HasMyAttendance, "event with no attendance from this user should be absent from the map")
 
 	// Empty ID list should short-circuit without a query and return an empty map.
-	emptySummaries, err := repo.GetAttendanceSummaries(ctx, nil)
+	emptySummaries, err := repo.GetAttendanceSummaries(ctx, nil, teamID.String())
 	require.NoError(t, err)
 	assert.Empty(t, emptySummaries)
 }
@@ -1391,7 +1391,7 @@ func TestEventRepository_AttendanceExcludesDepartedMembers(t *testing.T) {
 	require.Len(t, attendeesAfter, 1)
 	assert.Equal(t, stayingUserID, attendeesAfter[0].UserId)
 
-	summaries, err := repo.GetAttendanceSummaries(ctx, []uuid.UUID{ev.Id})
+	summaries, err := repo.GetAttendanceSummaries(ctx, []uuid.UUID{ev.Id}, teamID.String())
 	require.NoError(t, err)
 	assert.Equal(t, 1, summaries[ev.Id].Total, "batched summary must also exclude the departed member")
 }
@@ -1492,7 +1492,7 @@ func TestEventRepository_ListAttendance_OptOutAndAbsenceDefaulting(t *testing.T)
 	assert.Equal(t, 0, summary.Pending)
 	assert.Equal(t, 4, summary.Total)
 
-	summaries, err := repo.GetAttendanceSummaries(ctx, []uuid.UUID{ev.Id})
+	summaries, err := repo.GetAttendanceSummaries(ctx, []uuid.UUID{ev.Id}, teamID.String())
 	require.NoError(t, err)
 	assert.Equal(t, summary, summaries[ev.Id], "batched summary must agree with the single-event summary")
 }
@@ -1558,7 +1558,7 @@ func TestEventRepository_MultiDayEvent_AbsenceCoversLaterPortion(t *testing.T) {
 	assert.Equal(t, 0, summary.Pending)
 	assert.Equal(t, 0, summary.Yes)
 
-	summaries, err := repo.GetAttendanceSummaries(ctx, []uuid.UUID{ev.Id})
+	summaries, err := repo.GetAttendanceSummaries(ctx, []uuid.UUID{ev.Id}, teamID.String())
 	require.NoError(t, err)
 	assert.Equal(t, summary, summaries[ev.Id], "batched summary must agree with the single-event summary")
 
@@ -2326,4 +2326,301 @@ func TestEventRepository_UpdateEvent_MultiDay_ClearEndDate(t *testing.T) {
 	}, "single")
 	require.NoError(t, err)
 	assert.Nil(t, updated.EndDate)
+}
+
+// ─── cross-team events ──────────────────────────────────────────────────────
+
+// TestEventRepository_CrossTeam_CreateInsertsEventTeamsRows covers
+// design.md's "On every event create, insert a row for the owning team_id
+// AND one row per additional target team" -- GetEventTeams must return both
+// the owning team and every crossTeamIds team.
+func TestEventRepository_CrossTeam_CreateInsertsEventTeamsRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	teamB := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'CT Team A'), ($2, 'CT Team B')`, teamA, teamB)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Joint Training", time.Now().UTC())
+	params.CrossTeamIds = []uuid.UUID{teamB}
+	ev, err := repo.CreateEvent(ctx, teamA.String(), &params)
+	require.NoError(t, err)
+
+	eventTeams, err := repo.GetEventTeams(ctx, ev.Id.String())
+	require.NoError(t, err)
+	gotTeamIDs := make([]uuid.UUID, len(eventTeams))
+	for i, et := range eventTeams {
+		gotTeamIDs[i] = et.TeamID
+	}
+	assert.ElementsMatch(t, []uuid.UUID{teamA, teamB}, gotTeamIDs)
+}
+
+// TestEventRepository_CrossTeam_CreateRejectsUnknownCrossTeamID covers the
+// existence-check half of crossTeamIds validation.
+func TestEventRepository_CrossTeam_CreateRejectsUnknownCrossTeamID(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'CT Team A Solo')`, teamA)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Joint Training", time.Now().UTC())
+	params.CrossTeamIds = []uuid.UUID{uuid.New()} // never inserted -- doesn't exist
+	_, err = repo.CreateEvent(ctx, teamA.String(), &params)
+	assert.ErrorIs(t, err, events.ErrInvalidCrossTeamIds)
+}
+
+// TestEventRepository_CrossTeam_MemberOfTargetTeamCanReadAndRSVP covers
+// spec.md's "Member of a targeted team" scenario: a member of team B (not
+// the owning team) can GetEvent/ListEvents/ListAttendance/SetAttendance an
+// event created by team A with team B as a crossTeamIds target, reached
+// entirely through team B's own {teamId}.
+func TestEventRepository_CrossTeam_MemberOfTargetTeamCanReadAndRSVP(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	teamB := uuid.New()
+	bMember := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'RSVP Team A'), ($2, 'RSVP Team B')`, teamA, teamB)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'B Member', 'b-member@example.com', '#654321')`, bMember)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamB, bMember)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Cross Team Camp", time.Now().UTC())
+	params.CrossTeamIds = []uuid.UUID{teamB}
+	ev, err := repo.CreateEvent(ctx, teamA.String(), &params)
+	require.NoError(t, err)
+
+	// GetEvent via team B's own URL.
+	got, err := repo.GetEvent(ctx, ev.Id.String(), teamB.String())
+	require.NoError(t, err, "a member of a targeted (non-owning) team must be able to read the event via their own team's URL")
+	assert.Equal(t, ev.Id, got.Id)
+
+	// ListEvents via team B's own URL.
+	list, err := repo.ListEvents(ctx, teamB.String(), gen.All, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, ev.Id, list[0].Id)
+
+	// ListAttendance via team B's own URL must include bMember.
+	roster, err := repo.ListAttendance(ctx, ev.Id.String(), teamB.String())
+	require.NoError(t, err)
+	row := findAttendanceRow(roster, bMember)
+	require.NotNil(t, row, "team B's own member must appear on the roster viewed through team B's URL")
+
+	// SetAttendance (self-RSVP) via team B's own URL.
+	yes := "yes"
+	rec, err := repo.SetAttendance(ctx, ev.Id.String(), bMember.String(), bMember.String(), teamB.String(), &yes, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "yes", rec.Status)
+}
+
+// TestEventRepository_CrossTeam_MultiTeamMemberSingleAttendanceRow covers
+// spec.md's "Multi-team member counts once" scenario: a person in both
+// targeted teams A and B appears exactly once on the roster and has exactly
+// one RSVP, visible identically through either team's URL.
+func TestEventRepository_CrossTeam_MultiTeamMemberSingleAttendanceRow(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	teamB := uuid.New()
+	dualMember := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Dual Team A'), ($2, 'Dual Team B')`, teamA, teamB)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Dual Member', 'dual-member@example.com', '#abcabc')`, dualMember)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($3, $2)`, teamA, dualMember, teamB)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Dual Membership Event", time.Now().UTC())
+	params.CrossTeamIds = []uuid.UUID{teamB}
+	ev, err := repo.CreateEvent(ctx, teamA.String(), &params)
+	require.NoError(t, err)
+
+	yes := "yes"
+	_, err = repo.SetAttendance(ctx, ev.Id.String(), dualMember.String(), dualMember.String(), teamA.String(), &yes, nil, nil, nil)
+	require.NoError(t, err)
+
+	rosterViaA, err := repo.ListAttendance(ctx, ev.Id.String(), teamA.String())
+	require.NoError(t, err)
+	countInA := 0
+	for _, r := range rosterViaA {
+		if r.UserId == dualMember {
+			countInA++
+		}
+	}
+	assert.Equal(t, 1, countInA, "a member of two targeted teams must appear exactly once, not once per team")
+
+	rosterViaB, err := repo.ListAttendance(ctx, ev.Id.String(), teamB.String())
+	require.NoError(t, err)
+	rowViaB := findAttendanceRow(rosterViaB, dualMember)
+	require.NotNil(t, rowViaB)
+	assert.Equal(t, "yes", rowViaB.Status, "the single RSVP set via team A's URL must be visible identically via team B's URL")
+
+	summary, err := repo.GetAttendanceSummary(ctx, ev.Id.String(), teamA.String())
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Yes)
+	assert.Equal(t, 1, summary.Total, "the dual-team member must be counted once in the summary total, not twice")
+}
+
+// TestEventRepository_CrossTeam_UpdateReplacesTargetSet covers design.md's
+// UpdateEventRequest.crossTeamIds semantics: present replaces the full
+// additional-target set (including un-sharing back to single-team via an
+// empty array); absent leaves it unchanged.
+func TestEventRepository_CrossTeam_UpdateReplacesTargetSet(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	teamB := uuid.New()
+	teamC := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Upd Team A'), ($2, 'Upd Team B'), ($3, 'Upd Team C')`, teamA, teamB, teamC)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Single Team Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamA.String(), &params)
+	require.NoError(t, err)
+
+	// Absent crossTeamIds: an unrelated field update must leave the target
+	// set unchanged (still single-team).
+	title := "Renamed"
+	_, err = repo.UpdateEvent(ctx, ev.Id.String(), teamA.String(), &events.UpdateEventParams{Title: &title}, "single")
+	require.NoError(t, err)
+	eventTeams, err := repo.GetEventTeams(ctx, ev.Id.String())
+	require.NoError(t, err)
+	require.Len(t, eventTeams, 1, "crossTeamIds absent from the patch must leave the target set unchanged")
+
+	// Share with team B.
+	_, err = repo.UpdateEvent(ctx, ev.Id.String(), teamA.String(), &events.UpdateEventParams{CrossTeamIds: []uuid.UUID{teamB}}, "single")
+	require.NoError(t, err)
+	eventTeams, err = repo.GetEventTeams(ctx, ev.Id.String())
+	require.NoError(t, err)
+	require.Len(t, eventTeams, 2)
+
+	// Replace the target set entirely with team C (team B drops off).
+	_, err = repo.UpdateEvent(ctx, ev.Id.String(), teamA.String(), &events.UpdateEventParams{CrossTeamIds: []uuid.UUID{teamC}}, "single")
+	require.NoError(t, err)
+	eventTeams, err = repo.GetEventTeams(ctx, ev.Id.String())
+	require.NoError(t, err)
+	gotIDs := make([]uuid.UUID, len(eventTeams))
+	for i, et := range eventTeams {
+		gotIDs[i] = et.TeamID
+	}
+	assert.ElementsMatch(t, []uuid.UUID{teamA, teamC}, gotIDs, "crossTeamIds present must replace the full additional-target set")
+
+	// Un-share back to single-team via an explicit empty array.
+	_, err = repo.UpdateEvent(ctx, ev.Id.String(), teamA.String(), &events.UpdateEventParams{CrossTeamIds: []uuid.UUID{}}, "single")
+	require.NoError(t, err)
+	eventTeams, err = repo.GetEventTeams(ctx, ev.Id.String())
+	require.NoError(t, err)
+	require.Len(t, eventTeams, 1)
+	assert.Equal(t, teamA, eventTeams[0].TeamID)
+
+	// A member of the now-dropped team B must no longer be able to read
+	// the event via their own team's URL.
+	_, err = repo.GetEvent(ctx, ev.Id.String(), teamB.String())
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+// TestEventRepository_CrossTeam_DeleteRestrictedToOwningTeam covers
+// design.md's deliberate simplification: deleting a cross-team event is
+// only ever allowed via its owning team, never a crossTeamIds target, even
+// though that target's members can read/RSVP the event.
+func TestEventRepository_CrossTeam_DeleteRestrictedToOwningTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	teamB := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Del Team A'), ($2, 'Del Team B')`, teamA, teamB)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Deletable Joint Event", time.Now().UTC())
+	params.CrossTeamIds = []uuid.UUID{teamB}
+	ev, err := repo.CreateEvent(ctx, teamA.String(), &params)
+	require.NoError(t, err)
+
+	// Team B can read it (it's a valid target)...
+	_, err = repo.GetEvent(ctx, ev.Id.String(), teamB.String())
+	require.NoError(t, err)
+
+	// ...but cannot delete it.
+	err = repo.DeleteEvent(ctx, ev.Id.String(), teamB.String(), "single")
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "delete must stay restricted to the owning team even though team B is a valid target")
+
+	// The owning team can.
+	err = repo.DeleteEvent(ctx, ev.Id.String(), teamA.String(), "single")
+	require.NoError(t, err)
+}
+
+// TestEventRepository_CrossTeam_ListEventMemberTeams covers the raw data
+// Service.ListAttendance's badge computation is built on: for each user,
+// the subset of the event's targeted teams they belong to.
+func TestEventRepository_CrossTeam_ListEventMemberTeams(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamAlpha := uuid.New()
+	teamBravo := uuid.New()
+	dualMember := uuid.New()
+	soloMember := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Alpha'), ($2, 'Bravo')`, teamAlpha, teamBravo)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES
+		($1, 'Dual', 'dual-badge@example.com', '#000001'),
+		($2, 'Solo', 'solo-badge@example.com', '#000002')
+	`, dualMember, soloMember)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($3, $2), ($1, $4)
+	`, teamAlpha, dualMember, teamBravo, soloMember)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Badge Event", time.Now().UTC())
+	params.CrossTeamIds = []uuid.UUID{teamBravo}
+	ev, err := repo.CreateEvent(ctx, teamAlpha.String(), &params)
+	require.NoError(t, err)
+
+	memberTeams, err := repo.ListEventMemberTeams(ctx, ev.Id.String())
+	require.NoError(t, err)
+
+	require.Contains(t, memberTeams, dualMember)
+	dualTeamIDs := make([]uuid.UUID, len(memberTeams[dualMember]))
+	for i, et := range memberTeams[dualMember] {
+		dualTeamIDs[i] = et.TeamID
+	}
+	assert.ElementsMatch(t, []uuid.UUID{teamAlpha, teamBravo}, dualTeamIDs, "a dual member must list both targeted teams they belong to")
+
+	require.Contains(t, memberTeams, soloMember)
+	require.Len(t, memberTeams[soloMember], 1)
+	assert.Equal(t, teamAlpha, memberTeams[soloMember][0].TeamID)
 }

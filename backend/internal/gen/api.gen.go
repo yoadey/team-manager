@@ -462,8 +462,11 @@ type AttendanceRow struct {
 	ReasonId         *string                        `json:"reasonId,omitempty"`
 	ReasonVisibility *AttendanceRowReasonVisibility `json:"reasonVisibility,omitempty"`
 	Status           AttendanceStatus               `json:"status"`
-	Title            *string                        `json:"title,omitempty"`
-	UserId           openapi_types.UUID             `json:"userId"`
+
+	// TeamName Cross-team event only: set when this attendee does not belong to the viewer's own (currently active) team -- the alphabetically- first (by team name, case-insensitive) team name from the intersection of the attendee's own memberships and the event's targeted teams. Absent/null for an attendee who shares the viewer's own team, and always absent/null on a single-team event. When set, membershipId/group/title/primaryRole/reason/ reasonId/reasonVisibility are omitted -- a foreign attendee on a cross-team event exposes only name/avatar/status, never profile-identifying or free-text fields.
+	TeamName *string            `json:"teamName,omitempty"`
+	Title    *string            `json:"title,omitempty"`
+	UserId   openapi_types.UUID `json:"userId"`
 }
 
 // AttendanceRowReasonVisibility defines model for AttendanceRow.ReasonVisibility.
@@ -553,8 +556,11 @@ type CreateContributionRequest struct {
 // CreateEventRequest defines model for CreateEventRequest.
 type CreateEventRequest struct {
 	// CancelLeadMinutes Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own cancelLeadMinutes, with each occurrence computing its own effective cutoff from its own start.
-	CancelLeadMinutes *int               `json:"cancelLeadMinutes,omitempty"`
-	Date              openapi_types.Date `json:"date"`
+	CancelLeadMinutes *int `json:"cancelLeadMinutes,omitempty"`
+
+	// CrossTeamIds Additional teams (besides teamId, the owning team) to target with this event. Every listed team must be a real team, and the caller must hold events:write in all of them (as well as in teamId) -- otherwise the request is rejected. Empty/absent creates a normal single-team event, unchanged from today.
+	CrossTeamIds *[]openapi_types.UUID `json:"crossTeamIds,omitempty"`
+	Date         openapi_types.Date    `json:"date"`
 
 	// EndDate Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
 	EndDate *openapi_types.Date `json:"endDate,omitempty"`
@@ -1104,8 +1110,11 @@ type Team struct {
 // TeamEvent defines model for TeamEvent.
 type TeamEvent struct {
 	// CancelLeadMinutes Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response for this event.
-	CancelLeadMinutes *int               `json:"cancelLeadMinutes,omitempty"`
-	Date              openapi_types.Date `json:"date"`
+	CancelLeadMinutes *int `json:"cancelLeadMinutes,omitempty"`
+
+	// CrossTeamIds Other teams (besides teamId, the owning team) this event targets. Members of any of these teams see the event and its merged attendance. Empty for a single-team event.
+	CrossTeamIds *[]openapi_types.UUID `json:"crossTeamIds,omitempty"`
+	Date         openapi_types.Date    `json:"date"`
 
 	// EndTime HH:mm
 	EndTime *string `json:"endTime,omitempty"`
@@ -1207,9 +1216,12 @@ type UpdateEventRequest struct {
 	CancelLeadMinutes *int `json:"cancelLeadMinutes,omitempty"`
 
 	// ClearMultiDayEndDate When true, clears the event's multiDayEndDate back to unset (single-day). Mutually exclusive with multiDayEndDate.
-	ClearMultiDayEndDate *bool               `json:"clearMultiDayEndDate,omitempty"`
-	Date                 *openapi_types.Date `json:"date,omitempty"`
-	EndTime              *string             `json:"endTime,omitempty"`
+	ClearMultiDayEndDate *bool `json:"clearMultiDayEndDate,omitempty"`
+
+	// CrossTeamIds When present, replaces the full set of additional target teams (besides teamId, the owning team) -- an empty array un-shares the event back to single-team. Absent leaves the current target set unchanged. Every listed team must be a real team, and the caller must hold events:write across the full resulting set (teamId plus every id here) -- otherwise the request is rejected.
+	CrossTeamIds *[]openapi_types.UUID `json:"crossTeamIds,omitempty"`
+	Date         *openapi_types.Date   `json:"date,omitempty"`
+	EndTime      *string               `json:"endTime,omitempty"`
 
 	// ExcludeFromStats When true, excludes this event from every attendance-statistics computation. With scope=series, applies to every occurrence of the series; with scope=single, applies only to the targeted occurrence.
 	ExcludeFromStats  *bool   `json:"excludeFromStats,omitempty"`

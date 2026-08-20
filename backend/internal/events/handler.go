@@ -107,9 +107,17 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
+	if request.Body.CrossTeamIds != nil {
+		if err := validate.UUIDItems(len(*request.Body.CrossTeamIds), "crossTeamIds"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 
 	ev, err := h.svc.CreateEvent(ctx, request.TeamId.String(), user.Id.String(), request.Body)
 	if err != nil {
+		if errors.Is(err, ErrCrossTeamWriteForbidden) {
+			return nil, apierror.Forbidden("events:write required in every targeted team")
+		}
 		if apiErr := mapCreateEventError(err); apiErr != nil {
 			return nil, apiErr
 		}
@@ -127,6 +135,8 @@ func mapCreateEventError(err error) error {
 	switch {
 	case errors.Is(err, ErrInvalidNominatedRoleIDs):
 		return apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
+	case errors.Is(err, ErrInvalidCrossTeamIds):
+		return apierror.BadRequest("crossTeamIds must refer to teams that exist")
 	case errors.Is(err, ErrRepeatWeeksTooLarge),
 		errors.Is(err, ErrRecurrenceEndDateBeforeDate),
 		errors.Is(err, ErrMultiDayEndDateBeforeDate),
@@ -188,6 +198,11 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
+	if request.Body.CrossTeamIds != nil {
+		if err := validate.UUIDItems(len(*request.Body.CrossTeamIds), "crossTeamIds"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 	if request.Body.MultiDayEndDate != nil && request.Body.ClearMultiDayEndDate != nil && *request.Body.ClearMultiDayEndDate {
 		return nil, apierror.BadRequest("multiDayEndDate and clearMultiDayEndDate must not both be set")
 	}
@@ -207,6 +222,12 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 		}
 		if errors.Is(err, ErrInvalidNominatedRoleIDs) {
 			return nil, apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
+		}
+		if errors.Is(err, ErrInvalidCrossTeamIds) {
+			return nil, apierror.BadRequest("crossTeamIds must refer to teams that exist")
+		}
+		if errors.Is(err, ErrCrossTeamWriteForbidden) {
+			return nil, apierror.Forbidden("events:write required in every targeted team")
 		}
 		if errors.Is(err, ErrEndTimeBeforeStartTime) {
 			return nil, apierror.BadRequest(ErrEndTimeBeforeStartTime.Error())
