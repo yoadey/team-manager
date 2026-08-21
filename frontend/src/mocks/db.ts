@@ -213,6 +213,19 @@ export interface NewsRow extends NewsItem {
   teamId: string;
 }
 
+// The real backend's absences table is strictly team-scoped
+// (`WHERE team_id = $1` on every query -- see internal/absences/repository.go),
+// but the wire-facing Absence DTO carries no teamId (a client always reaches
+// it through a team-scoped URL, so it's implicit there). This row type adds
+// that team scoping back for internal storage/computation -- needed so
+// effectiveStatus/absenceCovers can check a planned absence against the
+// SAME team the real backend's absenceCoversExpr (`ab.team_id = m.team_id`)
+// would, rather than matching an absence filed under any of a multi-team
+// user's OTHER teams too.
+export interface AbsenceRow extends Absence {
+  teamId: string;
+}
+
 export interface DemoDb {
   users: UserRow[];
   teams: TeamRow[];
@@ -221,7 +234,7 @@ export interface DemoDb {
   events: EventDto[];
   attendance: AttendanceDto[];
   invites: Invite[];
-  absences: Absence[];
+  absences: AbsenceRow[];
   news: NewsRow[];
   transactions: Transaction[];
   penalties: Penalty[];
@@ -594,6 +607,7 @@ export function createSeedData(): DemoDb {
   db.absences = [
     {
       id: rid('abs'),
+      teamId: 't_a',
       userId: 'u6',
       from: plusDays(5),
       to: plusDays(12),
@@ -603,6 +617,7 @@ export function createSeedData(): DemoDb {
     },
     {
       id: rid('abs'),
+      teamId: 't_a',
       userId: 'u10',
       from: plusDays(1),
       to: plusDays(3),
@@ -612,6 +627,7 @@ export function createSeedData(): DemoDb {
     },
     {
       id: rid('abs'),
+      teamId: 't_a',
       userId: 'u3',
       from: plusDays(20),
       to: plusDays(27),
@@ -850,8 +866,12 @@ export function rolesOf(membership: Membership): RoleDto[] {
   return membership.roleIds.map((id) => db.roles.find((r) => r.id === id)).filter(Boolean) as RoleDto[];
 }
 
-export function absenceCovers(userId: string, date: string): boolean {
-  return db.absences.some((a) => a.userId === userId && date >= a.from && date <= a.to);
+// teamId-scoped, matching the real backend's absenceCoversExpr
+// (`ab.team_id = m.team_id`) -- an absence filed under one of a
+// multi-team user's OTHER teams must not cover an event viewed via a
+// different team.
+export function absenceCovers(userId: string, teamId: string, date: string): boolean {
+  return db.absences.some((a) => a.userId === userId && a.teamId === teamId && date >= a.from && date <= a.to);
 }
 
 export interface EffectiveAttendance {
@@ -867,8 +887,13 @@ export interface EffectiveAttendance {
 // otherwise a covering planned absence defaults to "no" (auto, absent); an
 // opt_out event with no record defaults to "yes" (auto); everything else is
 // "pending". Used for event summaries/attendance rows/roster views — NOT for
-// stats (see rawCountedStatus below, drift-bug fix #2).
-export function effectiveStatus(event: EventDto, userId: string | null): EffectiveAttendance {
+// stats (see rawCountedStatus below, drift-bug fix #2). teamId scopes the
+// absence lookup -- for a cross-team event, callers pass whichever team is
+// this particular computation's "identity" team for userId (the viewing
+// team for a same-team/own-status lookup, or the picked target-team
+// membership for a foreign roster row), matching the real backend's own
+// per-row team scoping instead of checking a user's absences globally.
+export function effectiveStatus(event: EventDto, userId: string | null, teamId: string): EffectiveAttendance {
   const rec = db.attendance.find((a) => a.eventId === event.id && a.userId === userId);
   if (rec)
     return {
@@ -877,9 +902,9 @@ export function effectiveStatus(event: EventDto, userId: string | null): Effecti
       reasonId: rec.reasonId,
       reasonVisibility: rec.reasonVisibility,
       auto: false,
-      absent: absenceCovers(userId!, event.date),
+      absent: absenceCovers(userId!, teamId, event.date),
     };
-  if (userId && absenceCovers(userId, event.date))
+  if (userId && absenceCovers(userId, teamId, event.date))
     return { status: 'no', reason: '', reasonId: null, reasonVisibility: null, auto: true, absent: true };
   if (event.responseMode === 'opt_out')
     return { status: 'yes', reason: '', reasonId: null, reasonVisibility: null, auto: true, absent: false };

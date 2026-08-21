@@ -203,30 +203,57 @@ function toWireMember(m: (typeof db.memberships)[number]): S['Member'] {
   };
 }
 
-function eventSummary(e: EventDto): S['EventSummary'] {
+// Groups every targeted team's membership by user (a person in 2+ targeted
+// teams counted once), picking one "identity" membership per user -- the
+// viewer's own team's when the user has one, else whichever targeted team's
+// membership was encountered first in targetTeamIds order. Shared by
+// eventSummary and crossTeamAttendanceRows so both dedupe/pick identically
+// -- and, since teamIds carries every targeted team the user actually
+// belongs to, callers scope their own absence/effective-status lookup to
+// the SAME team the picked membership belongs to (membership.teamId),
+// matching the real backend's per-row team scoping instead of checking a
+// user's absences globally across every team they happen to belong to.
+function pickIdentityMembershipsByUser(
+  targetTeamIds: string[],
+  viewingTeamId: string,
+): Map<string, { teamIds: string[]; membership: (typeof db.memberships)[number] }> {
+  const byUser = new Map<string, { teamIds: string[]; membership: (typeof db.memberships)[number] }>();
+  for (const tid of targetTeamIds) {
+    for (const m of db.memberships.filter((mm) => mm.teamId === tid)) {
+      const entry = byUser.get(m.userId);
+      if (entry) {
+        entry.teamIds.push(tid);
+        if (tid === viewingTeamId) entry.membership = m;
+      } else {
+        byUser.set(m.userId, { teamIds: [tid], membership: m });
+      }
+    }
+  }
+  return byUser;
+}
+
+function eventSummary(e: EventDto, viewingTeamId: string): S['EventSummary'] {
   // Union of every targeted team's membership (owning team plus
   // crossTeamIds), deduped by userId -- mirrors crossTeamAttendanceRows and
   // the real backend's GetAttendanceSummary, which counts a multi-team
   // member once rather than per team. For a single-team event this reduces
   // to exactly the old "just this team's members" set.
   const targetTeamIds = [e.teamId, ...(e.crossTeamIds ?? [])];
-  const memberIds = [
-    ...new Set(db.memberships.filter((m) => targetTeamIds.includes(m.teamId)).map((m) => m.userId)),
-  ];
+  const byUser = pickIdentityMembershipsByUser(targetTeamIds, viewingTeamId);
   let yes = 0, no = 0, maybe = 0, pending = 0, notNom = 0;
-  memberIds.forEach((uid) => {
-    const s = effectiveStatus(e, uid).status;
+  byUser.forEach(({ membership }, uid) => {
+    const s = effectiveStatus(e, uid, membership.teamId).status;
     if (s === 'yes') yes++;
     else if (s === 'no') no++;
     else if (s === 'maybe') maybe++;
     else if (s === 'not_nominated') notNom++;
     else pending++;
   });
-  return { yes, no, maybe, pending, notNominated: notNom, nominated: memberIds.length - notNom, total: memberIds.length };
+  return { yes, no, maybe, pending, notNominated: notNom, nominated: byUser.size - notNom, total: byUser.size };
 }
 
-function toWireEvent(e: EventDto): S['TeamEvent'] {
-  const mine = effectiveStatus(e, session.userId);
+function toWireEvent(e: EventDto, viewingTeamId: string): S['TeamEvent'] {
+  const mine = effectiveStatus(e, session.userId, viewingTeamId);
   return {
     id: e.id,
     teamId: e.teamId,
@@ -237,7 +264,7 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     responseMode: e.responseMode,
     recurring: e.recurring,
     status: e.status,
-    summary: eventSummary(e),
+    summary: eventSummary(e, viewingTeamId),
     myStatus: mine.status,
     myAuto: mine.auto,
     myReason: mine.reason,
@@ -294,7 +321,7 @@ function applyEventPatch(ev: EventDto, body: S['UpdateEventRequest'], scope: 'si
 function toWireAttendanceRow(e: EventDto, m: (typeof db.memberships)[number]): S['AttendanceRow'] {
   const u = requireUser(m.userId);
   const roles = rolesOf(m);
-  const es = effectiveStatus(e, m.userId);
+  const es = effectiveStatus(e, m.userId, m.teamId);
   const pr = primaryRole(roles);
   return {
     userId: u.id,
@@ -562,20 +589,7 @@ function validateCrossTeamIds(
 // has no other visibility into.
 function crossTeamAttendanceRows(e: EventDto, viewingTeamId: string): S['AttendanceRow'][] {
   const targetTeamIds = [e.teamId, ...(e.crossTeamIds ?? [])];
-  const byUser = new Map<string, { teamIds: string[]; membership: (typeof db.memberships)[number] }>();
-  for (const tid of targetTeamIds) {
-    for (const m of db.memberships.filter((mm) => mm.teamId === tid)) {
-      const entry = byUser.get(m.userId);
-      if (entry) {
-        entry.teamIds.push(tid);
-        // Prefer the viewer's-own-team membership record for the fields
-        // (group/title/primaryRole/membershipId) shown for a same-team row.
-        if (tid === viewingTeamId) entry.membership = m;
-      } else {
-        byUser.set(m.userId, { teamIds: [tid], membership: m });
-      }
-    }
-  }
+  const byUser = pickIdentityMembershipsByUser(targetTeamIds, viewingTeamId);
   const rows: S['AttendanceRow'][] = [];
   byUser.forEach(({ teamIds, membership }, userId) => {
     const base = toWireAttendanceRow(e, membership);
@@ -1208,7 +1222,7 @@ export const handlers = [
     if (scope === 'upcoming') list = list.filter((e) => effectiveEnd(e) >= today);
     if (scope === 'past') list = list.filter((e) => effectiveEnd(e) < today);
     list = [...list].sort((a, b) => (scope === 'past' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
-    return HttpResponse.json({ items: list.map(toWireEvent), nextCursor: null });
+    return HttpResponse.json({ items: list.map((e) => toWireEvent(e, params.teamId as string)), nextCursor: null });
   }),
 
   http.post(P('/teams/:teamId/events'), async ({ params, request }) => {
@@ -1293,7 +1307,7 @@ export const handlers = [
       note: created.length > 1 ? `Serie mit ${created.length} Terminen` : '',
       ...opt('actorId', session.userId ?? undefined),
     });
-    return HttpResponse.json(toWireEvent(first), { status: 201 });
+    return HttpResponse.json(toWireEvent(first, teamId), { status: 201 });
   }),
 
   http.get(P('/teams/:teamId/events/:eventId'), async ({ params }) => {
@@ -1304,7 +1318,7 @@ export const handlers = [
     if (perm !== true) return perm;
     const e = eventDate(params.eventId as string);
     if (!e || !eventVisibleToTeam(e, params.teamId as string)) return problem(404, 'Event not found');
-    return HttpResponse.json(toWireEvent(e));
+    return HttpResponse.json(toWireEvent(e, params.teamId as string));
   }),
 
   http.patch(P('/teams/:teamId/events/:eventId'), async ({ params, request }) => {
@@ -1337,7 +1351,7 @@ export const handlers = [
       }
     });
     pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
-    return HttpResponse.json(toWireEvent(e));
+    return HttpResponse.json(toWireEvent(e, params.teamId as string));
   }),
 
   http.post(P('/teams/:teamId/events/:eventId/status'), async ({ params, request }) => {
@@ -1354,7 +1368,7 @@ export const handlers = [
     const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
     targets.forEach((ev) => { ev.status = body.status; });
     pushNotif({ teamId: e.teamId, type: body.status === 'cancelled' ? 'event_cancelled' : 'event_reactivated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
-    return HttpResponse.json(toWireEvent(e));
+    return HttpResponse.json(toWireEvent(e, params.teamId as string));
   }),
 
   http.delete(P('/teams/:teamId/events/:eventId'), async ({ params, request }) => {
@@ -1597,6 +1611,7 @@ export const handlers = [
     const body = (await request.json()) as S['CreateAbsenceRequest'];
     const a = {
       id: rid('abs'),
+      teamId: params.teamId as string,
       userId: body.userId,
       from: body.from,
       to: body.to,
@@ -2228,7 +2243,7 @@ export const handlers = [
         let yes = 0,
           counted = 0;
         events.forEach((e) => {
-          const raw = effectiveStatus(e, uid).status;
+          const raw = effectiveStatus(e, uid, teamId).status;
           const s: S['AttendanceStatus'] = raw === 'not_nominated' ? 'pending' : raw;
           cells[e.id] = s;
           if (s === 'yes') {
