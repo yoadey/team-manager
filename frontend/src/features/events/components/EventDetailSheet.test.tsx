@@ -619,7 +619,7 @@ describe('EventDetailSheet', () => {
     mockUseApp.mockReturnValue(app as never);
     const event = makeEvent({ date: '2026-07-01', crossTeamIds: ['team2'] });
     const rows = [
-      { userId: 'user2', name: 'Anna Müller', avatarColor: '#4285F4', photo: null, status: 'yes' as const, auto: false, absent: false, teamName: 'B-Jugend' },
+      { userId: 'user2', name: 'Anna Müller', avatarColor: '#4285F4', photo: null, status: 'yes' as const, auto: false, absent: false, foreign: true, teamName: 'B-Jugend' },
     ];
     render(<EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows, comments: [] } as never} />);
     expect(screen.getByText('Anna Müller')).toBeTruthy();
@@ -638,6 +638,33 @@ describe('EventDetailSheet', () => {
     expect(screen.getByText('Anna Müller')).toBeTruthy();
     // No teamName means no group/other team text rendered alongside the name.
     expect(screen.queryByText('B-Jugend')).toBeNull();
+  });
+
+  it('hides RSVP controls for a foreign attendee even when teamName is absent (fail-closed redaction case)', () => {
+    const app = makeApp();
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    mockUseApp.mockReturnValue(app as never);
+    // Far-future date so isPast is reliably false regardless of test-run time
+    // -- unlike the rest of this file's fixtures (2026-07-01), this test
+    // needs RSVP controls to actually be reachable for the assertion below
+    // to mean anything.
+    const event = makeEvent({ date: '2099-01-01', crossTeamIds: ['team2'] });
+    const rows = [
+      // Same-team control row: proves RSVP buttons are actually reachable
+      // under this canEdit/isPast setup, so the foreign row's absence below
+      // is meaningful rather than trivially true.
+      { userId: 'user1', name: 'Bea Schmidt', avatarColor: '#000', photo: null, status: 'pending' as const, auto: false, absent: false, foreign: false },
+      // foreign: true but no teamName -- the backend's accepted fail-closed
+      // race window (redacted identity, no badge assigned yet).
+      { userId: 'user2', name: 'Anna Müller', avatarColor: '#4285F4', photo: null, status: 'pending' as const, auto: false, absent: false, foreign: true },
+    ];
+    render(<EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows, comments: [] } as never} />);
+    // statusMeta is mocked (see the '@/styles/tokens' mock above) to always
+    // return label: 'Zusagen' regardless of status, so all three
+    // AttendanceStatusButtons per editable row share that aria-label --
+    // exactly 3 (one row's worth) confirms only the same-team row is
+    // editable; 6 would mean the foreign row leaked controls too.
+    expect(screen.getAllByLabelText('Zusagen').length).toBe(3);
   });
 
   it('shows a "shared with other teams" indicator when the event targets other teams', () => {

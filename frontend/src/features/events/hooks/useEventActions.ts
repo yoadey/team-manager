@@ -313,8 +313,12 @@ export function useEventActionFeatures({
       // from, not event.teamId (the owning team), so a viewer who belongs
       // only to a non-owning targeted team can use this at all.
       const viewTeamId = S().activeTeamId ?? event.teamId;
+      // Every team the event targets needs its cache invalidated, not just
+      // the one the request was made through -- see useEventStatusMutation's
+      // doc comment.
+      const allTeamIds = Array.from(new Set([event.teamId, ...(event.crossTeamIds || [])]));
       try {
-        await setEventStatusAsync({ eventId: event.id, status, scope, teamId: viewTeamId });
+        await setEventStatusAsync({ eventId: event.id, status, scope, teamId: viewTeamId, allTeamIds });
         loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a different
         // team after switching away mid-request, or one they've since opened

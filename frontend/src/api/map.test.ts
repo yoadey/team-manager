@@ -221,6 +221,14 @@ describe('person-photo mappers build a member photo URL from membershipId', () =
     expect(mapAttendanceRow({ ...base, teamName: 'B-Jugend' }, 't1').teamName).toBe('B-Jugend');
   });
 
+  it('mapAttendanceRow derives foreign from membershipId, not teamName -- covers the fail-closed redaction case where a foreign attendee has no teamName badge', () => {
+    const base = { userId: 'u1', name: 'Alice', avatarColor: '#000', status: 'yes' as const };
+    // Fail-closed case: identity redacted (no membershipId) but no teamName badge either.
+    expect(mapAttendanceRow(base, 't1').foreign).toBe(true);
+    expect(mapAttendanceRow(base, 't1').teamName).toBeUndefined();
+    expect(mapAttendanceRow({ ...base, membershipId: 'm1' }, 't1').foreign).toBe(false);
+  });
+
   it('mapEventComment builds a photo URL from authorMembershipId/hasAuthorPhoto', () => {
     const base = { id: 'c1', eventId: 'e1', userId: 'u1', text: 'hi', createdAt: '2025-01-01T00:00:00Z' };
     expect(mapEventComment(base, 't1').photo).toBeNull();

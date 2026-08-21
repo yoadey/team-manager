@@ -145,7 +145,15 @@ export function useSaveEventMutation(api: typeof defaultApi, teamId: string | nu
  * event's OWN team id per call rather than the hook-bound active team id: the
  * confirm sheet that triggers these can still be open after the user has
  * switched to a different active team, and the event must still be mutated
- * (and its cache invalidated) under the team it actually belongs to.
+ * under the team the request is made through.
+ *
+ * Cancel/reactivate is deliberately callable through any of a cross-team
+ * event's targeted teams, not just its owner (see events.Repository's
+ * eventScopedByAnyTargetTeam relaxation for SetStatus) -- so `allTeamIds`
+ * (the event's owning team plus every crossTeamIds target) invalidates every
+ * targeted team's cached event list/detail, not just the one the request was
+ * made through, otherwise the other targeted teams keep showing the event's
+ * pre-mutation status until something else happens to refetch them.
  */
 export function useEventStatusMutation(api: typeof defaultApi) {
   const qc = useQueryClient();
@@ -160,12 +168,15 @@ export function useEventStatusMutation(api: typeof defaultApi) {
       status: 'active' | 'cancelled';
       scope: 'single' | 'series';
       teamId: string;
+      allTeamIds: string[];
     }) => api.events.setStatus(eventId, status, scope, teamId),
-    onSuccess: (_data, { eventId, teamId }) =>
-      Promise.all([
-        qc.invalidateQueries({ queryKey: queryKeys.events(teamId) }),
-        qc.invalidateQueries({ queryKey: queryKeys.eventDetail(teamId, eventId) }),
-      ]),
+    onSuccess: (_data, { eventId, allTeamIds }) =>
+      Promise.all(
+        allTeamIds.flatMap((tid) => [
+          qc.invalidateQueries({ queryKey: queryKeys.events(tid) }),
+          qc.invalidateQueries({ queryKey: queryKeys.eventDetail(tid, eventId) }),
+        ]),
+      ),
   });
 }
 

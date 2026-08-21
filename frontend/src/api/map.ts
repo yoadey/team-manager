@@ -297,6 +297,7 @@ export function mapAttendanceRow(r: S['AttendanceRow'], teamId: string): Attenda
     reasonVisibility: (r.reasonVisibility as 'trainers' | 'team' | null) ?? null,
     auto: r.auto ?? false,
     absent: r.absent ?? false,
+    foreign: !r.membershipId,
     ...opt('teamName', r.teamName),
   };
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useEventDetailActions, useEventActionFeatures } from './useEventActions';
-import { createQueryWrapper } from '@/test/queryTestUtils';
+import { createQueryWrapper, createTestQueryClient } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
@@ -471,6 +471,37 @@ describe('useEventActionFeatures', () => {
       await result.current.runEventAction('reactivate', event, 'single');
     });
     expect(api.events.setStatus).toHaveBeenCalledWith('ev1', 'active', 'single', 'team2');
+  });
+
+  // Regression: cancel/reactivate invalidates every targeted team's cache,
+  // not just the one the request was made through -- otherwise a non-owning
+  // targeted team the mutation didn't route through (here: team1, the
+  // event's actual owner) keeps showing the event's pre-mutation status
+  // until something else happens to refetch it.
+  it('runEventAction reactivate invalidates every targeted team\'s query cache, not just the viewing team', async () => {
+    stateRef = { ...stateRef, activeTeamId: 'team2' };
+    const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1', crossTeamIds: ['team2', 'team3'] } as never;
+    const client = createTestQueryClient();
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(
+      () =>
+        useEventActionFeatures({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          loadNotifications: loadNotifications as never,
+          toastMsg: toastMsg as never,
+          askConfirm: askConfirm as never,
+          openEventDetail: openEventDetail as never,
+          logout: logout as never,
+        }),
+      { wrapper: createQueryWrapper(client) },
+    );
+    await act(async () => {
+      await result.current.runEventAction('reactivate', event, 'single');
+    });
+    const invalidatedTeamIds = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey[1]);
+    expect(invalidatedTeamIds).toEqual(expect.arrayContaining(['team1', 'team2', 'team3']));
   });
 
   // Regression: delete must scope the API call to the event's OWN team, not

@@ -28,11 +28,13 @@ function combineCancelLeadMinutes(f: EventFormValues): number | undefined {
   return total > 0 ? total : undefined;
 }
 
-/** True when both arrays contain the same ids, order and duplicates aside. */
+/** True when both arrays contain the same set of ids, order and duplicates aside. */
 function sameIdSet(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
   const sa = new Set(a);
-  return b.every((id) => sa.has(id));
+  const sb = new Set(b);
+  if (sa.size !== sb.size) return false;
+  for (const id of sa) if (!sb.has(id)) return false;
+  return true;
 }
 
 /** Builds the base event write payload shared by create and edit -- everything except the create-only recurrence fields (see buildRecurrencePayload) and crossTeamIds (see saveEvent's change-detection). */
@@ -198,19 +200,25 @@ export function useEventFormActions({
         cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
         cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
         excludeFromStats: !!event.excludeFromStats,
-        // Only carry over target teams the duplicating user actually has
-        // events:write in -- CrossTeamPicker only ever renders (and lets the
-        // user deselect) teams meeting that bar, so an invisible team here
-        // would silently survive to the save request and get rejected by
-        // the server (write-in-all-targets) with no way for the user to see
-        // or remove it from the form.
-        crossTeamIds: (event.crossTeamIds || []).filter((id) =>
-          canForTeam(
-            S().teams.find((tm) => tm.id === id) || null,
-            'events',
-            'write',
-          ),
-        ),
+        // The duplicate is created under the currently active team, which
+        // may be a non-owning team the source event was only reached
+        // through (Duplicate stays available for those viewers -- see the
+        // events feature's viewing-team fixes). event.crossTeamIds always
+        // excludes the source's *actual* owning team (event.teamId), so
+        // carrying that list over as-is would silently drop the original
+        // owner from the duplicate's target set whenever duplicating via a
+        // non-owning team. Recombine the full original target set --
+        // {event.teamId} ∪ event.crossTeamIds -- then drop whichever team
+        // becomes the new owner (it's implicit, not a cross-team target)
+        // before filtering to teams the duplicating user actually has
+        // events:write in -- CrossTeamPicker only ever renders (and lets
+        // the user deselect) teams meeting that bar, so an invisible team
+        // here would silently survive to the save request and get rejected
+        // by the server (write-in-all-targets) with no way for the user to
+        // see or remove it from the form.
+        crossTeamIds: Array.from(new Set([event.teamId, ...(event.crossTeamIds || [])]))
+          .filter((id) => id !== S().activeTeamId)
+          .filter((id) => canForTeam(S().teams.find((tm) => tm.id === id) || null, 'events', 'write')),
       };
       setState((st) => ({
         sheet: {

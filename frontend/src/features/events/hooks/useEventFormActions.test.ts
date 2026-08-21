@@ -156,6 +156,61 @@ describe('useEventFormActions', () => {
     expect(stateRef.sheet!.formInitial).toMatchObject({ date: '2026-05-01', multiDayEndDate: '2026-05-03' });
   });
 
+  it("duplicateEvent recombines the source event's owning team into crossTeamIds when duplicating via a non-owning targeted team, instead of dropping it", () => {
+    // Source event is owned by team1 and additionally targets team2;
+    // event.crossTeamIds (as the server returns it) always excludes the
+    // owning team, so it's just ['team2'] here regardless of which team's
+    // URL fetched it. Duplicating while viewing via team2 (activeTeamId)
+    // means the new event's implicit owner is team2 -- the original owner,
+    // team1, must be recombined into the duplicate's crossTeamIds or it's
+    // silently lost.
+    stateRef = makeState({
+      activeTeamId: 'team2',
+      teams: [
+        { id: 'team1', name: 'Team 1', myPerms: { events: 'write' } },
+        { id: 'team2', name: 'Team 2', myPerms: { events: 'write' } },
+      ] as never,
+    });
+    const { result } = renderActions();
+    act(() => {
+      result.current.duplicateEvent({
+        id: 'ev1',
+        teamId: 'team1',
+        crossTeamIds: ['team2'],
+        seriesId: null,
+        type: 'training',
+        title: 'Shared Training',
+        date: '2020-01-01',
+        multiDayEndDate: null,
+      } as never);
+    });
+    expect(stateRef.sheet!.formInitial).toMatchObject({ crossTeamIds: ['team1'] });
+  });
+
+  it('duplicateEvent drops target teams the duplicating user lacks events:write in', () => {
+    stateRef = makeState({
+      activeTeamId: 'team1',
+      teams: [
+        { id: 'team2', name: 'Team 2', myPerms: { events: 'read' } },
+        { id: 'team3', name: 'Team 3', myPerms: { events: 'write' } },
+      ] as never,
+    });
+    const { result } = renderActions();
+    act(() => {
+      result.current.duplicateEvent({
+        id: 'ev1',
+        teamId: 'team1',
+        crossTeamIds: ['team2', 'team3'],
+        seriesId: null,
+        type: 'training',
+        title: 'Shared Training',
+        date: '2020-01-01',
+        multiDayEndDate: null,
+      } as never);
+    });
+    expect(stateRef.sheet!.formInitial).toMatchObject({ crossTeamIds: ['team3'] });
+  });
+
   it('saveEvent forwards cancelLeadMinutes as the combined hours+minutes total', async () => {
     const api = { events: { create: vi.fn().mockResolvedValue({ id: 'ev1' }) } };
     const formValues = {

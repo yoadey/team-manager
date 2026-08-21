@@ -126,6 +126,7 @@ describe('mapAttendanceDtoToRow', () => {
       primaryRole: adminRole,
       auto: false,
       absent: false,
+      foreign: false,
     });
 
     expect(result).toMatchObject({

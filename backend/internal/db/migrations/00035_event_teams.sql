@@ -19,6 +19,18 @@ CREATE TABLE event_teams (
     PRIMARY KEY (event_id, team_id)
 );
 
+-- Every existing event predates this table and has no row here yet. Every
+-- relaxed read/RSVP path (GetEvent, ListEvents, ListAttendance, comments,
+-- SetAttendance/SetNomination, SetStatus, GetMyEffectiveAttendance/-s) now
+-- scopes via `EXISTS (SELECT 1 FROM event_teams ...)` instead of
+-- `team_id = $N` -- without this backfill that EXISTS is false for every
+-- pre-existing event, hiding it from its own owning team the moment this
+-- ships (same class of bug 00032_stats_rbac_module.sql's backfill avoids
+-- for the "stats" RBAC module).
+INSERT INTO event_teams (event_id, team_id)
+SELECT id, team_id FROM events
+ON CONFLICT DO NOTHING;
+
 -- The reverse lookup direction ("which cross-team events target team X",
 -- used by ListEvents/ListAttendance/etc. to resolve visibility for a
 -- non-owning viewer) isn't served by the PK's leading column -- see the

@@ -398,16 +398,17 @@ function attendanceRowControls(params: {
 }): ReactNode[] {
   const { row, event, app, isPast, mine, tk } = params;
   const notNominated = row.status === 'not_nominated';
-  // row.teamName is only ever set for a foreign attendee (someone outside
-  // the viewer's own team on a cross-team event) -- every write these
-  // controls trigger (SetAttendance/SetNomination/reason comment) requires
-  // the target user to be a member of the *viewing* team server-side, which
-  // a foreign attendee never is, so the write would always fail. mine can
-  // never be true for a foreign attendee (the viewer is inherently a member
-  // of their own viewing team), but the guard is kept explicit rather than
-  // relied upon.
-  const canEdit = params.canEdit && !row.teamName;
-  const editable = (canEdit || mine) && !isPast && !row.teamName;
+  // row.foreign (derived from the absence of membershipId, not teamName --
+  // see AttendanceRow's doc comment) is only ever true for a foreign
+  // attendee (someone outside the viewer's own team on a cross-team event)
+  // -- every write these controls trigger (SetAttendance/SetNomination/
+  // reason comment) requires the target user to be a member of the
+  // *viewing* team server-side, which a foreign attendee never is, so the
+  // write would always fail. mine can never be true for a foreign attendee
+  // (the viewer is inherently a member of their own viewing team), but the
+  // guard is kept explicit rather than relied upon.
+  const canEdit = params.canEdit && !row.foreign;
+  const editable = (canEdit || mine) && !isPast && !row.foreign;
 
   if (notNominated) {
     return [
@@ -422,7 +423,7 @@ function attendanceRowControls(params: {
           title={t('events.nominate')}
         />
       ) : null,
-      (canEdit || mine) && !row.teamName ? (
+      (canEdit || mine) && !row.foreign ? (
         <IconBtn
           key="cm"
           icon="chat_bubble"

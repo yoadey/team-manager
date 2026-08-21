@@ -23,7 +23,10 @@ export function mapMemberDtoToMember(
 /** Builds the attendance row ViewModel expected by the UI from raw attendance plus member display data. */
 export function mapAttendanceDtoToRow(
   attendance: AttendanceDto,
-  display: Pick<AttendanceRow, 'userId' | 'name' | 'avatarColor' | 'photo' | 'group' | 'title' | 'primaryRole' | 'auto' | 'absent'>,
+  display: Pick<
+    AttendanceRow,
+    'userId' | 'name' | 'avatarColor' | 'photo' | 'group' | 'title' | 'primaryRole' | 'auto' | 'absent' | 'foreign'
+  >,
 ): AttendanceRow {
   return { ...display, status: attendance.status, reason: attendance.reason, reasonId: attendance.reasonId, reasonVisibility: attendance.reasonVisibility };
 }
