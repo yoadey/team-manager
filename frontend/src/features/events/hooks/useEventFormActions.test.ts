@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useEventFormActions } from './useEventFormActions';
-import { createQueryWrapper } from '@/test/queryTestUtils';
+import { createQueryWrapper, createTestQueryClient } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
 import { todayStr } from '@/styles/tokens';
 
@@ -239,6 +239,50 @@ describe('useEventFormActions', () => {
       await result.current.saveEvent(formValues);
     });
     expect(api.events.create).toHaveBeenCalledWith('team1', expect.objectContaining({ cancelLeadMinutes: 135 }));
+  });
+
+  // Regression: saving an event that adds or removes a cross-team target
+  // must invalidate every affected team's query cache, not just the team
+  // the request was made through -- mirrors useEventStatusMutation's
+  // identical allTeamIds fan-out for cancel/reactivate. team3 (removed by
+  // this edit) wouldn't otherwise learn the event is gone from its list.
+  it('saveEvent invalidates every current AND previously-targeted team when crossTeamIds changes', async () => {
+    const api = {
+      events: {
+        update: vi.fn().mockResolvedValue({ id: 'ev1', teamId: 'team1', crossTeamIds: ['team2'] }),
+      },
+    };
+    const formInitial = {
+      type: 'training',
+      title: 'Test',
+      date: '2026-01-01',
+      crossTeamIds: ['team3'],
+    };
+    stateRef = makeState({
+      activeTeamId: 'team1',
+      sheet: { type: 'eventForm', mode: 'edit', eventId: 'ev1', formInitial } as never,
+    });
+    const client = createTestQueryClient();
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(
+      () =>
+        useEventFormActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          loadNotifications: vi.fn().mockResolvedValue(undefined) as never,
+          openEventDetail: vi.fn() as never,
+          toastMsg: vi.fn() as never,
+          logout: vi.fn() as never,
+        }),
+      { wrapper: createQueryWrapper(client) },
+    );
+    await act(async () => {
+      await result.current.saveEvent({ ...formInitial, crossTeamIds: ['team2'] } as never);
+    });
+    const invalidatedTeamIds = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey[1]);
+    expect(invalidatedTeamIds).toEqual(expect.arrayContaining(['team1', 'team2', 'team3']));
   });
 
   it('saveEvent sends endDate instead of repeatWeeks when the "until date" recurrence mode is selected', async () => {

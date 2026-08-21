@@ -1492,7 +1492,13 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 	// teamID ($2, the viewer's own team) is preferred as the "identity" row
 	// (group/title/membershipId/absence lookup) whenever it exists; the
 	// outer query still orders the final roster by name, independent of
-	// that tie-break.
+	// that tie-break. The final tie-break element is m.team_id, not m.id --
+	// it must match eventTeamMembersLateral's identical (ms.team_id = ...)
+	// DESC, ms.team_id tie-break used by GetAttendanceSummary(ies), or the
+	// two queries can pick a different "identity" membership (and thus a
+	// different absence lookup) for the same multi-non-viewing-team user,
+	// making this roster's per-row status disagree with that summary's
+	// header counts for the very same person on the very same screen.
 	q := `
 		SELECT * FROM (
 			SELECT DISTINCT ON (m.user_id)
@@ -1516,7 +1522,7 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 			JOIN users u ON u.id = m.user_id
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = m.user_id
 			WHERE e.id = $1 AND ` + eventScopedByAnyTargetTeam("$2") + `
-			ORDER BY m.user_id, (m.team_id = $2) DESC, m.id
+			ORDER BY m.user_id, (m.team_id = $2) DESC, m.team_id
 		) roster
 		ORDER BY name ASC
 		LIMIT $3

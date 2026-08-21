@@ -127,16 +127,44 @@ export type SaveEventArgs =
         endDate?: string | undefined;
       };
     }
-  | { mode: 'edit'; eventId: string; scope: 'single' | 'series'; payload: EventPayload };
+  | {
+      mode: 'edit';
+      eventId: string;
+      scope: 'single' | 'series';
+      payload: EventPayload;
+      /** The additional target teams (besides the owning team) the event
+       * had BEFORE this edit -- only meaningful when payload.crossTeamIds
+       * is present (a sharing change). Needed so a team REMOVED from
+       * sharing also gets its cached event list invalidated, not just a
+       * newly added one; the response body only carries the new set. */
+      previousCrossTeamIds?: string[] | undefined;
+    };
 
 export function useSaveEventMutation(api: typeof defaultApi, teamId: string | null) {
-  const invalidate = useInvalidateEvents(teamId);
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (args: SaveEventArgs) =>
       args.mode === 'edit'
         ? api.events.update(args.eventId, args.payload, args.scope, teamId!)
         : api.events.create(teamId!, args.payload),
-    onSuccess: (_data, args) => invalidate(args.mode === 'edit' ? args.eventId : undefined),
+    // Every team the event is now targeted at, plus (on an edit) every team
+    // it was previously targeted at -- a create/edit that adds or removes a
+    // cross-team target must invalidate every affected team's cache, not
+    // just the team the request was made through (mirrors
+    // useEventStatusMutation's identical allTeamIds fan-out for cancel/
+    // reactivate).
+    onSuccess: (data, args) => {
+      const eventId = args.mode === 'edit' ? args.eventId : data.id;
+      const currentTeamIds = [data.teamId, ...(data.crossTeamIds ?? [])];
+      const previousTeamIds = args.mode === 'edit' ? (args.previousCrossTeamIds ?? []) : [];
+      const allTeamIds = Array.from(new Set([...currentTeamIds, ...previousTeamIds]));
+      return Promise.all(
+        allTeamIds.flatMap((tid) => [
+          qc.invalidateQueries({ queryKey: queryKeys.events(tid) }),
+          qc.invalidateQueries({ queryKey: queryKeys.eventDetail(tid, eventId) }),
+        ]),
+      );
+    },
   });
 }
 

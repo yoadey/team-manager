@@ -252,7 +252,14 @@ export function useEventFormActions({
       const crossTeamIdsChanged = mode === 'create' || !sameIdSet(initialCrossTeamIds, crossTeamIds);
       if (crossTeamIdsChanged) payload.crossTeamIds = crossTeamIds;
       try {
-        if (mode === 'edit') await saveEventAsync({ mode: 'edit', eventId: sh.eventId!, scope, payload });
+        if (mode === 'edit')
+          await saveEventAsync({
+            mode: 'edit',
+            eventId: sh.eventId!,
+            scope,
+            payload,
+            previousCrossTeamIds: crossTeamIdsChanged ? initialCrossTeamIds : undefined,
+          });
         else await saveEventAsync({ mode: 'create', payload: { ...payload, ...buildRecurrencePayload(f) } });
         loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a

@@ -2482,6 +2482,69 @@ func TestEventRepository_CrossTeam_MultiTeamMemberSingleAttendanceRow(t *testing
 	assert.Equal(t, 1, summary.Total, "the dual-team member must be counted once in the summary total, not twice")
 }
 
+// TestEventRepository_CrossTeam_ListAttendanceAndSummary_AgreeOnMultiTeamMemberIdentity
+// regression-tests ListAttendance's roster query and GetAttendanceSummary's
+// aggregate query picking the SAME "identity" membership for a person who
+// belongs to two of an event's non-owning targeted teams but neither the
+// viewing team -- both use a DISTINCT ON tie-break that falls back to an
+// arbitrary targeted-team membership when the viewing team doesn't match,
+// and if that fallback differs between the two queries (e.g. membership id
+// vs. team id), the same person's effective status can disagree between the
+// visible roster and the header counts shown on the same screen, since the
+// absence lookup is keyed off whichever membership's team_id got picked.
+func TestEventRepository_CrossTeam_ListAttendanceAndSummary_AgreeOnMultiTeamMemberIdentity(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	teamB := uuid.New()
+	teamC := uuid.New()
+	person := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Owning A'), ($2, 'Target B'), ($3, 'Target C')`, teamA, teamB, teamC)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Multi Target Member', 'multi-target@example.com', '#123123')`, person)
+	require.NoError(t, err)
+	// person belongs to both non-owning targeted teams, not the owning team
+	// (teamA) -- so neither query's viewing-team preference ($2 = teamA)
+	// can match, forcing both onto their fallback tie-break.
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($3, $2)`, teamB, person, teamC)
+	require.NoError(t, err)
+
+	eventDate := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, 1)
+	params := makeCreateParams("Joint Training", eventDate)
+	params.CrossTeamIds = []uuid.UUID{teamB, teamC}
+	ev, err := repo.CreateEvent(ctx, teamA.String(), &params)
+	require.NoError(t, err)
+
+	// Absence filed against team B only, covering the event's date -- if the
+	// fallback tie-break picks team C instead, this absence is invisible to
+	// that query's effective-status computation.
+	_, err = pool.Exec(ctx, `INSERT INTO absences (user_id, team_id, from_date, to_date) VALUES ($1, $2, $3, $4)`, person, teamB, eventDate, eventDate)
+	require.NoError(t, err)
+
+	rows, err := repo.ListAttendance(ctx, ev.Id.String(), teamA.String())
+	require.NoError(t, err)
+	row := findAttendanceRow(rows, person)
+	require.NotNil(t, row)
+
+	summary, err := repo.GetAttendanceSummary(ctx, ev.Id.String(), teamA.String())
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Total)
+
+	if row.Absent {
+		assert.Equal(t, "no", row.Status, "computeEffectiveAttendance must derive 'no' from an absence")
+		assert.Equal(t, 1, summary.No, "roster picked the team-B identity (sees the absence) -- summary must agree, not count this person as pending")
+		assert.Equal(t, 0, summary.Pending)
+	} else {
+		assert.Equal(t, "pending", row.Status, "no absence visible from the picked identity, no explicit RSVP, opt_in default -- pending")
+		assert.Equal(t, 0, summary.No, "roster picked the team-C identity (no absence there) -- summary must agree, not count this person as 'no'")
+		assert.Equal(t, 1, summary.Pending)
+	}
+}
+
 // TestEventRepository_CrossTeam_GetMyEffectiveAttendances_ScopesAbsenceToViewingTeam
 // regression-tests the batched GetMyEffectiveAttendances (used by
 // ListEvents) checking a planned absence against the event's *owning* team
