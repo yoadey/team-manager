@@ -1297,16 +1297,23 @@ export const handlers = [
     if (body.nominatedRoleIds) created.forEach((e) => applyNominations(e, body.nominatedRoleIds!));
     const first = created[0];
     if (!first) return problem(500, 'Failed to create event');
-    pushNotif({
-      teamId,
-      type: 'event_created',
-      title: first.title,
-      eventId: first.id,
-      eventTitle: first.title,
-      eventDate: first.date,
-      note: created.length > 1 ? `Serie mit ${created.length} Terminen` : '',
-      ...opt('actorId', session.userId ?? undefined),
-    });
+    // One notification per targeted team (owning plus every crossTeamIds
+    // target, deduped) -- mirrors the real backend's CreateEvent, which
+    // fans this out via dedupTeamIDs so a cross-team event's non-owning
+    // targeted teams also see "event created" in their own activity feed,
+    // not just the owning team.
+    for (const notifTeamId of new Set([teamId, ...crossTeamTargets])) {
+      pushNotif({
+        teamId: notifTeamId,
+        type: 'event_created',
+        title: first.title,
+        eventId: first.id,
+        eventTitle: first.title,
+        eventDate: first.date,
+        note: created.length > 1 ? `Serie mit ${created.length} Terminen` : '',
+        ...opt('actorId', session.userId ?? undefined),
+      });
+    }
     return HttpResponse.json(toWireEvent(first, teamId), { status: 201 });
   }),
 
@@ -1367,7 +1374,20 @@ export const handlers = [
     const body = (await request.json()) as S['SetEventStatusRequest'];
     const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
     targets.forEach((ev) => { ev.status = body.status; });
-    pushNotif({ teamId: e.teamId, type: body.status === 'cancelled' ? 'event_cancelled' : 'event_reactivated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
+    // Cancelling fans out to every targeted team (owning plus crossTeamIds,
+    // deduped) -- mirrors the real backend's SetStatus, which does the same
+    // (SetStatus is deliberately reachable from any targeted team's own
+    // URL, not just the owner's, so every targeted team should see the
+    // cancellation in their own activity feed too). Reactivating stays
+    // single-team, matching the real backend, which never enqueues a
+    // notification for it at all.
+    if (body.status === 'cancelled') {
+      for (const notifTeamId of new Set([e.teamId, ...(e.crossTeamIds ?? [])])) {
+        pushNotif({ teamId: notifTeamId, type: 'event_cancelled', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
+      }
+    } else {
+      pushNotif({ teamId: e.teamId, type: 'event_reactivated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
+    }
     return HttpResponse.json(toWireEvent(e, params.teamId as string));
   }),
 

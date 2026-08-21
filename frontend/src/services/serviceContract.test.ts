@@ -653,6 +653,30 @@ describe('cross-team events', () => {
     await expect(api.attendance.setNomination(event.id, 'u2', false, 't_b')).rejects.toThrow();
   });
 
+  // Regression: creating (and later cancelling) a cross-team event must
+  // notify every targeted team, not just the owning one -- mirrors the
+  // real backend's CreateEvent/SetStatus, which fan out one notification
+  // per targeted team specifically so a non-owning team's activity feed
+  // shows the event being created/cancelled, even though that team never
+  // made the API call itself.
+  it('notifies every targeted team on create and on cancel, not just the owning team', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+
+    const notifsB = (await api.notifications.list('t_b')).items;
+    expect(notifsB.some((n) => n.type === 'event_created' && n.eventId === event.id)).toBe(true);
+
+    await api.events.setStatus(event.id, 'cancelled', 'single', 't_a');
+    const notifsBAfterCancel = (await api.notifications.list('t_b')).items;
+    expect(notifsBAfterCancel.some((n) => n.type === 'event_cancelled' && n.eventId === event.id)).toBe(true);
+  });
+
   it('update: absent crossTeamIds leaves the target set unchanged; an empty array un-shares back to single-team', async () => {
     grantOnly('t_a', 'u1', { events: 'write' });
     grantOnly('t_b', 'u1', { events: 'write' });
