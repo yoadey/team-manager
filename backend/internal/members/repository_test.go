@@ -1163,9 +1163,15 @@ func TestMembersRepository_GetPermissionsForTeams_ScopesRolesPerTeam(t *testing.
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
+	// seedMemberFixtures inserts a fixed-email owner user alongside its team,
+	// so it can only be called once per test -- a second call would violate
+	// users.email's unique constraint. teamB/teamC only need the team row
+	// itself (no owner user), so they're seeded directly.
 	teamA := seedMemberFixtures(t, pool)
-	teamB := seedMemberFixtures(t, pool)
-	teamC := seedMemberFixtures(t, pool) // user has no membership here at all
+	teamB := uuid.New()
+	teamC := uuid.New() // user has no membership here at all
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Team B'), ($2, 'Team C')`, teamB, teamC)
+	require.NoError(t, err)
 
 	roleA := seedRole(t, pool, teamA, "Editor A",
 		`{"events":"write","members":"none","finances":"none","news":"none","polls":"none","settings":"none"}`)
@@ -1173,7 +1179,7 @@ func TestMembersRepository_GetPermissionsForTeams_ScopesRolesPerTeam(t *testing.
 		`{"events":"read","members":"none","finances":"none","news":"none","polls":"none","settings":"none"}`)
 
 	var userID uuid.UUID
-	err := pool.QueryRow(ctx,
+	err = pool.QueryRow(ctx,
 		`INSERT INTO users (name, email, avatar_color) VALUES ('Multi Team', 'multi-team@example.com', '#334455') RETURNING id`,
 	).Scan(&userID)
 	require.NoError(t, err)
