@@ -1512,6 +1512,8 @@ export const handlers = [
     if (perm !== true) return perm;
     const eventId = params.eventId as string;
     const body = (await request.json()) as S['SetNominationRequest'];
+    const e = eventDate(eventId);
+    if (!e || !eventVisibleToTeam(e, params.teamId as string)) return problem(404, 'Event not found');
     // Same target-must-be-a-member-of-the-viewing-team constraint as the
     // attendance POST handler above -- mirrors the real backend's
     // SetNomination.
@@ -1593,8 +1595,14 @@ export const handlers = [
   // ---- absences ----
   http.get(P('/teams/:teamId/absences'), async ({ params }) => {
     await mockDelay();
-    const memberIds = db.memberships.filter((m) => m.teamId === params.teamId).map((m) => m.userId);
-    const items = db.absences.filter((a) => memberIds.includes(a.userId)).map((a) => toWireAbsence(a, params.teamId as string));
+    // Scoped by AbsenceRow.teamId (which team the absence was filed under),
+    // not "any absence belonging to a current member of this team" -- the
+    // real backend's ListByTeam is strictly `WHERE team_id = $1`, and a
+    // member-of-team filter would otherwise leak a multi-team member's
+    // absence filed under one of their OTHER teams into this team's list
+    // (the same class of leak round 7's AbsenceRow.teamId fixed for
+    // effectiveStatus/absenceCovers).
+    const items = db.absences.filter((a) => a.teamId === params.teamId).map((a) => toWireAbsence(a, params.teamId as string));
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
@@ -1602,7 +1610,9 @@ export const handlers = [
     await mockDelay();
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
-    const items = db.absences.filter((a) => a.userId === auth).map((a) => toWireAbsence(a, params.teamId as string));
+    // Team-scoped for the same reason as the list handler above -- mirrors
+    // the real backend's ListByUser (`WHERE team_id = $1 AND user_id = $2`).
+    const items = db.absences.filter((a) => a.userId === auth && a.teamId === params.teamId).map((a) => toWireAbsence(a, params.teamId as string));
     return HttpResponse.json({ items, nextCursor: null });
   }),
 

@@ -634,6 +634,25 @@ describe('cross-team events', () => {
     await expect(api.attendance.set(event.id, 'u2', { status: 'yes' }, 't_a')).resolves.toBeTruthy();
   });
 
+  // Regression: setNomination must 404 when the event isn't targeted by the
+  // viewing team at all, mirroring the real backend's SetNomination (scoped
+  // via eventScopedByAnyTargetTeam) and this same file's identical check for
+  // attendance.set above -- setNomination previously only checked the
+  // target user's membership, never the event's own visibility, so a t_b
+  // caller with events:write could nominate/de-nominate on an event owned
+  // by t_a that was never shared with t_b at all.
+  it('rejects setting a nomination for an event not targeted by the viewing team at all', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Solo training',
+      date: todayLocalDate(),
+    });
+
+    await expect(api.attendance.setNomination(event.id, 'u2', false, 't_b')).rejects.toThrow();
+  });
+
   it('update: absent crossTeamIds leaves the target set unchanged; an empty array un-shares back to single-team', async () => {
     grantOnly('t_a', 'u1', { events: 'write' });
     grantOnly('t_b', 'u1', { events: 'write' });
