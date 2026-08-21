@@ -3141,9 +3141,9 @@ components:
             targeted teams. Absent/null for an attendee who shares the
             viewer's own team, and always absent/null on a single-team
             event. When set, membershipId/group/title/primaryRole/reason/
-            reasonId/reasonVisibility are omitted -- a foreign attendee on a
-            cross-team event exposes only name/avatar/status, never
-            profile-identifying or free-text fields.
+            reasonId/reasonVisibility/auto/absent are omitted -- a foreign
+            attendee on a cross-team event exposes only name/avatar/status,
+            never profile-identifying, free-text, or planned-absence fields.
 
     SetAttendanceRequest:
       type: object

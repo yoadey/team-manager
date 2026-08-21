@@ -430,6 +430,52 @@ func TestEventService_CreateEvent_EnrichmentFailureDoesNotFailAlreadyCommittedWr
 	assert.Equal(t, 0, result.Summary.Total, "falls back to a zero-value summary rather than propagating the enrichment error")
 }
 
+// Regression test: the fallback path above must still report crossTeamIds
+// correctly, via its own independent GetEventTeams call, even though
+// enrichEvent itself failed on a DIFFERENT query (GetAttendanceSummary
+// here). Unlike the zero-value summary above, misreporting a just-created
+// cross-team event as single-team in this one response is worth a separate
+// best-effort refetch rather than silently accepting the loss.
+func TestEventService_CreateEvent_EnrichmentFailureStillReportsCrossTeamIds(t *testing.T) {
+	t.Parallel()
+
+	owningTeamID := uuid.MustParse(testTeamID)
+	otherTeamID := uuid.New()
+	row := svcMakeEventRow("Joint Training")
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, _ string, _ *events.CreateEventParams) (*events.EventRow, error) {
+			return &row, nil
+		},
+		getAttendanceSummaryFn: func(_ context.Context, _, _ string) (events.EventSummaryData, error) {
+			return events.EventSummaryData{}, errors.New("transient deadline exceeded")
+		},
+		getMyAttendanceFn: nilMyAttendanceFn,
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{
+				{TeamID: owningTeamID, TeamName: "Owning"},
+				{TeamID: otherTeamID, TeamName: "Other"},
+			}, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermCheckerPerTeam{
+		perms: map[uuid.UUID]teams.PermissionsJSON{
+			otherTeamID: {Events: "write"},
+		},
+	}, slog.Default())
+	body := &gen.CreateEventRequest{
+		Type:         gen.Training,
+		Title:        "Joint Training",
+		Date:         openapi_types.Date{Time: time.Now().UTC()},
+		CrossTeamIds: &[]uuid.UUID{otherTeamID},
+	}
+	result, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.CrossTeamIds, "crossTeamIds must still be populated in the fallback result")
+	assert.Equal(t, []openapi_types.UUID{otherTeamID}, *result.CrossTeamIds)
+}
+
 // Regression test: UpdateEventJSONRequestBody.NominatedRoleIds is a
 // *[]uuid.UUID, distinguishing "omitted" (nil) from "explicit empty array"
 // (non-nil, len 0) -- a client clearing all nominated roles sends the
@@ -2000,6 +2046,8 @@ func TestEventService_ListAttendance_TeamBadge(t *testing.T) {
 	assert.Equal(t, ownMembershipID, *ownRow.MembershipId)
 	require.NotNil(t, ownRow.Group)
 	assert.Equal(t, group, *ownRow.Group)
+	assert.NotNil(t, ownRow.Auto, "a same-team attendee's auto flag must stay populated")
+	assert.NotNil(t, ownRow.Absent, "a same-team attendee's absent flag must stay populated")
 
 	require.NotNil(t, foreignRow.TeamName, "an attendee outside the viewer's own team must get a badge")
 	assert.Equal(t, "Alpha", *foreignRow.TeamName, "badge must be the alphabetically-first shared team, not whichever membership ListAttendance happened to pick")
@@ -2010,8 +2058,11 @@ func TestEventService_ListAttendance_TeamBadge(t *testing.T) {
 	assert.Nil(t, foreignRow.Reason, "a foreign attendee must not expose reason")
 	assert.Nil(t, foreignRow.ReasonId, "a foreign attendee must not expose reasonId")
 	assert.Nil(t, foreignRow.ReasonVisibility, "a foreign attendee must not expose reasonVisibility")
-	// status/auto/absent stay populated for everyone -- behavioral, not
-	// identifying (spec.md's "status/auto/absent stay populated" rule).
+	assert.Nil(t, foreignRow.Auto, "a foreign attendee must not expose auto (whether their status was opt_out-derived)")
+	assert.Nil(t, foreignRow.Absent, "a foreign attendee must not expose absent (whether they have a planned absence logged)")
+	// status stays populated for everyone -- spec.md's "Team badge" scenario
+	// explicitly grants "attendance status" as part of the restricted
+	// projection, unlike auto/absent above.
 	assert.Equal(t, gen.No, foreignRow.Status)
 }
 
@@ -2067,6 +2118,8 @@ func TestEventService_ListAttendance_TeamBadge_FailsClosedOnMissingMembershipDat
 	assert.Nil(t, row.TeamName, "no confirmed team to label the badge with")
 	assert.Nil(t, row.MembershipId, "must still redact -- missing membership data must not be treated as 'shares the viewer's team'")
 	assert.Nil(t, row.Group, "must still redact group")
+	assert.Nil(t, row.Auto, "must still redact auto in the fail-closed case, even with no badge to show")
+	assert.Nil(t, row.Absent, "must still redact absent in the fail-closed case, even with no badge to show")
 }
 
 // TestEventService_ListAttendance_SingleTeam_NoBadgeEverAndNoExtraQueries

@@ -562,7 +562,16 @@ describe('cross-team events', () => {
     // A t_a-only member is the viewer's own team -- no badge.
     expect(rowsFromA.find((r) => r.userId === 'u2')?.teamName).toBeUndefined();
     // A t_b-only member is foreign from t_a's viewpoint -- badged with t_b's name.
-    expect(rowsFromA.find((r) => r.userId === 'u20')?.teamName).toBe(tB.name);
+    const foreignRow = rowsFromA.find((r) => r.userId === 'u20');
+    expect(foreignRow?.teamName).toBe(tB.name);
+    // Restricted projection: no profile identifiers, and no auto/absent
+    // either -- absent in particular could otherwise leak that a foreign
+    // attendee has a planned absence logged in a team the viewer has no
+    // other visibility into (see design.md's restricted-projection list:
+    // {name, avatarColor, hasPhoto, status, teamName?}).
+    expect(foreignRow?.foreign).toBe(true);
+    expect(foreignRow?.auto).toBe(false);
+    expect(foreignRow?.absent).toBe(false);
 
     const rowsFromB = await api.attendance.listForEvent(event.id, 't_b');
     expect(rowsFromB.filter((r) => r.userId === 'u1')).toHaveLength(1);

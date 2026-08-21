@@ -463,7 +463,7 @@ type AttendanceRow struct {
 	ReasonVisibility *AttendanceRowReasonVisibility `json:"reasonVisibility,omitempty"`
 	Status           AttendanceStatus               `json:"status"`
 
-	// TeamName Cross-team event only: set when this attendee does not belong to the viewer's own (currently active) team -- the alphabetically- first (by team name, case-insensitive) team name from the intersection of the attendee's own memberships and the event's targeted teams. Absent/null for an attendee who shares the viewer's own team, and always absent/null on a single-team event. When set, membershipId/group/title/primaryRole/reason/ reasonId/reasonVisibility are omitted -- a foreign attendee on a cross-team event exposes only name/avatar/status, never profile-identifying or free-text fields.
+	// TeamName Cross-team event only: set when this attendee does not belong to the viewer's own (currently active) team -- the alphabetically- first (by team name, case-insensitive) team name from the intersection of the attendee's own memberships and the event's targeted teams. Absent/null for an attendee who shares the viewer's own team, and always absent/null on a single-team event. When set, membershipId/group/title/primaryRole/reason/ reasonId/reasonVisibility/auto/absent are omitted -- a foreign attendee on a cross-team event exposes only name/avatar/status, never profile-identifying, free-text, or planned-absence fields.
 	TeamName *string            `json:"teamName,omitempty"`
 	Title    *string            `json:"title,omitempty"`
 	UserId   openapi_types.UUID `json:"userId"`

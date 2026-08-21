@@ -553,10 +553,13 @@ function validateCrossTeamIds(
 // alphabetically-first (by team name, case-insensitive) team name from the
 // intersection of their memberships and the event's targets. A foreign
 // attendee's row is rebuilt from only {userId, name, avatarColor, hasPhoto,
-// status, auto, absent, teamName} -- no membershipId/group/title/primaryRole/
-// reason/reasonId/reasonVisibility -- mirroring the real backend's
-// restricted CrossTeamAttendee projection so the frontend can't accidentally
-// render or link through to a foreign profile.
+// status, teamName} -- no membershipId/group/title/primaryRole/reason/
+// reasonId/reasonVisibility/auto/absent -- mirroring the real backend's
+// restricted CrossTeamAttendee projection (design.md: {name, avatarColor,
+// hasPhoto, status, teamName?}) so the frontend can't accidentally render or
+// link through to a foreign profile, and absent in particular can't leak
+// that a foreign attendee has a planned absence logged in a team the viewer
+// has no other visibility into.
 function crossTeamAttendanceRows(e: EventDto, viewingTeamId: string): S['AttendanceRow'][] {
   const targetTeamIds = [e.teamId, ...(e.crossTeamIds ?? [])];
   const byUser = new Map<string, { teamIds: string[]; membership: (typeof db.memberships)[number] }>();
@@ -590,8 +593,6 @@ function crossTeamAttendanceRows(e: EventDto, viewingTeamId: string): S['Attenda
       status: base.status,
       teamName,
       ...opt('hasPhoto', base.hasPhoto),
-      ...opt('auto', base.auto),
-      ...opt('absent', base.absent),
     });
   });
   return rows;

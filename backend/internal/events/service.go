@@ -714,9 +714,17 @@ func (c crossTeamBadgeContext) applyBadge(row *gen.AttendanceRow, userID uuid.UU
 
 // redactForeignAttendee sets row.TeamName to badge (nil for the fail-closed
 // missing-data case -- see applyBadge) and strips every profile-identifying
-// or free-text field. Split out of applyBadge so its two callers (a
-// confirmed badge, and the fail-closed case with no badge to show) share
-// one redaction list that can't drift out of sync between them.
+// or free-text field, plus Auto/Absent -- spec.md's "Team badge" scenario
+// promises a foreign attendee is shown "with name, avatar, attendance
+// status, and a team badge only" (design.md's restricted-projection list
+// agrees: {name, avatarColor, hasPhoto, status, teamName?}), and Absent in
+// particular would otherwise reveal that this person has a planned absence
+// logged in a team the viewer has no other visibility into. Status itself
+// (yes/no/maybe/pending) is the one attendance field that does stay --
+// that's the "participation status" the projection explicitly grants.
+// Split out of applyBadge so its two callers (a confirmed badge, and the
+// fail-closed case with no badge to show) share one redaction list that
+// can't drift out of sync between them.
 func redactForeignAttendee(row *gen.AttendanceRow, badge *string) {
 	row.TeamName = badge
 	row.MembershipId = nil
@@ -726,6 +734,8 @@ func redactForeignAttendee(row *gen.AttendanceRow, badge *string) {
 	row.Reason = nil
 	row.ReasonId = nil
 	row.ReasonVisibility = nil
+	row.Auto = nil
+	row.Absent = nil
 }
 
 // resolveCrossTeamBadgeContext only looks up per-user cross-team membership
@@ -992,6 +1002,20 @@ func (s *Service) enrichEventOrFallback(ctx context.Context, row *EventRow, user
 		s.logger.Warn("events: failed to enrich event after write, returning partial result",
 			slog.String("eventId", row.Id.String()), slog.String("error", err.Error()))
 		fallback := toGenEvent(row, EventSummaryData{})
+		// Unlike the zero-value summary/missing MyStatus above (which the
+		// next list/detail fetch harmlessly overwrites), a missing
+		// crossTeamIds here would misreport a just-created/just-updated
+		// cross-team event as single-team in this one response -- worth a
+		// separate best-effort refetch, independent of whichever of
+		// enrichEvent's three queries actually failed, so a transient
+		// failure on an unrelated query doesn't also blank out this
+		// already-committed, already-successful part of the write.
+		if eventTeams, teamsErr := s.repo.GetEventTeams(ctx, row.Id.String()); teamsErr == nil {
+			fallback.CrossTeamIds = crossTeamIDsFrom(row.TeamId, eventTeams)
+		} else {
+			s.logger.Warn("events: failed to refetch event teams for fallback result",
+				slog.String("eventId", row.Id.String()), slog.String("error", teamsErr.Error()))
+		}
 		return &fallback
 	}
 	return &ev
