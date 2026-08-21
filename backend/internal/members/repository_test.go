@@ -1147,6 +1147,61 @@ func TestMembersRepository_GetPermissions_MaxFold(t *testing.T) {
 	assert.Equal(t, "none", perms.Finances)
 }
 
+// TestMembersRepository_GetPermissionsForTeams_ScopesRolesPerTeam covers the
+// query events.Service's cross-team-event write-in-all-targets check relies
+// on (GetPermissionsForTeams' `r.team_id = m.team_id` join condition) against
+// a real database, not just the hand-written Go mock every cross-team
+// authorization test in internal/events/service_test.go uses instead. A
+// single user is a member of two different teams, holding a different role
+// (and permission level) in each -- a role's team_id must only ever credit
+// that same team's entry in the result, never bleed into another team the
+// same user also happens to belong to.
+func TestMembersRepository_GetPermissionsForTeams_ScopesRolesPerTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	// seedMemberFixtures inserts a fixed-email owner user alongside its team,
+	// so it can only be called once per test -- a second call would violate
+	// users.email's unique constraint. teamB/teamC only need the team row
+	// itself (no owner user), so they're seeded directly.
+	teamA := seedMemberFixtures(t, pool)
+	teamB := uuid.New()
+	teamC := uuid.New() // user has no membership here at all
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Team B'), ($2, 'Team C')`, teamB, teamC)
+	require.NoError(t, err)
+
+	roleA := seedRole(t, pool, teamA, "Editor A",
+		`{"events":"write","members":"none","finances":"none","news":"none","polls":"none","settings":"none"}`)
+	roleB := seedRole(t, pool, teamB, "Viewer B",
+		`{"events":"read","members":"none","finances":"none","news":"none","polls":"none","settings":"none"}`)
+
+	var userID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO users (name, email, avatar_color) VALUES ('Multi Team', 'multi-team@example.com', '#334455') RETURNING id`,
+	).Scan(&userID)
+	require.NoError(t, err)
+
+	var membershipA, membershipB uuid.UUID
+	err = pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamA, userID).Scan(&membershipA)
+	require.NoError(t, err)
+	err = pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamB, userID).Scan(&membershipB)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipA, roleA)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipB, roleB)
+	require.NoError(t, err)
+
+	perms, err := repo.GetPermissionsForTeams(ctx, []uuid.UUID{teamA, teamB, teamC}, userID)
+	require.NoError(t, err)
+	assert.Equal(t, "write", perms[teamA].Events, "teamA's own role must credit teamA")
+	assert.Equal(t, "read", perms[teamB].Events, "teamB's own role must credit teamB, not be upgraded by teamA's write")
+	_, hasTeamC := perms[teamC]
+	assert.False(t, hasTeamC, "a team the user has no membership in must be absent from the result, not zero-valued")
+}
+
 func TestMembersRepository_ListMembers_BatchRolesLoaded(t *testing.T) {
 	t.Parallel()
 

@@ -1584,6 +1584,8 @@ export interface components {
             meetTimeMandatory?: boolean;
             responseMode?: components["schemas"]["ResponseMode"];
             nominatedRoleIds?: string[];
+            /** @description Other teams (besides teamId, the owning team) this event targets. Members of any of these teams see the event and its merged attendance. Empty for a single-team event. */
+            crossTeamIds?: string[];
             recurring: boolean;
             status: components["schemas"]["EventStatus"];
             summary: components["schemas"]["EventSummary"];
@@ -1613,6 +1615,8 @@ export interface components {
             meetTimeMandatory?: boolean;
             responseMode?: components["schemas"]["ResponseMode"];
             nominatedRoleIds?: string[];
+            /** @description Additional teams (besides teamId, the owning team) to target with this event. Every listed team must be a real team, and the caller must hold events:write in all of them (as well as in teamId) -- otherwise the request is rejected. Empty/absent creates a normal single-team event, unchanged from today. */
+            crossTeamIds?: string[];
             recurring?: boolean;
             repeatWeeks?: number;
             /**
@@ -1648,6 +1652,8 @@ export interface components {
             meetTimeMandatory?: boolean;
             responseMode?: components["schemas"]["ResponseMode"];
             nominatedRoleIds?: string[];
+            /** @description When present, replaces the full set of additional target teams (besides teamId, the owning team) -- an empty array un-shares the event back to single-team. Absent leaves the current target set unchanged. Every listed team must be a real team, and the caller must hold events:write across the full resulting set (teamId plus every id here) -- otherwise the request is rejected. */
+            crossTeamIds?: string[];
             /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. */
             cancelLeadMinutes?: number;
             /** @description When true, excludes this event from every attendance-statistics computation. With scope=series, applies to every occurrence of the series; with scope=single, applies only to the targeted occurrence. */
@@ -1708,6 +1714,8 @@ export interface components {
             reasonVisibility?: "trainers" | "team";
             auto?: boolean;
             absent?: boolean;
+            /** @description Cross-team event only: set when this attendee does not belong to the viewer's own (currently active) team -- the alphabetically- first (by team name, case-insensitive) team name from the intersection of the attendee's own memberships and the event's targeted teams. Absent/null for an attendee who shares the viewer's own team, and always absent/null on a single-team event. When set, membershipId/group/title/primaryRole/reason/ reasonId/reasonVisibility/auto/absent are omitted -- a foreign attendee on a cross-team event exposes only name/avatar/status, never profile-identifying, free-text, or planned-absence fields. */
+            teamName?: string;
         };
         SetAttendanceRequest: {
             /** Format: uuid */

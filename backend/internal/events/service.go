@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,10 +19,18 @@ import (
 
 // Sentinel errors for the events package.
 var (
-	ErrCreateEventNilBody           = errors.New("events.Service.CreateEvent: nil body")
-	ErrCreateEventNoRow             = errors.New("events.Service.CreateEvent: no row returned")
-	ErrUpdateEventNilBody           = errors.New("events.Service.UpdateEvent: nil body")
-	ErrInvalidNominatedRoleIDs      = errors.New("nominated_role_ids contain roles not belonging to this team")
+	ErrCreateEventNilBody      = errors.New("events.Service.CreateEvent: nil body")
+	ErrCreateEventNoRow        = errors.New("events.Service.CreateEvent: no row returned")
+	ErrUpdateEventNilBody      = errors.New("events.Service.UpdateEvent: nil body")
+	ErrInvalidNominatedRoleIDs = errors.New("nominated_role_ids contain roles not belonging to this team")
+	// ErrInvalidCrossTeamIds is returned when crossTeamIds contains an id
+	// that isn't a real team, mirroring ErrInvalidNominatedRoleIDs'
+	// identical existence-check pattern.
+	ErrInvalidCrossTeamIds = errors.New("crossTeamIds must refer to teams that exist")
+	// ErrCrossTeamWriteForbidden is returned when the caller lacks
+	// events:write in one or more of the teams a create/update would target
+	// (see design.md's "Create restricted to write-in-all-targets").
+	ErrCrossTeamWriteForbidden      = errors.New("events.Service: caller lacks events:write in one or more targeted teams")
 	ErrSetAttendanceForbidden       = errors.New("events.Service.SetAttendance: caller may not set another member's attendance")
 	ErrSetNominationForbidden       = errors.New("events.Service.SetNomination: caller lacks events:write")
 	ErrAttendanceStatusNotNominated = errors.New("events.Service.SetAttendance: status 'not_nominated' may only be set via SetNomination")
@@ -74,8 +83,22 @@ type eventRepo interface {
 	DeleteEvent(ctx context.Context, eventID, teamID string, scope string) error
 	GetAttendanceSummary(ctx context.Context, eventID, teamID string) (EventSummaryData, error)
 	GetMyEffectiveAttendance(ctx context.Context, eventID, userID, teamID string) (*EffectiveAttendance, error)
-	GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventSummaryData, error)
-	GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]EffectiveAttendance, error)
+	GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID, teamID string) (map[uuid.UUID]EventSummaryData, error)
+	// TeamsExist reports whether every id in teamIDs is a real team --
+	// used to validate crossTeamIds on create/update before the more
+	// expensive per-team permission check (requireEventsWriteInTeams).
+	TeamsExist(ctx context.Context, teamIDs []uuid.UUID) (bool, error)
+	// GetEventTeams returns every team an event targets (owning team plus
+	// crossTeamIds), each with its name.
+	GetEventTeams(ctx context.Context, eventID string) ([]EventTeamRow, error)
+	// ListEventTeamsBatch is GetEventTeams' batched counterpart, keyed by
+	// event ID -- used by ListEvents to avoid one query per event.
+	ListEventTeamsBatch(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID][]EventTeamRow, error)
+	// ListEventMemberTeams returns, per user, the subset of an event's
+	// targeted teams they belong to -- the raw material ListAttendance uses
+	// to compute each attendee's team badge.
+	ListEventMemberTeams(ctx context.Context, eventID string) (map[uuid.UUID][]EventTeamRow, error)
+	GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID, teamID string) (map[uuid.UUID]EffectiveAttendance, error)
 	ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error)
 	GetReasonVisibilityContext(ctx context.Context, teamID, viewerID string) (teamRoleIDs, viewerRoleIDs []string, err error)
 	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
@@ -97,10 +120,16 @@ type teamRoleChecker interface {
 	RolesExistForTeam(ctx context.Context, teamID string, roleIDs []uuid.UUID) (bool, error)
 }
 
-// permissionChecker returns a user's effective RBAC permissions for a team.
-// Implemented by *members.Repository.
+// permissionChecker returns a user's effective RBAC permissions for a team,
+// or for several teams in one round trip. Implemented by *members.Repository.
 type permissionChecker interface {
 	GetPermissions(ctx context.Context, teamID, userID uuid.UUID) (teams.PermissionsJSON, error)
+	// GetPermissionsForTeams is used by requireEventsWriteInTeams to check
+	// write-in-all-targets for a cross-team event in a single query instead
+	// of one GetPermissions call per targeted team. A teamID absent from the
+	// returned map means no access there (equivalent to GetPermissions'
+	// zero-value fold for a non-member).
+	GetPermissionsForTeams(ctx context.Context, teamIDs []uuid.UUID, userID uuid.UUID) (map[uuid.UUID]teams.PermissionsJSON, error)
 }
 
 // Service implements event business logic.
@@ -175,13 +204,17 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID string, scope g
 	for i := range rows {
 		eventIDs[i] = rows[i].Id
 	}
-	summaries, err := s.repo.GetAttendanceSummaries(ctx, eventIDs)
+	summaries, err := s.repo.GetAttendanceSummaries(ctx, eventIDs, teamID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
+	}
+	eventTeams, err := s.repo.ListEventTeamsBatch(ctx, eventIDs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 	}
 	var myAttendances map[uuid.UUID]EffectiveAttendance
 	if userID != "" {
-		myAttendances, err = s.repo.GetMyEffectiveAttendances(ctx, eventIDs, userID)
+		myAttendances, err = s.repo.GetMyEffectiveAttendances(ctx, eventIDs, userID, teamID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 		}
@@ -190,6 +223,7 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID string, scope g
 	out := make([]gen.TeamEvent, 0, len(rows))
 	for i := range rows {
 		ev := toGenEvent(&rows[i], summaries[rows[i].Id])
+		ev.CrossTeamIds = crossTeamIDsFrom(rows[i].TeamId, eventTeams[rows[i].Id])
 		if myAtt, ok := myAttendances[rows[i].Id]; ok {
 			st := gen.AttendanceStatus(myAtt.Status)
 			ev.MyStatus = &st
@@ -295,8 +329,17 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 	if body.ExcludeFromStats != nil {
 		params.ExcludeFromStats = *body.ExcludeFromStats
 	}
+	if body.CrossTeamIds != nil {
+		params.CrossTeamIds = *body.CrossTeamIds
+	}
 
 	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {
+		return nil, err
+	}
+	// The URL's teamId (the owning team) already had events:write validated
+	// by RequirePermission before this handler ran; crossTeamIds names
+	// *additional* teams, so every one of them needs the same check here.
+	if err := s.validateCrossTeamIds(ctx, userID, params.CrossTeamIds); err != nil {
 		return nil, err
 	}
 
@@ -321,22 +364,26 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		return nil, ErrCreateEventNoRow
 	}
 
-	// Enqueue notification (best-effort; ignore error so it doesn't fail the request).
+	// Enqueue one notification per targeted team (best-effort; ignore error
+	// so it doesn't fail the request) -- notifications.Service.List scopes
+	// `WHERE team_id = $1`, so a cross-team event's other targeted teams
+	// would otherwise never see "event created" in their own activity feed
+	// even though they can see and RSVP to the event itself.
 	if s.jobs != nil {
-		if teamUUID, err2 := uuid.Parse(teamID); err2 == nil {
-			if actorUUID, err2 := uuid.Parse(userID); err2 == nil {
-				evID := row.Id
-				evTitle := row.Title
-				evDate := row.Date
+		if actorUUID, err2 := uuid.Parse(userID); err2 == nil {
+			evID := row.Id
+			evTitle := row.Title
+			evDate := row.Date
+			for _, notifTeamID := range dedupTeamIDs(row.TeamId, params.CrossTeamIds) {
 				if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
-					TeamID:     teamUUID,
+					TeamID:     notifTeamID,
 					Type:       "event_created",
 					ActorID:    actorUUID,
 					EventID:    &evID,
 					EventTitle: &evTitle,
 					EventDate:  &evDate,
 				}); err != nil {
-					s.logger.Warn("events: failed to enqueue notification", slog.String("eventId", evID.String()), slog.String("type", "event_created"), slog.String("error", err.Error()))
+					s.logger.Warn("events: failed to enqueue notification", slog.String("eventId", evID.String()), slog.String("type", "event_created"), slog.String("teamId", notifTeamID.String()), slog.String("error", err.Error()))
 				}
 			}
 		}
@@ -391,9 +438,25 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		// read as "field not provided," silently no-op'ing the clear.
 		params.NominatedRoleIds = *body.NominatedRoleIds
 	}
+	if body.CrossTeamIds != nil {
+		// Same nil-vs-non-nil-empty convention as NominatedRoleIds above:
+		// direct assignment so an explicit [] (un-share back to single-team)
+		// stays a non-nil empty slice, distinguishable from "not provided".
+		params.CrossTeamIds = *body.CrossTeamIds
+	}
 
 	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {
 		return nil, err
+	}
+	// crossTeamIds present in the patch replaces the full additional-target
+	// set; the URL's teamId already has events:write validated by
+	// RequirePermission, so only the (possibly new) crossTeamIds need
+	// checking here -- see design.md's "same all-targets-write check across
+	// the FULL resulting target set".
+	if body.CrossTeamIds != nil {
+		if err := s.validateCrossTeamIds(ctx, userID, params.CrossTeamIds); err != nil {
+			return nil, err
+		}
 	}
 
 	row, err := s.repo.UpdateEvent(ctx, eventID, teamID, &params, scope)
@@ -423,21 +486,36 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, teamID, status
 		return nil, fmt.Errorf("events.Service.SetStatus: %w", err)
 	}
 
-	// Enqueue cancellation notification (best-effort).
+	// Enqueue one cancellation notification per targeted team (best-effort)
+	// -- see CreateEvent's identical fan-out for why: SetStatus itself is
+	// deliberately reachable from any targeted team's own URL (not just the
+	// owning team's), so a non-owning team's members should see the
+	// cancellation in their activity feed too.
 	if s.jobs != nil && status == "cancelled" {
 		if actorUUID, err2 := uuid.Parse(userID); err2 == nil {
+			eventTeams, err2 := s.repo.GetEventTeams(ctx, row.Id.String())
+			if err2 != nil {
+				s.logger.Warn("events: failed to list event teams for cancellation notification", slog.String("eventId", row.Id.String()), slog.String("error", err2.Error()))
+				eventTeams = nil
+			}
+			notifTeamIDs := make([]uuid.UUID, len(eventTeams))
+			for i, et := range eventTeams {
+				notifTeamIDs[i] = et.TeamID
+			}
 			evID := row.Id
 			evTitle := row.Title
 			evDate := row.Date
-			if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
-				TeamID:     row.TeamId,
-				Type:       "event_cancelled",
-				ActorID:    actorUUID,
-				EventID:    &evID,
-				EventTitle: &evTitle,
-				EventDate:  &evDate,
-			}); err != nil {
-				s.logger.Warn("events: failed to enqueue notification", slog.String("eventId", evID.String()), slog.String("type", "event_cancelled"), slog.String("error", err.Error()))
+			for _, notifTeamID := range dedupTeamIDs(row.TeamId, notifTeamIDs) {
+				if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+					TeamID:     notifTeamID,
+					Type:       "event_cancelled",
+					ActorID:    actorUUID,
+					EventID:    &evID,
+					EventTitle: &evTitle,
+					EventDate:  &evDate,
+				}); err != nil {
+					s.logger.Warn("events: failed to enqueue notification", slog.String("eventId", evID.String()), slog.String("type", "event_cancelled"), slog.String("teamId", notifTeamID.String()), slog.String("error", err.Error()))
+				}
 			}
 		}
 	}
@@ -539,21 +617,13 @@ func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID 
 		return nil, fmt.Errorf("events.Service.ListAttendance: %w", err)
 	}
 
-	needsRedactionCheck := false
-	for _, a := range attendanceRows {
-		if a.UserId.String() != viewerID && (a.Reason != nil || a.ReasonId != nil) && !reasonSharedWithTeam(a.ReasonVisibility) {
-			needsRedactionCheck = true
-			break
-		}
+	canSeeReasons, err := s.canViewerSeeAttendanceReasons(ctx, teamID, viewerID, attendanceRows)
+	if err != nil {
+		return nil, err
 	}
-
-	var canSeeReasons bool
-	if needsRedactionCheck {
-		teamRoleIDs, viewerRoleIDs, err := s.repo.GetReasonVisibilityContext(ctx, teamID, viewerID)
-		if err != nil {
-			return nil, fmt.Errorf("events.Service.ListAttendance: %w", err)
-		}
-		canSeeReasons = roleSetsIntersect(teamRoleIDs, viewerRoleIDs)
+	badges, err := s.resolveCrossTeamBadgeContext(ctx, eventID, teamID)
+	if err != nil {
+		return nil, err
 	}
 
 	out := make([]gen.AttendanceRow, 0, len(attendanceRows))
@@ -562,9 +632,135 @@ func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID 
 			a.Reason = nil
 			a.ReasonId = nil
 		}
-		out = append(out, toGenAttendanceRow(&a))
+		row := toGenAttendanceRow(&a)
+		badges.applyBadge(&row, a.UserId)
+		out = append(out, row)
 	}
 	return out, nil
+}
+
+// canViewerSeeAttendanceReasons decides whether viewerID may see other
+// members' declined-attendance reasons on this roster (see ListAttendance's
+// doc comment on the redaction rule it implements) -- split out purely to
+// keep ListAttendance's cognitive complexity under the repo's
+// golangci-lint threshold. The reason-visibility-role lookup is skipped
+// entirely (canSeeReasons stays false) when no row on the roster actually
+// has a reason to protect.
+func (s *Service) canViewerSeeAttendanceReasons(ctx context.Context, teamID, viewerID string, attendanceRows []AttendanceEnriched) (bool, error) {
+	needsRedactionCheck := false
+	for _, a := range attendanceRows {
+		if a.UserId.String() != viewerID && (a.Reason != nil || a.ReasonId != nil) && !reasonSharedWithTeam(a.ReasonVisibility) {
+			needsRedactionCheck = true
+			break
+		}
+	}
+	if !needsRedactionCheck {
+		return false, nil
+	}
+	teamRoleIDs, viewerRoleIDs, err := s.repo.GetReasonVisibilityContext(ctx, teamID, viewerID)
+	if err != nil {
+		return false, fmt.Errorf("events.Service.ListAttendance: %w", err)
+	}
+	return roleSetsIntersect(teamRoleIDs, viewerRoleIDs), nil
+}
+
+// crossTeamBadgeContext holds everything ListAttendance needs to compute
+// (and apply) each roster row's team badge -- see computeTeamBadge for the
+// display rule itself.
+type crossTeamBadgeContext struct {
+	// active is false for a single-team event: applyBadge is then a no-op,
+	// keeping a single-team roster byte-for-byte on today's behavior.
+	active       bool
+	viewerTeamID uuid.UUID
+	memberTeams  map[uuid.UUID][]EventTeamRow
+}
+
+// applyBadge sets row.TeamName and strips every profile-identifying or
+// free-text field (per spec.md's "Merged attendance without profile
+// access") when userID is a foreign attendee (not in the viewer's own
+// team). A no-op for a single-team event, or when userID is confirmed to
+// share the viewer's own team.
+//
+// Fails closed on missing data: c.memberTeams is populated by a separate,
+// later, non-transactional query (ListEventMemberTeams) than the roster
+// itself (ListAttendance) -- see resolveCrossTeamBadgeContext. If that
+// query's snapshot doesn't even have an entry for userID (e.g. a race with
+// a concurrent membership change), that's "we can't positively confirm this
+// attendee shares the viewer's team", not "they must share it" -- treated
+// the same as a confirmed foreign attendee (full redaction), just without a
+// team name to label them with, rather than defaulting to no redaction at
+// all. The event_teams-count race in resolveCrossTeamBadgeContext itself
+// (the event being un-shared down to one team between its own query and
+// this one) is a narrower, harder-to-close variant of the same
+// non-transactional-reads pattern already used throughout this read path
+// (see e.g. Service.ListEvents' separate GetAttendanceSummaries/
+// ListEventTeamsBatch calls) and is accepted as-is here for the same
+// reason.
+func (c crossTeamBadgeContext) applyBadge(row *gen.AttendanceRow, userID uuid.UUID) {
+	if !c.active {
+		return
+	}
+	memberships, known := c.memberTeams[userID]
+	if !known {
+		redactForeignAttendee(row, nil)
+		return
+	}
+	badge := computeTeamBadge(c.viewerTeamID, memberships)
+	if badge == nil {
+		return
+	}
+	redactForeignAttendee(row, badge)
+}
+
+// redactForeignAttendee sets row.TeamName to badge (nil for the fail-closed
+// missing-data case -- see applyBadge) and strips every profile-identifying
+// or free-text field, plus Auto/Absent -- spec.md's "Team badge" scenario
+// promises a foreign attendee is shown "with name, avatar, attendance
+// status, and a team badge only" (design.md's restricted-projection list
+// agrees: {name, avatarColor, hasPhoto, status, teamName?}), and Absent in
+// particular would otherwise reveal that this person has a planned absence
+// logged in a team the viewer has no other visibility into. Status itself
+// (yes/no/maybe/pending) is the one attendance field that does stay --
+// that's the "participation status" the projection explicitly grants.
+// Split out of applyBadge so its two callers (a confirmed badge, and the
+// fail-closed case with no badge to show) share one redaction list that
+// can't drift out of sync between them.
+func redactForeignAttendee(row *gen.AttendanceRow, badge *string) {
+	row.TeamName = badge
+	row.MembershipId = nil
+	row.Group = nil
+	row.Title = nil
+	row.PrimaryRole = nil
+	row.Reason = nil
+	row.ReasonId = nil
+	row.ReasonVisibility = nil
+	row.Auto = nil
+	row.Absent = nil
+}
+
+// resolveCrossTeamBadgeContext only looks up per-user cross-team membership
+// data (ListEventMemberTeams) when the event actually targets more than one
+// team -- skipping that extra query entirely for a single-team event, so
+// its roster stays on the exact same query shape/cost as before this
+// feature. Split out of ListAttendance purely to keep that function's
+// cognitive complexity under the repo's golangci-lint threshold.
+func (s *Service) resolveCrossTeamBadgeContext(ctx context.Context, eventID, teamID string) (crossTeamBadgeContext, error) {
+	eventTeams, err := s.repo.GetEventTeams(ctx, eventID)
+	if err != nil {
+		return crossTeamBadgeContext{}, fmt.Errorf("events.Service.ListAttendance: %w", err)
+	}
+	if len(eventTeams) <= 1 {
+		return crossTeamBadgeContext{}, nil
+	}
+	memberTeams, err := s.repo.ListEventMemberTeams(ctx, eventID)
+	if err != nil {
+		return crossTeamBadgeContext{}, fmt.Errorf("events.Service.ListAttendance: %w", err)
+	}
+	viewerTeamID, err := uuid.Parse(teamID)
+	if err != nil {
+		return crossTeamBadgeContext{}, fmt.Errorf("events.Service.ListAttendance: parse teamID: %w", err)
+	}
+	return crossTeamBadgeContext{active: true, viewerTeamID: viewerTeamID, memberTeams: memberTeams}, nil
 }
 
 // reasonSharedWithTeam reports whether the declining member explicitly opted
@@ -702,23 +898,24 @@ func (s *Service) enqueueAttendanceNotification(ctx context.Context, ev *EventRo
 // appropriate to whichever gate is calling this -- ErrSetAttendanceForbidden
 // for "acting on another member", ErrCancelLeadTimePassed for "responding
 // after the deadline") when it doesn't, nil when it does. Shared by
-// SetAttendance's events:write gates, which otherwise duplicate the same
-// permChecker plumbing.
+// SetAttendance's events:write gates; requireEventsWriteInTeams checks the
+// same permission but batched across several teams in one round trip
+// instead (via GetPermissionsForTeams), so it doesn't call this.
 func (s *Service) requireCallerEventsWrite(ctx context.Context, callerID, teamID string, onDenied error) error {
 	if s.permChecker == nil {
 		return onDenied
 	}
 	teamUUID, err := uuid.Parse(teamID)
 	if err != nil {
-		return fmt.Errorf("events.Service.SetAttendance: parse teamID: %w", err)
+		return fmt.Errorf("events.Service.requireCallerEventsWrite: parse teamID: %w", err)
 	}
 	callerUUID, err := uuid.Parse(callerID)
 	if err != nil {
-		return fmt.Errorf("events.Service.SetAttendance: parse callerID: %w", err)
+		return fmt.Errorf("events.Service.requireCallerEventsWrite: parse callerID: %w", err)
 	}
 	perms, err := s.permChecker.GetPermissions(ctx, teamUUID, callerUUID)
 	if err != nil {
-		return fmt.Errorf("events.Service.SetAttendance: check permissions: %w", err)
+		return fmt.Errorf("events.Service.requireCallerEventsWrite: check permissions: %w", err)
 	}
 	if perms.Events != "write" {
 		return onDenied
@@ -766,8 +963,13 @@ func (s *Service) enrichEvent(ctx context.Context, row *EventRow, userID, teamID
 	if err != nil {
 		return gen.TeamEvent{}, fmt.Errorf("enrichEvent.GetAttendanceSummary: %w", err)
 	}
+	eventTeams, err := s.repo.GetEventTeams(ctx, row.Id.String())
+	if err != nil {
+		return gen.TeamEvent{}, fmt.Errorf("enrichEvent.GetEventTeams: %w", err)
+	}
 
 	ev := toGenEvent(row, summary)
+	ev.CrossTeamIds = crossTeamIDsFrom(row.TeamId, eventTeams)
 
 	if userID != "" {
 		myAtt, err := s.repo.GetMyEffectiveAttendance(ctx, row.Id.String(), userID, teamID)
@@ -800,12 +1002,120 @@ func (s *Service) enrichEventOrFallback(ctx context.Context, row *EventRow, user
 		s.logger.Warn("events: failed to enrich event after write, returning partial result",
 			slog.String("eventId", row.Id.String()), slog.String("error", err.Error()))
 		fallback := toGenEvent(row, EventSummaryData{})
+		// Unlike the zero-value summary/missing MyStatus above (which the
+		// next list/detail fetch harmlessly overwrites), a missing
+		// crossTeamIds here would misreport a just-created/just-updated
+		// cross-team event as single-team in this one response -- worth a
+		// separate best-effort refetch, independent of whichever of
+		// enrichEvent's three queries actually failed, so a transient
+		// failure on an unrelated query doesn't also blank out this
+		// already-committed, already-successful part of the write.
+		if eventTeams, teamsErr := s.repo.GetEventTeams(ctx, row.Id.String()); teamsErr == nil {
+			fallback.CrossTeamIds = crossTeamIDsFrom(row.TeamId, eventTeams)
+		} else {
+			s.logger.Warn("events: failed to refetch event teams for fallback result",
+				slog.String("eventId", row.Id.String()), slog.String("error", teamsErr.Error()))
+		}
 		return &fallback
 	}
 	return &ev
 }
 
 // toGenEvent maps an EventRow + summary to gen.TeamEvent.
+// crossTeamIDsFrom returns every id in allTargets other than owning, or nil
+// when there are none (a single-team event) -- mirrors toGenEvent's
+// NominatedRoleIds nil-vs-populated convention, so a single-team event's
+// JSON omits crossTeamIds entirely rather than encoding an empty array.
+func crossTeamIDsFrom(owning uuid.UUID, allTargets []EventTeamRow) *[]openapi_types.UUID {
+	var ids []openapi_types.UUID
+	for _, t := range allTargets {
+		if t.TeamID == owning {
+			continue
+		}
+		ids = append(ids, t.TeamID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return &ids
+}
+
+// validateCrossTeamIds is the shared CreateEvent/UpdateEvent pre-check for a
+// non-nil crossTeamIds: reject unknown/nonexistent team ids
+// (ErrInvalidCrossTeamIds, surfaced as 400) before checking events:write in
+// each of them (ErrCrossTeamWriteForbidden, 403) -- so a bad id doesn't get
+// misreported as a permission problem. A nil or empty crossTeamIds is a
+// no-op (nothing to validate).
+func (s *Service) validateCrossTeamIds(ctx context.Context, callerID string, crossTeamIds []uuid.UUID) error {
+	if len(crossTeamIds) == 0 {
+		return nil
+	}
+	exists, err := s.repo.TeamsExist(ctx, crossTeamIds)
+	if err != nil {
+		return fmt.Errorf("events.Service: check crossTeamIds exist: %w", err)
+	}
+	if !exists {
+		return ErrInvalidCrossTeamIds
+	}
+	return s.requireEventsWriteInTeams(ctx, callerID, crossTeamIds)
+}
+
+// requireEventsWriteInTeams checks that callerID holds events:write in
+// every team in teamIDs -- used by CreateEvent/UpdateEvent to validate
+// crossTeamIds on top of the URL's own {teamId}, which RequirePermission
+// middleware already validated. Returns ErrCrossTeamWriteForbidden for the
+// first team (in teamIDs order) found missing it (or if no permChecker is
+// configured, matching requireCallerEventsWrite's identical fail-closed
+// default). Checks every team in a single GetPermissionsForTeams round trip
+// rather than one GetPermissions call per team -- crossTeamIds can list up
+// to validate.UUIDItems' max array size of teams, and this runs on every
+// create/update of a cross-team event.
+func (s *Service) requireEventsWriteInTeams(ctx context.Context, callerID string, teamIDs []uuid.UUID) error {
+	if s.permChecker == nil {
+		return ErrCrossTeamWriteForbidden
+	}
+	if len(teamIDs) == 0 {
+		return nil
+	}
+	callerUUID, err := uuid.Parse(callerID)
+	if err != nil {
+		return fmt.Errorf("events.Service.requireEventsWriteInTeams: parse callerID: %w", err)
+	}
+	perTeam, err := s.permChecker.GetPermissionsForTeams(ctx, teamIDs, callerUUID)
+	if err != nil {
+		return fmt.Errorf("events.Service.requireEventsWriteInTeams: check permissions: %w", err)
+	}
+	for _, teamID := range teamIDs {
+		if perTeam[teamID].Events != "write" {
+			return ErrCrossTeamWriteForbidden
+		}
+	}
+	return nil
+}
+
+// computeTeamBadge implements the display rule (spec.md's "Team badge
+// follows the viewer's own team, then alphabetical order"): nil if
+// viewerTeamID is among memberships (the attendee shares the viewer's own
+// team -- no badge), otherwise the alphabetically-first (case-insensitive)
+// team name in memberships. nil (no badge at all) when memberships is
+// empty -- defensive; every roster row comes from a targeted team's
+// membership list, so this shouldn't happen in practice.
+func computeTeamBadge(viewerTeamID uuid.UUID, memberships []EventTeamRow) *string {
+	if len(memberships) == 0 {
+		return nil
+	}
+	best := ""
+	for _, t := range memberships {
+		if t.TeamID == viewerTeamID {
+			return nil
+		}
+		if best == "" || strings.ToLower(t.TeamName) < strings.ToLower(best) {
+			best = t.TeamName
+		}
+	}
+	return &best
+}
+
 func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 	ev := gen.TeamEvent{
 		Id:        row.Id,

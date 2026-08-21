@@ -21,6 +21,8 @@ type EventPayload = {
   /** Minutes before the event's start, or undefined for "no cutoff". */
   cancelLeadMinutes?: number | undefined;
   excludeFromStats?: boolean | undefined;
+  /** Additional target team ids (besides the owning team). Create: empty/absent = single-team. Update: present replaces the full target set, absent leaves it unchanged. */
+  crossTeamIds?: string[] | undefined;
 };
 
 /**
@@ -125,16 +127,44 @@ export type SaveEventArgs =
         endDate?: string | undefined;
       };
     }
-  | { mode: 'edit'; eventId: string; scope: 'single' | 'series'; payload: EventPayload };
+  | {
+      mode: 'edit';
+      eventId: string;
+      scope: 'single' | 'series';
+      payload: EventPayload;
+      /** The additional target teams (besides the owning team) the event
+       * had BEFORE this edit -- only meaningful when payload.crossTeamIds
+       * is present (a sharing change). Needed so a team REMOVED from
+       * sharing also gets its cached event list invalidated, not just a
+       * newly added one; the response body only carries the new set. */
+      previousCrossTeamIds?: string[] | undefined;
+    };
 
 export function useSaveEventMutation(api: typeof defaultApi, teamId: string | null) {
-  const invalidate = useInvalidateEvents(teamId);
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (args: SaveEventArgs) =>
       args.mode === 'edit'
         ? api.events.update(args.eventId, args.payload, args.scope, teamId!)
         : api.events.create(teamId!, args.payload),
-    onSuccess: (_data, args) => invalidate(args.mode === 'edit' ? args.eventId : undefined),
+    // Every team the event is now targeted at, plus (on an edit) every team
+    // it was previously targeted at -- a create/edit that adds or removes a
+    // cross-team target must invalidate every affected team's cache, not
+    // just the team the request was made through (mirrors
+    // useEventStatusMutation's identical allTeamIds fan-out for cancel/
+    // reactivate).
+    onSuccess: (data, args) => {
+      const eventId = args.mode === 'edit' ? args.eventId : data.id;
+      const currentTeamIds = [data.teamId, ...(data.crossTeamIds ?? [])];
+      const previousTeamIds = args.mode === 'edit' ? (args.previousCrossTeamIds ?? []) : [];
+      const allTeamIds = Array.from(new Set([...currentTeamIds, ...previousTeamIds]));
+      return Promise.all(
+        allTeamIds.flatMap((tid) => [
+          qc.invalidateQueries({ queryKey: queryKeys.events(tid) }),
+          qc.invalidateQueries({ queryKey: queryKeys.eventDetail(tid, eventId) }),
+        ]),
+      );
+    },
   });
 }
 
@@ -143,7 +173,15 @@ export function useSaveEventMutation(api: typeof defaultApi, teamId: string | nu
  * event's OWN team id per call rather than the hook-bound active team id: the
  * confirm sheet that triggers these can still be open after the user has
  * switched to a different active team, and the event must still be mutated
- * (and its cache invalidated) under the team it actually belongs to.
+ * under the team the request is made through.
+ *
+ * Cancel/reactivate is deliberately callable through any of a cross-team
+ * event's targeted teams, not just its owner (see events.Repository's
+ * eventScopedByAnyTargetTeam relaxation for SetStatus) -- so `allTeamIds`
+ * (the event's owning team plus every crossTeamIds target) invalidates every
+ * targeted team's cached event list/detail, not just the one the request was
+ * made through, otherwise the other targeted teams keep showing the event's
+ * pre-mutation status until something else happens to refetch them.
  */
 export function useEventStatusMutation(api: typeof defaultApi) {
   const qc = useQueryClient();
@@ -158,12 +196,15 @@ export function useEventStatusMutation(api: typeof defaultApi) {
       status: 'active' | 'cancelled';
       scope: 'single' | 'series';
       teamId: string;
+      allTeamIds: string[];
     }) => api.events.setStatus(eventId, status, scope, teamId),
-    onSuccess: (_data, { eventId, teamId }) =>
-      Promise.all([
-        qc.invalidateQueries({ queryKey: queryKeys.events(teamId) }),
-        qc.invalidateQueries({ queryKey: queryKeys.eventDetail(teamId, eventId) }),
-      ]),
+    onSuccess: (_data, { eventId, allTeamIds }) =>
+      Promise.all(
+        allTeamIds.flatMap((tid) => [
+          qc.invalidateQueries({ queryKey: queryKeys.events(tid) }),
+          qc.invalidateQueries({ queryKey: queryKeys.eventDetail(tid, eventId) }),
+        ]),
+      ),
   });
 }
 

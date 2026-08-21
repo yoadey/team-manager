@@ -72,9 +72,12 @@ function makeApp(formOverrides: Record<string, unknown> = {}) {
         nominatedRoleIds: [],
         seriesId: null,
         note: '',
+        crossTeamIds: [],
         ...formOverrides,
       },
       roles: [],
+      teams: [],
+      activeTeamId: 't1',
       busy: null,
     },
     saveEvent: vi.fn(),
@@ -463,6 +466,126 @@ describe('EventFormSheet', () => {
     fireEvent.blur(endDateInput);
     await waitFor(() => {
       expect(screen.getByText('validation.eventRepeatEndDateBeforeStart')).toBeTruthy();
+    });
+  });
+
+  describe('cross-team picker', () => {
+    const team = (id: string, name: string, eventsPerm: 'write' | 'read' | 'none') => ({
+      id,
+      name,
+      myPerms: { events: eventsPerm, members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' },
+    });
+
+    it('renders nothing when there are no other teams with events:write', () => {
+      const app = {
+        ...makeApp(),
+        state: { ...makeApp().state, teams: [team('t1', 'Active Team', 'write'), team('t2', 'Read-only Team', 'read')] },
+      };
+      mockUseApp.mockReturnValue(app as never);
+      render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+      expect(screen.queryByText('events.crossTeamPicker')).toBeNull();
+    });
+
+    it('offers only other teams where the user has events:write, excluding the active team', () => {
+      const app = {
+        ...makeApp(),
+        state: {
+          ...makeApp().state,
+          teams: [
+            team('t1', 'Active Team', 'write'),
+            team('t2', 'B-Jugend', 'write'),
+            team('t3', 'Read-only Team', 'read'),
+            team('t4', 'No-access Team', 'none'),
+          ],
+        },
+      };
+      mockUseApp.mockReturnValue(app as never);
+      render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+      expect(screen.getByText('events.crossTeamPicker')).toBeTruthy();
+      expect(screen.getByText('B-Jugend')).toBeTruthy();
+      expect(screen.queryByText('Active Team')).toBeNull();
+      expect(screen.queryByText('Read-only Team')).toBeNull();
+      expect(screen.queryByText('No-access Team')).toBeNull();
+    });
+
+    it('clicking a team chip toggles its selection state', () => {
+      const app = {
+        ...makeApp(),
+        state: { ...makeApp().state, teams: [team('t1', 'Active Team', 'write'), team('t2', 'B-Jugend', 'write')] },
+      };
+      mockUseApp.mockReturnValue(app as never);
+      render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+      const btn = screen.getByText('B-Jugend').closest('button')!;
+      expect(btn.getAttribute('aria-checked')).toBe('false');
+      fireEvent.click(btn);
+      expect(btn.getAttribute('aria-checked')).toBe('true');
+      fireEvent.click(btn);
+      expect(btn.getAttribute('aria-checked')).toBe('false');
+    });
+
+    it('pre-selects a team already in the event\'s crossTeamIds when editing', () => {
+      const app = {
+        ...makeApp({ crossTeamIds: ['t2'] }),
+        state: {
+          ...makeApp({ crossTeamIds: ['t2'] }).state,
+          teams: [team('t1', 'Active Team', 'write'), team('t2', 'B-Jugend', 'write')],
+        },
+      };
+      mockUseApp.mockReturnValue(app as never);
+      render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: app.state.form } as never} />);
+      expect(screen.getByText('B-Jugend').closest('button')!.getAttribute('aria-checked')).toBe('true');
+    });
+
+    it('disables the picker when editing an event that already targets a team the user has no write in', () => {
+      // The event was created with crossTeamIds ['t2', 't3'], but the
+      // current editor only has events:write in t2 -- t3 is an
+      // inaccessible-to-them existing target (they can't see or manage it).
+      const app = {
+        ...makeApp({ crossTeamIds: ['t2', 't3'] }),
+        state: {
+          ...makeApp({ crossTeamIds: ['t2', 't3'] }).state,
+          teams: [team('t1', 'Active Team', 'write'), team('t2', 'B-Jugend', 'write')],
+        },
+      };
+      mockUseApp.mockReturnValue(app as never);
+      render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: app.state.form } as never} />);
+      expect(screen.getByText('events.crossTeamPickerLockedHint')).toBeTruthy();
+      const btn = screen.getByText('B-Jugend').closest('button')!;
+      expect(btn).toBeDisabled();
+      fireEvent.click(btn);
+      // Unchanged -- the click must be a no-op while locked.
+      expect(btn.getAttribute('aria-checked')).toBe('true');
+    });
+
+    it('does not lock the picker on create, or on edit when every existing target is write-accessible', () => {
+      const app = {
+        ...makeApp({ crossTeamIds: ['t2'] }),
+        state: {
+          ...makeApp({ crossTeamIds: ['t2'] }).state,
+          teams: [team('t1', 'Active Team', 'write'), team('t2', 'B-Jugend', 'write')],
+        },
+      };
+      mockUseApp.mockReturnValue(app as never);
+      render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: app.state.form } as never} />);
+      expect(screen.queryByText('events.crossTeamPickerLockedHint')).toBeNull();
+      expect(screen.getByText('B-Jugend').closest('button')!).not.toBeDisabled();
+    });
+
+    it('includes the selected cross-team ids in the payload passed to saveEvent', async () => {
+      const app = {
+        ...makeApp({ title: 'Test', date: '2026-07-01' }),
+        state: {
+          ...makeApp({ title: 'Test', date: '2026-07-01' }).state,
+          teams: [team('t1', 'Active Team', 'write'), team('t2', 'B-Jugend', 'write')],
+        },
+      };
+      mockUseApp.mockReturnValue(app as never);
+      render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+      fireEvent.click(screen.getByText('B-Jugend').closest('button')!);
+      fireEvent.click(screen.getByRole('button', { name: /events.createEvent/i }));
+      await waitFor(() => {
+        expect(app.saveEvent).toHaveBeenCalledWith(expect.objectContaining({ crossTeamIds: ['t2'] }), 'single');
+      });
     });
   });
 });

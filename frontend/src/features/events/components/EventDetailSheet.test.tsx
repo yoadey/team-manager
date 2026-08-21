@@ -128,6 +128,11 @@ function makeApp(overrides: Record<string, unknown> = {}) {
       user: { id: 'user1', name: 'Max Mustermann' },
       roles: [],
       busy: null,
+      // Matches makeEvent()'s default teamId: 'team1' -- the default
+      // scenario across this file is "viewing the event via its own owning
+      // team", where canEditOrDelete tracks plain canEdit. Tests for the
+      // cross-team (non-owning viewer) case override this explicitly.
+      activeTeamId: 'team1',
       ...overrides,
     },
     can: vi.fn().mockReturnValue(false),
@@ -300,6 +305,26 @@ describe('EventDetailSheet', () => {
     );
     expect(screen.queryByText('events.edit')).toBeNull();
     expect(screen.queryByText('events.duplicate')).toBeNull();
+  });
+
+  // Regression test: editing/deleting a cross-team event is only ever
+  // allowed via its owning team's own URL (see backend UpdateEvent/
+  // DeleteEvent), so viewing it through a non-owning targeted team must not
+  // offer Edit/Delete buttons that would always fail server-side --
+  // Cancel/Duplicate stay available since those are allowed from any
+  // targeted team.
+  it('hides edit and delete, but keeps cancel and duplicate, when viewing a cross-team event via a non-owning team', () => {
+    const app = makeApp({ activeTeamId: 'team2' });
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ teamId: 'team1', crossTeamIds: ['team2'] });
+    render(
+      <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+    );
+    expect(screen.queryByText('events.edit')).toBeNull();
+    expect(screen.queryByText('events.delete')).toBeNull();
+    expect(screen.getByText('events.duplicate')).toBeTruthy();
+    expect(screen.getByText('events.cancel')).toBeTruthy();
   });
 
   it('clicking duplicate calls app.duplicateEvent with the event', () => {
@@ -586,6 +611,80 @@ describe('EventDetailSheet', () => {
     ];
     render(<EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows, comments: [] } as never} />);
     expect(screen.getByText('Gruppe A · Witzbeauftragter')).toBeTruthy();
+  });
+
+  it('shows a team badge for a cross-team attendee outside the viewer\'s own team', () => {
+    const app = makeApp();
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ date: '2026-07-01', crossTeamIds: ['team2'] });
+    const rows = [
+      { userId: 'user2', name: 'Anna Müller', avatarColor: '#4285F4', photo: null, status: 'yes' as const, auto: false, absent: false, foreign: true, teamName: 'B-Jugend' },
+    ];
+    render(<EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows, comments: [] } as never} />);
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+    expect(screen.getByText('B-Jugend')).toBeTruthy();
+  });
+
+  it('does not show a team badge for a same-team attendee (no teamName)', () => {
+    const app = makeApp();
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ date: '2026-07-01' });
+    const rows = [
+      { userId: 'user2', name: 'Anna Müller', avatarColor: '#4285F4', photo: null, group: '', primaryRole: null, status: 'yes' as const, reason: '', reasonId: null, reasonVisibility: null, auto: false, absent: false },
+    ];
+    render(<EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows, comments: [] } as never} />);
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+    // No teamName means no group/other team text rendered alongside the name.
+    expect(screen.queryByText('B-Jugend')).toBeNull();
+  });
+
+  it('hides RSVP controls for a foreign attendee even when teamName is absent (fail-closed redaction case)', () => {
+    const app = makeApp();
+    (app.can as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    mockUseApp.mockReturnValue(app as never);
+    // Far-future date so isPast is reliably false regardless of test-run time
+    // -- unlike the rest of this file's fixtures (2026-07-01), this test
+    // needs RSVP controls to actually be reachable for the assertion below
+    // to mean anything.
+    const event = makeEvent({ date: '2099-01-01', crossTeamIds: ['team2'] });
+    const rows = [
+      // Same-team control row: proves RSVP buttons are actually reachable
+      // under this canEdit/isPast setup, so the foreign row's absence below
+      // is meaningful rather than trivially true.
+      { userId: 'user1', name: 'Bea Schmidt', avatarColor: '#000', photo: null, status: 'pending' as const, auto: false, absent: false, foreign: false },
+      // foreign: true but no teamName -- the backend's accepted fail-closed
+      // race window (redacted identity, no badge assigned yet).
+      { userId: 'user2', name: 'Anna Müller', avatarColor: '#4285F4', photo: null, status: 'pending' as const, auto: false, absent: false, foreign: true },
+    ];
+    render(<EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows, comments: [] } as never} />);
+    // statusMeta is mocked (see the '@/styles/tokens' mock above) to always
+    // return label: 'Zusagen' regardless of status, so all three
+    // AttendanceStatusButtons per editable row share that aria-label --
+    // exactly 3 (one row's worth) confirms only the same-team row is
+    // editable; 6 would mean the foreign row leaked controls too.
+    expect(screen.getAllByLabelText('Zusagen').length).toBe(3);
+  });
+
+  it('shows a "shared with other teams" indicator when the event targets other teams', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ crossTeamIds: ['team2', 'team3'] });
+    render(
+      <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+    );
+    expect(screen.getByText('events.crossTeamSharedIndicator')).toBeTruthy();
+  });
+
+  it('does not show a "shared with other teams" indicator for a single-team event', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent();
+    render(
+      <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+    );
+    expect(screen.queryByText('events.crossTeamSharedIndicator')).toBeNull();
   });
 
   it('renders location in info box', () => {

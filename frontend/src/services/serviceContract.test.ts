@@ -488,6 +488,217 @@ describe("drift-bug fix: scope=upcoming includes today's events", () => {
   });
 });
 
+// cross-team-events: an event may target more than one team (crossTeamIds),
+// with a merged attendance view badging attendees who aren't in the viewer's
+// own team. See openspec/changes/cross-team-events/specs/cross-team-events/spec.md.
+describe('cross-team events', () => {
+  it('rejects creating a cross-team event when the caller lacks events:write in one of the targeted teams', async () => {
+    // u1 is Admin/Trainer (events:write) on t_a but only a regular member
+    // (events:read) on t_b by default -- see mocks/db.ts's seed data.
+    await expect(
+      api.events.create('t_a', { type: 'training', title: 'Joint training', date: todayLocalDate(), crossTeamIds: ['t_b'] }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it('rejects an unknown team id in crossTeamIds', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    await expect(
+      api.events.create('t_a', {
+        type: 'training',
+        title: 'Joint training',
+        date: todayLocalDate(),
+        crossTeamIds: ['does-not-exist'],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('creates a cross-team event visible from every targeted team once the caller holds events:write in all of them', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+    expect(event.crossTeamIds).toEqual(['t_b']);
+
+    const fromOwner = await api.events.get(event.id, 't_a');
+    const fromTarget = await api.events.get(event.id, 't_b');
+    expect(fromOwner?.id).toBe(event.id);
+    expect(fromTarget?.id).toBe(event.id);
+
+    const listInTarget = await api.events.list('t_b');
+    expect(listInTarget.some((e) => e.id === event.id)).toBe(true);
+  });
+
+  it('merges attendance across targeted teams, badging only attendees outside the viewer\'s own team, and counts a multi-team member once', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+
+    // The event's reported summary must reflect the deduped union of both
+    // targeted teams' members (a t_a-and-t_b member counts once), not just
+    // the owning team's own roster.
+    const expectedTotal = new Set(
+      db.memberships.filter((m) => m.teamId === 't_a' || m.teamId === 't_b').map((m) => m.userId),
+    ).size;
+    expect(event.summary.total).toBe(expectedTotal);
+    const refetched = await api.events.get(event.id, 't_a');
+    expect(refetched?.summary.total).toBe(expectedTotal);
+
+    const tA = db.teams.find((t) => t.id === 't_a')!;
+    const tB = db.teams.find((t) => t.id === 't_b')!;
+
+    const rowsFromA = await api.attendance.listForEvent(event.id, 't_a');
+    // u1 belongs to both t_a and t_b but must appear exactly once.
+    expect(rowsFromA.filter((r) => r.userId === 'u1')).toHaveLength(1);
+    expect(rowsFromA.find((r) => r.userId === 'u1')?.teamName).toBeUndefined();
+    // A t_a-only member is the viewer's own team -- no badge.
+    expect(rowsFromA.find((r) => r.userId === 'u2')?.teamName).toBeUndefined();
+    // A t_b-only member is foreign from t_a's viewpoint -- badged with t_b's name.
+    const foreignRow = rowsFromA.find((r) => r.userId === 'u20');
+    expect(foreignRow?.teamName).toBe(tB.name);
+    // Restricted projection: no profile identifiers, and no auto/absent
+    // either -- absent in particular could otherwise leak that a foreign
+    // attendee has a planned absence logged in a team the viewer has no
+    // other visibility into (see design.md's restricted-projection list:
+    // {name, avatarColor, hasPhoto, status, teamName?}).
+    expect(foreignRow?.foreign).toBe(true);
+    expect(foreignRow?.auto).toBe(false);
+    expect(foreignRow?.absent).toBe(false);
+
+    const rowsFromB = await api.attendance.listForEvent(event.id, 't_b');
+    expect(rowsFromB.filter((r) => r.userId === 'u1')).toHaveLength(1);
+    expect(rowsFromB.find((r) => r.userId === 'u1')?.teamName).toBeUndefined();
+    expect(rowsFromB.find((r) => r.userId === 'u20')?.teamName).toBeUndefined();
+    expect(rowsFromB.find((r) => r.userId === 'u2')?.teamName).toBe(tA.name);
+  });
+
+  // Regression: a planned absence must only count against the team it was
+  // filed under, not globally across every team the person belongs to --
+  // otherwise an absence filed in one of a multi-team member's OTHER teams
+  // would leak into their attendance status on a cross-team event viewed
+  // via a team that absence has nothing to do with.
+  it('scopes a planned absence to the team it was filed under, not globally across a multi-team member\'s teams', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+
+    // u1 belongs to both t_a and t_b -- file the absence under t_b only.
+    await api.absences.create({ teamId: 't_b', userId: 'u1', from: todayLocalDate(), to: todayLocalDate() });
+
+    // Viewed via t_a, u1's identity is their t_a membership (t_a is the
+    // viewing team) -- the t_b-only absence must not apply here.
+    const rowsFromA = await api.attendance.listForEvent(event.id, 't_a');
+    const rowU1 = rowsFromA.find((r) => r.userId === 'u1');
+    expect(rowU1?.teamName).toBeUndefined();
+    expect(rowU1?.absent).toBe(false);
+    expect(rowU1?.status).toBe('pending');
+
+    const summaryFromA = (await api.events.get(event.id, 't_a'))!.summary;
+    expect(summaryFromA.no).toBe(0);
+    expect(summaryFromA.pending).toBeGreaterThanOrEqual(1);
+  });
+
+  it('rejects setting attendance or nomination for a foreign (badged) attendee via a non-owning team', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+
+    // u20 belongs only to t_b, not t_a -- setting their attendance/nomination
+    // through t_a's URL must fail server-side, mirroring the real backend's
+    // membership check, even though u1 holds events:write on t_a.
+    await expect(api.attendance.set(event.id, 'u20', { status: 'yes' }, 't_a')).rejects.toThrow();
+    await expect(api.attendance.setNomination(event.id, 'u20', false, 't_a')).rejects.toThrow();
+
+    // u20 can be acted on through their own team, t_b.
+    await expect(api.attendance.set(event.id, 'u20', { status: 'yes' }, 't_b')).resolves.toBeTruthy();
+
+    // Sanity: a genuine t_a member is unaffected by the new check.
+    await expect(api.attendance.set(event.id, 'u2', { status: 'yes' }, 't_a')).resolves.toBeTruthy();
+  });
+
+  // Regression: setNomination must 404 when the event isn't targeted by the
+  // viewing team at all, mirroring the real backend's SetNomination (scoped
+  // via eventScopedByAnyTargetTeam) and this same file's identical check for
+  // attendance.set above -- setNomination previously only checked the
+  // target user's membership, never the event's own visibility, so a t_b
+  // caller with events:write could nominate/de-nominate on an event owned
+  // by t_a that was never shared with t_b at all.
+  it('rejects setting a nomination for an event not targeted by the viewing team at all', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Solo training',
+      date: todayLocalDate(),
+    });
+
+    await expect(api.attendance.setNomination(event.id, 'u2', false, 't_b')).rejects.toThrow();
+  });
+
+  // Regression: creating (and later cancelling) a cross-team event must
+  // notify every targeted team, not just the owning one -- mirrors the
+  // real backend's CreateEvent/SetStatus, which fan out one notification
+  // per targeted team specifically so a non-owning team's activity feed
+  // shows the event being created/cancelled, even though that team never
+  // made the API call itself.
+  it('notifies every targeted team on create and on cancel, not just the owning team', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+
+    const notifsB = (await api.notifications.list('t_b')).items;
+    expect(notifsB.some((n) => n.type === 'event_created' && n.eventId === event.id)).toBe(true);
+
+    await api.events.setStatus(event.id, 'cancelled', 'single', 't_a');
+    const notifsBAfterCancel = (await api.notifications.list('t_b')).items;
+    expect(notifsBAfterCancel.some((n) => n.type === 'event_cancelled' && n.eventId === event.id)).toBe(true);
+  });
+
+  it('update: absent crossTeamIds leaves the target set unchanged; an empty array un-shares back to single-team', async () => {
+    grantOnly('t_a', 'u1', { events: 'write' });
+    grantOnly('t_b', 'u1', { events: 'write' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Joint training',
+      date: todayLocalDate(),
+      crossTeamIds: ['t_b'],
+    });
+
+    await api.events.update(event.id, { title: 'Joint training (renamed)' }, 'single', 't_a');
+    const afterRename = await api.events.get(event.id, 't_a');
+    expect(afterRename?.crossTeamIds).toEqual(['t_b']);
+
+    await api.events.update(event.id, { crossTeamIds: [] }, 'single', 't_a');
+    const afterUnshare = await api.events.get(event.id, 't_a');
+    expect(afterUnshare?.crossTeamIds ?? []).toEqual([]);
+    const listInTarget = await api.events.list('t_b');
+    expect(listInTarget.some((e) => e.id === event.id)).toBe(false);
+  });
+});
+
 describe('per-team push-category preferences', () => {
   const defaultPrefs = {
     attendance: true,

@@ -82,6 +82,8 @@ export interface EventDto {
   cancelLeadMinutes: number | null;
   /** When true, this event is left out of every attendance-statistics computation. */
   excludeFromStats: boolean;
+  /** Other teams (besides teamId, the owning team) this event targets. Members of any of these teams see the event and its merged attendance. Absent/empty for a single-team event. */
+  crossTeamIds?: string[];
 }
 
 /** UI ViewModel consumed by event screens; summary and my* are client-side enrichment. */
@@ -119,6 +121,10 @@ export interface AttendanceRow {
   reasonVisibility: ReasonVisibility;
   auto: boolean;
   absent: boolean;
+  /** Cross-team event only: set when this attendee does not belong to the viewer's own (currently active) team -- the alphabetically-first (by team name) team, among the event's targeted teams, that the attendee belongs to. Absent for an attendee who shares the viewer's own team, and always absent on a single-team event. When set, membershipId/group/title/primaryRole/reason/reasonId/reasonVisibility are absent from the underlying row -- no profile navigation or reason/absence detail for this attendee. */
+  teamName?: string;
+  /** True when this row's identity fields (membershipId/group/title/primaryRole/reason*) were stripped server-side because the attendee is outside the viewer's own team -- derived from membershipId's absence, NOT from teamName. The backend's badge computation has an accepted fail-closed race window (see resolveCrossTeamBadgeContext) where a foreign attendee's identity gets redacted but no teamName badge is assigned; teamName alone would then read as "same team" and offer RSVP/comment controls that are guaranteed to be rejected server-side. Always false on a single-team event. */
+  foreign: boolean;
 }
 
 export interface EventComment {

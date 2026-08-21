@@ -192,6 +192,10 @@ export const eventFormSchema = z
     cancelLeadMinutes: z.coerce.number().min(0).max(59).optional(),
     excludeFromStats: z.boolean().optional(),
     seriesId: z.string().optional().nullable(),
+    // Not `.uuid()` for the same reason as nominatedRoleIds above -- these
+    // are server-issued team ids chosen via UI toggles, and the MSW demo's
+    // ids aren't RFC4122 UUIDs.
+    crossTeamIds: z.array(z.string()).optional(),
   })
   .superRefine((data, ctx) => {
     validateDateField(data, ctx);

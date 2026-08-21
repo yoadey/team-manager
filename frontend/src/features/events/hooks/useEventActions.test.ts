@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useEventDetailActions, useEventActionFeatures } from './useEventActions';
-import { createQueryWrapper } from '@/test/queryTestUtils';
+import { createQueryWrapper, createTestQueryClient } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
@@ -456,20 +456,60 @@ describe('useEventActionFeatures', () => {
     expect(openEventDetail).not.toHaveBeenCalled();
   });
 
-  // Regression: cancel/reactivate/delete must scope the API call to the
-  // event's OWN team, not whatever team happens to be active right now --
-  // the confirm sheet that triggers these can still be open after the user
-  // has switched to a different active team.
-  it('runEventAction reactivate scopes the API call to event.teamId, not the active team', async () => {
+  // Cancel/reactivate is deliberately relaxed server-side to any of the
+  // event's targeted teams (see internal/events/repository.go's SetStatus),
+  // unlike delete, which stays owning-team-only -- so this scopes the API
+  // call to whichever team the user is actually viewing the event from, not
+  // event.teamId (the owning team). Without this, a user who belongs only
+  // to a non-owning targeted team could never cancel/reactivate a
+  // cross-team event at all.
+  it('runEventAction reactivate scopes the API call to the active team, not event.teamId', async () => {
     stateRef = { ...stateRef, activeTeamId: 'team2' };
     const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1' } as never;
     const { result } = renderActions();
     await act(async () => {
       await result.current.runEventAction('reactivate', event, 'single');
     });
-    expect(api.events.setStatus).toHaveBeenCalledWith('ev1', 'active', 'single', 'team1');
+    expect(api.events.setStatus).toHaveBeenCalledWith('ev1', 'active', 'single', 'team2');
   });
 
+  // Regression: cancel/reactivate invalidates every targeted team's cache,
+  // not just the one the request was made through -- otherwise a non-owning
+  // targeted team the mutation didn't route through (here: team1, the
+  // event's actual owner) keeps showing the event's pre-mutation status
+  // until something else happens to refetch it.
+  it('runEventAction reactivate invalidates every targeted team\'s query cache, not just the viewing team', async () => {
+    stateRef = { ...stateRef, activeTeamId: 'team2' };
+    const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1', crossTeamIds: ['team2', 'team3'] } as never;
+    const client = createTestQueryClient();
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(
+      () =>
+        useEventActionFeatures({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          loadNotifications: loadNotifications as never,
+          toastMsg: toastMsg as never,
+          askConfirm: askConfirm as never,
+          openEventDetail: openEventDetail as never,
+          logout: logout as never,
+        }),
+      { wrapper: createQueryWrapper(client) },
+    );
+    await act(async () => {
+      await result.current.runEventAction('reactivate', event, 'single');
+    });
+    const invalidatedTeamIds = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey[1]);
+    expect(invalidatedTeamIds).toEqual(expect.arrayContaining(['team1', 'team2', 'team3']));
+  });
+
+  // Regression: delete must scope the API call to the event's OWN team, not
+  // whatever team happens to be active right now -- the confirm sheet that
+  // triggers this can still be open after the user has switched to a
+  // different active team. Unlike cancel/reactivate above, delete stays
+  // restricted to the owning team server-side, so this one must NOT follow
+  // the active team.
   it('runEventAction delete scopes the API call to event.teamId, not the active team', async () => {
     stateRef = { ...stateRef, activeTeamId: 'team2' };
     const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1' } as never;

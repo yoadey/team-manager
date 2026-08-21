@@ -103,6 +103,219 @@ func uuidSlice(ids []uuid.UUID) []uuid.UUID {
 	return ids
 }
 
+// ─── event_teams (cross-team events) ───────────────────────────────────────
+
+// eventScopedByAnyTargetTeam is a WHERE-clause fragment: true when teamID
+// (the placeholder given as teamPlaceholder, e.g. "$2") is one of the teams
+// event alias "e" targets, via the event_teams join table (migration
+// 00035). Every event has at least one event_teams row -- its owning team,
+// always inserted by CreateEvent/CreateSeries -- so for a single-team event
+// this is a strict superset of (in fact, identical to) the old
+// "e.team_id = $N" scope check it replaces across every read/RSVP path
+// (GetEvent, ListEvents, comments, attendance list/RSVP/nominations, event
+// status). UpdateEvent and DeleteEvent deliberately keep the old
+// owning-team-only "e.team_id = $N" check instead of this relaxation --
+// editing/deleting a cross-team event is only ever done via its owning
+// team's URL (see events.Service's create/update authorization), and
+// deletion is furthermore never extended to non-owning targets at all (see
+// migration 00035's comment).
+func eventScopedByAnyTargetTeam(teamPlaceholder string) string {
+	return "EXISTS (SELECT 1 FROM event_teams et WHERE et.event_id = e.id AND et.team_id = " + teamPlaceholder + ")"
+}
+
+// dedupTeamIDs returns owning plus every id in extra, deduplicated. Order is
+// not meaningful (event_teams' PK also tolerates duplicates via ON CONFLICT
+// in insertEventTeams, so this is a courtesy, not a correctness
+// requirement).
+func dedupTeamIDs(owning uuid.UUID, extra []uuid.UUID) []uuid.UUID {
+	seen := map[uuid.UUID]struct{}{owning: {}}
+	out := []uuid.UUID{owning}
+	for _, id := range extra {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+// insertEventTeams inserts one event_teams row for every (event, team) pair
+// in the cross product of eventIDs × teamIDs, run inside tx. Used
+// identically by CreateEvent (a single eventID) and CreateSeries (one row
+// per generated occurrence -- every occurrence in a series shares the same
+// target team set).
+func insertEventTeams(ctx context.Context, tx pgx.Tx, eventIDs, teamIDs []uuid.UUID) error {
+	if len(eventIDs) == 0 || len(teamIDs) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO event_teams (event_id, team_id)
+		SELECT e, t FROM unnest($1::uuid[]) AS e CROSS JOIN unnest($2::uuid[]) AS t
+		ON CONFLICT (event_id, team_id) DO NOTHING
+	`, eventIDs, teamIDs)
+	if err != nil {
+		return fmt.Errorf("events.Repository.insertEventTeams: %w", err)
+	}
+	return nil
+}
+
+// TeamsExist reports whether every id in teamIDs is a real team. An empty
+// teamIDs always returns true. Used by Service to validate crossTeamIds
+// before the more expensive per-team permission check, outside of any
+// write transaction -- validateCrossTeamIDsInTx duplicates this same
+// existence check inside CreateEvent/CreateSeries/UpdateEvent's own
+// transaction as the authoritative, final guard (the same
+// pre-check-then-authoritative-recheck split validateNominatedRoles/
+// validateNominatedRolesInTx already establishes for nominated_role_ids).
+func (r *Repository) TeamsExist(ctx context.Context, teamIDs []uuid.UUID) (bool, error) {
+	if len(teamIDs) == 0 {
+		return true, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	seen := make(map[uuid.UUID]struct{}, len(teamIDs))
+	for _, id := range teamIDs {
+		seen[id] = struct{}{}
+	}
+	var count int
+	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM teams WHERE id = ANY($1)`, teamIDs).Scan(&count); err != nil {
+		return false, fmt.Errorf("events.Repository.TeamsExist: %w", err)
+	}
+	return count == len(seen), nil
+}
+
+// ListEventTeamsBatch is GetEventTeams' batched counterpart, keyed by event
+// ID -- used by ListEvents to avoid one query per event.
+func (r *Repository) ListEventTeamsBatch(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID][]EventTeamRow, error) {
+	out := make(map[uuid.UUID][]EventTeamRow, len(eventIDs))
+	if len(eventIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT et.event_id, t.id, t.name
+		FROM event_teams et
+		JOIN teams t ON t.id = et.team_id
+		WHERE et.event_id = ANY($1)
+		ORDER BY t.name ASC
+	`, eventIDs)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.ListEventTeamsBatch: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var eventID uuid.UUID
+		var row EventTeamRow
+		if err := rows.Scan(&eventID, &row.TeamID, &row.TeamName); err != nil {
+			return nil, fmt.Errorf("events.Repository.ListEventTeamsBatch scan: %w", err)
+		}
+		out[eventID] = append(out[eventID], row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.ListEventTeamsBatch: %w", err)
+	}
+	return out, nil
+}
+
+// validateCrossTeamIDsInTx verifies every ID in crossTeamIDs is a real team,
+// returning ErrInvalidCrossTeamIds otherwise. Unlike
+// validateNominatedRolesInTx, this takes no advisory lock: a team, unlike a
+// role, is never deleted as part of an ordinary in-team admin action (team
+// deletion is not a feature this codebase has), so there is no equivalent
+// concurrent-deletion race to close here.
+func validateCrossTeamIDsInTx(ctx context.Context, tx pgx.Tx, crossTeamIDs []uuid.UUID) error {
+	if len(crossTeamIDs) == 0 {
+		return nil
+	}
+	seen := make(map[uuid.UUID]struct{}, len(crossTeamIDs))
+	for _, id := range crossTeamIDs {
+		seen[id] = struct{}{}
+	}
+	var count int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*)::int FROM teams WHERE id = ANY($1)`, crossTeamIDs).Scan(&count); err != nil {
+		return fmt.Errorf("events.Repository: check cross-team ids: %w", err)
+	}
+	if count != len(seen) {
+		return ErrInvalidCrossTeamIds
+	}
+	return nil
+}
+
+// GetEventTeams returns every team an event targets (its owning team plus
+// any crossTeamIds), each with its name, ordered by name ascending. Every
+// event has at least one row (see migration 00035) -- a single-team event's
+// slice always has length 1.
+func (r *Repository) GetEventTeams(ctx context.Context, eventID string) ([]EventTeamRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT t.id, t.name
+		FROM event_teams et
+		JOIN teams t ON t.id = et.team_id
+		WHERE et.event_id = $1
+		ORDER BY t.name ASC
+	`, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.GetEventTeams: %w", err)
+	}
+	defer rows.Close()
+
+	var out []EventTeamRow
+	for rows.Next() {
+		var row EventTeamRow
+		if err := rows.Scan(&row.TeamID, &row.TeamName); err != nil {
+			return nil, fmt.Errorf("events.Repository.GetEventTeams scan: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.GetEventTeams: %w", err)
+	}
+	return out, nil
+}
+
+// ListEventMemberTeams returns, for every user who belongs to at least one
+// of an event's targeted teams, the subset of those targeted teams they
+// belong to (team_id + name) -- the raw material
+// Service.ListAttendance/enrichEvent use to compute each attendee's team
+// badge (display rule: no badge if the viewer's own team is in this set,
+// else the alphabetically-first team name in it). Only meaningful for a
+// cross-team event with more than one targeted team; callers skip calling
+// this at all for a single-team event, since its roster never needs a
+// badge -- see GetEventTeams' length.
+func (r *Repository) ListEventMemberTeams(ctx context.Context, eventID string) (map[uuid.UUID][]EventTeamRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT m.user_id, t.id, t.name
+		FROM event_teams et
+		JOIN teams t ON t.id = et.team_id
+		JOIN memberships m ON m.team_id = et.team_id
+		WHERE et.event_id = $1
+	`, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.ListEventMemberTeams: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[uuid.UUID][]EventTeamRow)
+	for rows.Next() {
+		var userID uuid.UUID
+		var row EventTeamRow
+		if err := rows.Scan(&userID, &row.TeamID, &row.TeamName); err != nil {
+			return nil, fmt.Errorf("events.Repository.ListEventMemberTeams scan: %w", err)
+		}
+		out[userID] = append(out[userID], row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.ListEventMemberTeams: %w", err)
+	}
+	return out, nil
+}
+
 const selectEventFields = `
 	id, team_id, series_id, type, title, date, end_date,
 	location, note, result,
@@ -188,6 +401,7 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.Li
 		args []any
 	)
 
+	teamScope := eventScopedByAnyTargetTeam("$1")
 	switch scope {
 	case gen.Past:
 		args = []any{teamID, today, limit}
@@ -199,7 +413,7 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.Li
 		// COALESCE(end_date, date): a multi-day event that has started but not
 		// yet finished (end_date >= today) stays out of "past" even though its
 		// start date has already gone by -- it's still ongoing.
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND COALESCE(end_date, date) < $2 %s ORDER BY date DESC, id DESC LIMIT $3`, selectEventFields, pred)
+		q = fmt.Sprintf(`SELECT %s FROM events e WHERE %s AND COALESCE(end_date, date) < $2 %s ORDER BY date DESC, id DESC LIMIT $3`, selectEventFields, teamScope, pred)
 	case gen.Upcoming:
 		args = []any{teamID, today, limit}
 		pred := ""
@@ -207,7 +421,7 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.Li
 			pred = "AND (date, id) > ($4, $5)"
 			args = append(args, cur.Date, cur.ID)
 		}
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND COALESCE(end_date, date) >= $2 %s ORDER BY date ASC, id ASC LIMIT $3`, selectEventFields, pred)
+		q = fmt.Sprintf(`SELECT %s FROM events e WHERE %s AND COALESCE(end_date, date) >= $2 %s ORDER BY date ASC, id ASC LIMIT $3`, selectEventFields, teamScope, pred)
 	case gen.All:
 		args = []any{teamID, limit}
 		pred := ""
@@ -215,7 +429,7 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.Li
 			pred = "AND (date, id) > ($3, $4)"
 			args = append(args, cur.Date, cur.ID)
 		}
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 %s ORDER BY date ASC, id ASC LIMIT $2`, selectEventFields, pred)
+		q = fmt.Sprintf(`SELECT %s FROM events e WHERE %s %s ORDER BY date ASC, id ASC LIMIT $2`, selectEventFields, teamScope, pred)
 	default:
 		args = []any{teamID, limit}
 		pred := ""
@@ -223,7 +437,7 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.Li
 			pred = "AND (date, id) > ($3, $4)"
 			args = append(args, cur.Date, cur.ID)
 		}
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 %s ORDER BY date ASC, id ASC LIMIT $2`, selectEventFields, pred)
+		q = fmt.Sprintf(`SELECT %s FROM events e WHERE %s %s ORDER BY date ASC, id ASC LIMIT $2`, selectEventFields, teamScope, pred)
 	}
 
 	rows, err := r.pool.Query(ctx, q, args...)
@@ -281,11 +495,13 @@ func (r *Repository) ListUpcomingForReminders(ctx context.Context, from, to time
 
 // ─── GetEvent ───────────────────────────────────────────────────────────────
 
-// GetEvent retrieves a single event by ID, scoped to teamID.
+// GetEvent retrieves a single event by ID, scoped to teamID -- teamID must
+// be one of the event's targeted teams (event_teams; see
+// eventScopedByAnyTargetTeam), not necessarily its owning team.
 func (r *Repository) GetEvent(ctx context.Context, eventID, teamID string) (*EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	q := fmt.Sprintf(`SELECT %s FROM events WHERE id = $1 AND team_id = $2`, selectEventFields)
+	q := fmt.Sprintf(`SELECT %s FROM events e WHERE e.id = $1 AND %s`, selectEventFields, eventScopedByAnyTargetTeam("$2"))
 	row := r.pool.QueryRow(ctx, q, eventID, teamID)
 	e, err := scanEventRow(row)
 	if err != nil {
@@ -349,6 +565,13 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 	if err := validateNominatedRolesInTx(ctx, tx, teamID, params.NominatedRoleIds); err != nil {
 		return nil, err
 	}
+	if err := validateCrossTeamIDsInTx(ctx, tx, params.CrossTeamIds); err != nil {
+		return nil, err
+	}
+	owningTeamID, err := uuid.Parse(teamID)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.CreateEvent: parse teamID: %w", err)
+	}
 
 	q := fmt.Sprintf(`
 		INSERT INTO events (
@@ -377,6 +600,10 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 	)
 	e, err := scanEventRow(row)
 	if err != nil {
+		return nil, fmt.Errorf("events.Repository.CreateEvent: %w", err)
+	}
+
+	if err := insertEventTeams(ctx, tx, []uuid.UUID{e.Id}, dedupTeamIDs(owningTeamID, params.CrossTeamIds)); err != nil {
 		return nil, fmt.Errorf("events.Repository.CreateEvent: %w", err)
 	}
 
@@ -436,6 +663,13 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 
 	if err := validateNominatedRolesInTx(ctx, tx, teamID, params.NominatedRoleIds); err != nil {
 		return nil, err
+	}
+	if err := validateCrossTeamIDsInTx(ctx, tx, params.CrossTeamIds); err != nil {
+		return nil, err
+	}
+	owningTeamID, err := uuid.Parse(teamID)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.CreateSeries: parse teamID: %w", err)
 	}
 
 	// Insert series row. repeat_weeks is always populated with the derived
@@ -528,6 +762,14 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 	// first occurrence, not whichever row Postgres happened to return first.
 	sort.Slice(events, func(i, j int) bool { return events[i].Date.Before(events[j].Date) })
 
+	eventIDs := make([]uuid.UUID, len(events))
+	for i := range events {
+		eventIDs[i] = events[i].Id
+	}
+	if err := insertEventTeams(ctx, tx, eventIDs, dedupTeamIDs(owningTeamID, params.CrossTeamIds)); err != nil {
+		return nil, fmt.Errorf("events.Repository.CreateSeries: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("events.Repository.CreateSeries: commit: %w", err)
 	}
@@ -555,6 +797,11 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 			return nil, err
 		}
 	}
+	if params.CrossTeamIds != nil {
+		if err := validateCrossTeamIDsInTx(ctx, tx, params.CrossTeamIds); err != nil {
+			return nil, err
+		}
+	}
 
 	if scope == "series" || params.EndDate != nil {
 		if err := applySeriesScopedUpdate(ctx, tx, eventID, teamID, scope, params); err != nil {
@@ -565,21 +812,18 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 	// Always update the specific event and return it, scoped to teamID.
 	e, err := writeOrReadSingleEvent(ctx, tx, eventID, teamID, params)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, pgx.ErrNoRows
+		return nil, mapUpdateEventWriteError(err)
+	}
+
+	// crossTeamIds present in the patch replaces the full additional-target
+	// set. writeOrReadSingleEvent above already verified eventID belongs to
+	// teamID (the owning team -- crossTeamIds is only ever changed via the
+	// owning team's own URL, mirroring create), so teamID is exactly the
+	// owning team to reinsert here.
+	if params.CrossTeamIds != nil {
+		if err := replaceEventTeams(ctx, tx, e.Id, teamID, params.CrossTeamIds); err != nil {
+			return nil, err
 		}
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
-			switch pgErr.ConstraintName {
-			case eventsEndAfterStartTimeConstraint:
-				return nil, ErrEndTimeBeforeStartTime
-			case eventsEndDateAfterDateConstraint:
-				return nil, ErrMultiDayEndDateBeforeDate
-			case eventsMultiDaySpanWithinLimitConstraint:
-				return nil, ErrMultiDaySpanTooLong
-			}
-		}
-		return nil, fmt.Errorf("events.Repository.UpdateEvent: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -591,10 +835,19 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 // applySeriesScopedUpdate looks up eventID's series_id (verified to belong
 // to teamID) and, if it belongs to a series, either rejects a multi-day
 // EndDate on it (ErrMultiDayEndDateOnSeriesEvent) or -- for scope="series"
-// -- applies the series-wide fields via updateSeriesEvents. A standalone
+// -- applies the series-wide fields via updateSeriesEvents, plus (when
+// CrossTeamIds is present in the patch) replaces event_teams for every
+// occurrence in the series via replaceEventTeamsForSeries, not just the
+// single occurrence eventID addresses -- otherwise sharing (or un-sharing)
+// "the whole series" from one occurrence would silently apply to that one
+// occurrence only, leaving the rest of the series either not shared with a
+// newly-added team or still readable by a removed one. A standalone
 // (non-series) event, or a scope="single" request with no EndDate, is a
-// no-op here; UpdateEvent's subsequent writeOrReadSingleEvent call always
-// applies the full params to the specific event regardless.
+// no-op here; UpdateEvent's subsequent writeOrReadSingleEvent (and its own
+// single-event replaceEventTeams call) always applies the full params to the
+// specific event regardless, which for scope="series" redundantly but
+// harmlessly re-applies the same event_teams rows this function already set
+// for that one occurrence.
 func applySeriesScopedUpdate(ctx context.Context, tx pgx.Tx, eventID, teamID, scope string, params *UpdateEventParams) error {
 	var seriesID *uuid.UUID
 	err := tx.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID).Scan(&seriesID)
@@ -607,8 +860,16 @@ func applySeriesScopedUpdate(ctx context.Context, tx pgx.Tx, eventID, teamID, sc
 	if params.EndDate != nil {
 		return ErrMultiDayEndDateOnSeriesEvent
 	}
-	if scope == "series" {
-		return updateSeriesEvents(ctx, tx, seriesID.String(), params)
+	if scope != "series" {
+		return nil
+	}
+	if err := updateSeriesEvents(ctx, tx, seriesID.String(), params); err != nil {
+		return err
+	}
+	if params.CrossTeamIds != nil {
+		if err := replaceEventTeamsForSeries(ctx, tx, seriesID.String(), teamID, params.CrossTeamIds); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -616,6 +877,88 @@ func applySeriesScopedUpdate(ctx context.Context, tx pgx.Tx, eventID, teamID, sc
 // writeOrReadSingleEvent applies params to the single event eventID (scoped
 // to teamID) and returns the resulting row. A request that set no field at
 // all (buildEventUpdateSets' ok == false) has nothing to write -- this reads
+// mapUpdateEventWriteError translates writeOrReadSingleEvent's raw error
+// into the sentinel UpdateEvent's callers expect -- split out of UpdateEvent
+// itself purely to keep that function's cognitive complexity under the
+// repo's golangci-lint threshold (see events_end_after_start_time and
+// siblings' identical CHECK-violation constants for what each case maps).
+func mapUpdateEventWriteError(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pgx.ErrNoRows
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+		switch pgErr.ConstraintName {
+		case eventsEndAfterStartTimeConstraint:
+			return ErrEndTimeBeforeStartTime
+		case eventsEndDateAfterDateConstraint:
+			return ErrMultiDayEndDateBeforeDate
+		case eventsMultiDaySpanWithinLimitConstraint:
+			return ErrMultiDaySpanTooLong
+		}
+	}
+	return fmt.Errorf("events.Repository.UpdateEvent: %w", err)
+}
+
+// replaceEventTeams drops every existing event_teams row for eventID and
+// reinserts {owningTeamID} ∪ crossTeamIDs -- split out of UpdateEvent purely
+// to keep that function's cognitive complexity under the repo's
+// golangci-lint threshold. owningTeamID is parsed from the caller-supplied
+// team ID string (UpdateEvent's own teamID param, verified by
+// writeOrReadSingleEvent to be the event's owning team).
+func replaceEventTeams(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, owningTeamIDStr string, crossTeamIDs []uuid.UUID) error {
+	owningTeamID, err := uuid.Parse(owningTeamIDStr)
+	if err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: parse teamID: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM event_teams WHERE event_id = $1`, eventID); err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: clear event_teams: %w", err)
+	}
+	if err := insertEventTeams(ctx, tx, []uuid.UUID{eventID}, dedupTeamIDs(owningTeamID, crossTeamIDs)); err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: %w", err)
+	}
+	return nil
+}
+
+// replaceEventTeamsForSeries replaces the event_teams rows for every event in
+// seriesID with {owningTeamID} ∪ crossTeamIDs, keeping a whole recurring
+// series' cross-team targets in lockstep with each other -- mirrors
+// replaceEventTeams but applied series-wide instead of to a single event; see
+// applySeriesScopedUpdate for why this is needed.
+func replaceEventTeamsForSeries(ctx context.Context, tx pgx.Tx, seriesID, owningTeamIDStr string, crossTeamIDs []uuid.UUID) error {
+	owningTeamID, err := uuid.Parse(owningTeamIDStr)
+	if err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: parse teamID: %w", err)
+	}
+	rows, err := tx.Query(ctx, `SELECT id FROM events WHERE series_id = $1`, seriesID)
+	if err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: list series events: %w", err)
+	}
+	var eventIDs []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("events.Repository.UpdateEvent: scan series event id: %w", err)
+		}
+		eventIDs = append(eventIDs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: list series events: %w", err)
+	}
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM event_teams WHERE event_id = ANY($1)`, eventIDs); err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: clear series event_teams: %w", err)
+	}
+	if err := insertEventTeams(ctx, tx, eventIDs, dedupTeamIDs(owningTeamID, crossTeamIDs)); err != nil {
+		return fmt.Errorf("events.Repository.UpdateEvent: %w", err)
+	}
+	return nil
+}
+
 // the row back instead of running a no-op UPDATE (see sqlbuilder's package
 // doc for why a SET-clause fallback isn't used here).
 func writeOrReadSingleEvent(ctx context.Context, tx pgx.Tx, eventID, teamID string, params *UpdateEventParams) (*EventRow, error) {
@@ -744,7 +1087,8 @@ func (r *Repository) SetStatus(ctx context.Context, eventID, teamID, status, sco
 
 	if scope == "series" {
 		var seriesID *uuid.UUID
-		err := tx.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID).Scan(&seriesID)
+		seriesQ := fmt.Sprintf(`SELECT series_id FROM events e WHERE e.id = $1 AND %s`, eventScopedByAnyTargetTeam("$2"))
+		err := tx.QueryRow(ctx, seriesQ, eventID, teamID).Scan(&seriesID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("events.Repository.SetStatus: get series_id: %w", err)
 		}
@@ -754,15 +1098,19 @@ func (r *Repository) SetStatus(ctx context.Context, eventID, teamID, status, sco
 			// rewrite team history — e.g. cancelling "the rest of the series"
 			// must not flip completed trainings to cancelled and drop them from
 			// stats. The event addressed by eventID is still updated
-			// individually below regardless of its date.
-			_, err = tx.Exec(ctx, `UPDATE events SET status = $1 WHERE series_id = $2 AND team_id = $3 AND date >= CURRENT_DATE`, status, seriesID, teamID)
+			// individually below regardless of its date. Scoped via
+			// eventScopedByAnyTargetTeam rather than team_id = $3 so a caller
+			// reaching this event through a non-owning targeted team's URL
+			// still cascades across the rest of the (shared) series.
+			seriesUpdateQ := fmt.Sprintf(`UPDATE events e SET status = $1 WHERE e.series_id = $2 AND e.date >= CURRENT_DATE AND %s`, eventScopedByAnyTargetTeam("$3"))
+			_, err = tx.Exec(ctx, seriesUpdateQ, status, seriesID, teamID)
 			if err != nil {
 				return nil, fmt.Errorf("events.Repository.SetStatus: update series: %w", err)
 			}
 		}
 	}
 
-	q := fmt.Sprintf(`UPDATE events SET status = $1 WHERE id = $2 AND team_id = $3 RETURNING %s`, selectEventFields)
+	q := fmt.Sprintf(`UPDATE events e SET status = $1 WHERE e.id = $2 AND %s RETURNING %s`, eventScopedByAnyTargetTeam("$3"), selectEventFields)
 	row := tx.QueryRow(ctx, q, status, eventID, teamID)
 	e, err := scanEventRow(row)
 	if err != nil {
@@ -835,6 +1183,31 @@ const (
 	effectiveStatusExpr = attendance.EffectiveStatusExpr
 )
 
+// eventTeamMembersLateral is a LATERAL join producing one row per distinct
+// user across every team event alias "e" targets (via event_teams, aliased
+// "m" to match absenceCoversExpr/effectiveStatusExpr's expected alias),
+// deduplicated by user_id -- a person in two targeted teams is counted
+// once, matching attendance's own UNIQUE(event_id, user_id). When a user
+// belongs to more than one of the event's targeted teams, the membership
+// matching viewingTeamPlaceholder (the caller's own viewing team) is
+// preferred -- so the absence lookup inside absenceCoversExpr, keyed off
+// m.team_id, resolves against the viewer's own team whenever possible;
+// otherwise an arbitrary one of the targeted teams is picked. For a
+// single-team event (exactly one event_teams row, its owning team -- see
+// migration 00035) this always reduces to exactly that team's membership
+// list, identical to the old "JOIN memberships m ON m.team_id = e.team_id"
+// it replaces across GetAttendanceSummary/GetAttendanceSummaries.
+func eventTeamMembersLateral(viewingTeamPlaceholder string) string {
+	return `
+		JOIN LATERAL (
+			SELECT DISTINCT ON (ms.user_id) ms.user_id, ms.team_id
+			FROM memberships ms
+			JOIN event_teams et ON et.team_id = ms.team_id AND et.event_id = e.id
+			ORDER BY ms.user_id, (ms.team_id = ` + viewingTeamPlaceholder + `) DESC, ms.team_id
+		) m ON true
+	`
+}
+
 // GetAttendanceSummary returns aggregated attendance counts for an event,
 // scoped to teamID. Roster-driven (joined from memberships, not attendance):
 // every current team member is counted exactly once, with opt_out/absence-
@@ -859,9 +1232,9 @@ func (r *Repository) GetAttendanceSummary(ctx context.Context, eventID, teamID s
 		FROM (
 			SELECT ` + effectiveStatusExpr + ` AS eff_status
 			FROM events e
-			JOIN memberships m ON m.team_id = e.team_id
+			` + eventTeamMembersLateral("$2") + `
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = m.user_id
-			WHERE e.id = $1 AND e.team_id = $2
+			WHERE e.id = $1 AND ` + eventScopedByAnyTargetTeam("$2") + `
 		) sub
 	`
 	var s EventSummaryData
@@ -908,17 +1281,23 @@ func (r *Repository) GetMyAttendance(ctx context.Context, eventID, userID, teamI
 func (r *Repository) GetMyEffectiveAttendance(ctx context.Context, eventID, userID, teamID string) (*EffectiveAttendance, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	// ab.team_id = $3 (the viewing team), not e.team_id (the event's owning
+	// team): for a cross-team event viewed through a non-owning targeted
+	// team, the caller's planned absence is recorded against their own
+	// team, not the event's owning team. For a single-team event $3 can
+	// only ever be e.team_id anyway (the WHERE scope below admits no other
+	// value), so this is unchanged behavior there.
 	q := `
 		SELECT a.status, a.reason, a.reason_id, a.reason_visibility, a.at,
 		       EXISTS (
 		           SELECT 1 FROM absences ab
-		           WHERE ab.user_id = $2 AND ab.team_id = e.team_id
+		           WHERE ab.user_id = $2 AND ab.team_id = $3
 		             AND ab.from_date <= COALESCE(e.end_date, e.date) AND ab.to_date >= e.date
 		       ),
 		       e.response_mode
 		FROM events e
 		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = $2
-		WHERE e.id = $1 AND e.team_id = $3
+		WHERE e.id = $1 AND ` + eventScopedByAnyTargetTeam("$3") + `
 	`
 	var status, reason, reasonID, reasonVisibility *string
 	var at *time.Time
@@ -945,9 +1324,12 @@ func (r *Repository) GetMyEffectiveAttendance(ctx context.Context, eventID, user
 // only way to be absent from the map (never a real case, since CreateEvent
 // requires a team to already exist), so callers can otherwise assume every
 // requested eventID is present. Used by ListEvents to avoid issuing one
-// GetAttendanceSummary query per event; all eventIDs in a single call
-// belong to one team, matching ListEvents' own team-scoped query.
-func (r *Repository) GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventSummaryData, error) {
+// GetAttendanceSummary query per event; all eventIDs in a single call are
+// visible to teamID (ListEvents' own team-scoped query already guarantees
+// this), which GetAttendanceSummaries uses only to break ties in
+// eventTeamMembersLateral for a cross-team event's multi-team members --
+// not as an additional visibility filter.
+func (r *Repository) GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID, teamID string) (map[uuid.UUID]EventSummaryData, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out := make(map[uuid.UUID]EventSummaryData, len(eventIDs))
@@ -967,13 +1349,13 @@ func (r *Repository) GetAttendanceSummaries(ctx context.Context, eventIDs []uuid
 		FROM (
 			SELECT e.id, ` + effectiveStatusExpr + ` AS eff_status
 			FROM events e
-			JOIN memberships m ON m.team_id = e.team_id
+			` + eventTeamMembersLateral("$2") + `
 			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = m.user_id
 			WHERE e.id = ANY($1)
 		) sub
 		GROUP BY id
 	`
-	rows, err := r.pool.Query(ctx, q, eventIDs)
+	rows, err := r.pool.Query(ctx, q, eventIDs, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.GetAttendanceSummaries: %w", err)
 	}
@@ -1034,18 +1416,22 @@ func (r *Repository) GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID,
 // query per event. Every eventID present in the DB is present in the
 // result map (defaulted if the user has no explicit record); an eventID
 // absent from the map means it doesn't exist.
-func (r *Repository) GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]EffectiveAttendance, error) {
+func (r *Repository) GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID, teamID string) (map[uuid.UUID]EffectiveAttendance, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out := make(map[uuid.UUID]EffectiveAttendance, len(eventIDs))
 	if len(eventIDs) == 0 {
 		return out, nil
 	}
+	// ab.team_id = $3 (the viewing team), not e.team_id (the event's owning
+	// team) -- mirrors GetMyEffectiveAttendance's identical reasoning: for a
+	// cross-team event viewed through a non-owning targeted team, the
+	// caller's planned absence is recorded against their own team.
 	q := `
 		SELECT e.id, a.status, a.reason, a.reason_id, a.reason_visibility, a.at,
 		       EXISTS (
 		           SELECT 1 FROM absences ab
-		           WHERE ab.user_id = $2 AND ab.team_id = e.team_id
+		           WHERE ab.user_id = $2 AND ab.team_id = $3
 		             AND ab.from_date <= COALESCE(e.end_date, e.date) AND ab.to_date >= e.date
 		       ),
 		       e.response_mode
@@ -1053,7 +1439,7 @@ func (r *Repository) GetMyEffectiveAttendances(ctx context.Context, eventIDs []u
 		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = $2
 		WHERE e.id = ANY($1)
 	`
-	rows, err := r.pool.Query(ctx, q, eventIDs, userID)
+	rows, err := r.pool.Query(ctx, q, eventIDs, userID, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.GetMyEffectiveAttendances: %w", err)
 	}
@@ -1095,28 +1481,50 @@ const maxAttendanceRows = 5000
 func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	// Roster-driven off event_teams rather than a single team_id: for a
+	// cross-team event this is the union of every targeted team's
+	// membership list, deduplicated by user_id via DISTINCT ON (a person in
+	// two targeted teams appears once, matching attendance's own
+	// UNIQUE(event_id, user_id)) -- for a single-team event (exactly one
+	// event_teams row, its owning team) this reduces to exactly the old
+	// "JOIN memberships m ON m.team_id = e.team_id" roster, unchanged. When
+	// a user has more than one targeted-team membership, the one matching
+	// teamID ($2, the viewer's own team) is preferred as the "identity" row
+	// (group/title/membershipId/absence lookup) whenever it exists; the
+	// outer query still orders the final roster by name, independent of
+	// that tie-break. The final tie-break element is m.team_id, not m.id --
+	// it must match eventTeamMembersLateral's identical (ms.team_id = ...)
+	// DESC, ms.team_id tie-break used by GetAttendanceSummary(ies), or the
+	// two queries can pick a different "identity" membership (and thus a
+	// different absence lookup) for the same multi-non-viewing-team user,
+	// making this roster's per-row status disagree with that summary's
+	// header counts for the very same person on the very same screen.
 	q := `
-		SELECT
-			m.id,
-			m.user_id,
-			m."group",
-			m.title,
-			u.name,
-			u.avatar_color,
-			(u.photo_object_key IS NOT NULL) AS has_photo,
-			a.status,
-			a.reason,
-			a.reason_id,
-			a.reason_visibility,
-			a.at,
-			` + absenceCoversExpr + `,
-			e.response_mode
-		FROM events e
-		JOIN memberships m ON m.team_id = e.team_id
-		JOIN users u ON u.id = m.user_id
-		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = m.user_id
-		WHERE e.id = $1 AND e.team_id = $2
-		ORDER BY u.name ASC
+		SELECT * FROM (
+			SELECT DISTINCT ON (m.user_id)
+				m.id,
+				m.user_id,
+				m."group",
+				m.title,
+				u.name,
+				u.avatar_color,
+				(u.photo_object_key IS NOT NULL) AS has_photo,
+				a.status,
+				a.reason,
+				a.reason_id,
+				a.reason_visibility,
+				a.at,
+				` + absenceCoversExpr + `,
+				e.response_mode
+			FROM events e
+			JOIN event_teams et ON et.event_id = e.id
+			JOIN memberships m ON m.team_id = et.team_id
+			JOIN users u ON u.id = m.user_id
+			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = m.user_id
+			WHERE e.id = $1 AND ` + eventScopedByAnyTargetTeam("$2") + `
+			ORDER BY m.user_id, (m.team_id = $2) DESC, m.team_id
+		) roster
+		ORDER BY name ASC
 		LIMIT $3
 	`
 	rows, err := r.pool.Query(ctx, q, eventID, teamID, maxAttendanceRows)
@@ -1302,7 +1710,7 @@ func (r *Repository) SetAttendance(ctx context.Context, eventID, callerID, userI
 		FROM caller_write
 		WHERE EXISTS (
 		        SELECT 1 FROM events e
-		        WHERE e.id = $1 AND e.team_id = $7 AND e.status != 'cancelled'
+		        WHERE e.id = $1 AND ` + eventScopedByAnyTargetTeam("$7") + `AND e.status != 'cancelled'
 		          AND (
 		                e.cancel_lead_minutes IS NULL
 		                OR now() <= (
@@ -1364,7 +1772,7 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, callerID, userI
 		q := `
 			INSERT INTO attendance (event_id, user_id, status, at)
 			SELECT $1, $2, 'not_nominated', now()
-			WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $3)
+			WHERE EXISTS (SELECT 1 FROM events e WHERE e.id = $1 AND ` + eventScopedByAnyTargetTeam("$3") + `)
 			  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $3 AND user_id = $2)
 			  AND EXISTS (
 			        SELECT 1 FROM roles r
@@ -1393,7 +1801,7 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, callerID, userI
 		ctx,
 		`DELETE FROM attendance a USING events e
 		 WHERE a.event_id = e.id AND a.event_id = $1 AND a.user_id = $2
-		   AND a.status = 'not_nominated' AND e.team_id = $3
+		   AND a.status = 'not_nominated' AND `+eventScopedByAnyTargetTeam("$3")+`
 		   AND EXISTS (
 		         SELECT 1 FROM roles r
 		         JOIN membership_roles mr ON mr.role_id = r.id
@@ -1415,7 +1823,7 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, callerID, userI
 		var eventInTeam, callerHasWrite bool
 		if err := r.pool.QueryRow(ctx, `
 			SELECT
-			    EXISTS(SELECT 1 FROM events WHERE id = $1 AND team_id = $2),
+			    EXISTS(SELECT 1 FROM events e WHERE e.id = $1 AND `+eventScopedByAnyTargetTeam("$2")+`),
 			    EXISTS(
 			        SELECT 1 FROM roles r
 			        JOIN membership_roles mr ON mr.role_id = r.id
@@ -1453,7 +1861,7 @@ func (r *Repository) CountComments(ctx context.Context, eventID, teamID string) 
 	err := r.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM event_comments c
 		JOIN events e ON e.id = c.event_id
-		WHERE c.event_id = $1 AND e.team_id = $2
+		WHERE c.event_id = $1 AND `+eventScopedByAnyTargetTeam("$2")+`
 	`, eventID, teamID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("events.Repository.CountComments: %w", err)
@@ -1488,6 +1896,12 @@ func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, l
 		curID = cur.ID
 	}
 
+	// author_membership_id is deliberately joined against $2 (the viewing
+	// team), not the event's owning team: it must only resolve to a
+	// membership the viewer's own team can navigate to a profile for, never
+	// a foreign commenter's membership in some other targeted team (see
+	// design.md's "no profile access" rule, applied here too even though
+	// comments themselves aren't a display-rule-badged view).
 	q := `
 		SELECT
 			c.id, c.event_id, c.user_id, c.text, c.created_at,
@@ -1498,8 +1912,8 @@ func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, l
 		FROM event_comments c
 		JOIN users u ON u.id = c.user_id
 		JOIN events e ON e.id = c.event_id
-		LEFT JOIN memberships m ON m.user_id = c.user_id AND m.team_id = e.team_id
-		WHERE c.event_id = $1 AND e.team_id = $2
+		LEFT JOIN memberships m ON m.user_id = c.user_id AND m.team_id = $2
+		WHERE c.event_id = $1 AND ` + eventScopedByAnyTargetTeam("$2") + `
 		  AND ($3::boolean IS FALSE
 		       OR (c.created_at, c.id) > ($4::timestamptz, $5::uuid))
 		ORDER BY c.created_at ASC, c.id ASC
@@ -1546,7 +1960,7 @@ func (r *Repository) AddComment(ctx context.Context, eventID, userID, teamID, te
 		WITH inserted AS (
 			INSERT INTO event_comments (event_id, user_id, text)
 			SELECT $1, $2, $3
-			WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $4)
+			WHERE EXISTS (SELECT 1 FROM events e WHERE e.id = $1 AND ` + eventScopedByAnyTargetTeam("$4") + `)
 			  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $4 AND user_id = $2)
 			RETURNING id, event_id, user_id, text, created_at
 		)
@@ -1583,7 +1997,7 @@ func (r *Repository) DeleteComment(ctx context.Context, commentID, userID, teamI
 	tag, err := r.pool.Exec(
 		ctx,
 		`DELETE FROM event_comments c USING events e
-		 WHERE c.event_id = e.id AND c.id = $1 AND c.user_id = $2 AND e.team_id = $3`,
+		 WHERE c.event_id = e.id AND c.id = $1 AND c.user_id = $2 AND `+eventScopedByAnyTargetTeam("$3"),
 		commentID, userID, teamID,
 	)
 	if err != nil {

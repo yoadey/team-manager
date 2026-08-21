@@ -196,6 +196,76 @@ func TestEventHandler_CreateEvent_RejectsTooManyNominatedRoleIds(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEventHandler_CreateEvent_RejectsTooManyCrossTeamIds(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{}, slog.Default())
+
+	crossTeamIds := make([]uuid.UUID, 201)
+	for i := range crossTeamIds {
+		crossTeamIds[i] = uuid.New()
+	}
+	body := &gen.CreateEventJSONRequestBody{
+		Type:         gen.Training,
+		Title:        "Practice",
+		Date:         openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+		CrossTeamIds: &crossTeamIds,
+	}
+	_, err := h.CreateEvent(ctxWithUser(), gen.CreateEventRequestObject{TeamId: uuid.New(), Body: body})
+	require.Error(t, err)
+}
+
+// TestEventHandler_CreateEvent_CrossTeamWriteForbidden_Maps403 covers the
+// handler's mapping of events.ErrCrossTeamWriteForbidden (caller lacks
+// events:write in one or more targeted teams) to a 403 response.
+func TestEventHandler_CreateEvent_CrossTeamWriteForbidden_Maps403(t *testing.T) {
+	t.Parallel()
+	svc := &mockEventService{
+		createEvent: func(context.Context, string, string, *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error) {
+			return nil, events.ErrCrossTeamWriteForbidden
+		},
+	}
+	h := events.NewHandler(svc, slog.Default())
+
+	crossTeamIds := []uuid.UUID{uuid.New()}
+	body := &gen.CreateEventJSONRequestBody{
+		Type:         gen.Training,
+		Title:        "Joint Practice",
+		Date:         openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+		CrossTeamIds: &crossTeamIds,
+	}
+	_, err := h.CreateEvent(ctxWithUser(), gen.CreateEventRequestObject{TeamId: uuid.New(), Body: body})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
+// TestEventHandler_CreateEvent_InvalidCrossTeamIds_Maps400 covers the
+// handler's mapping of events.ErrInvalidCrossTeamIds (an unknown/nonexistent
+// team id) to a 400 response, not a misleading 403.
+func TestEventHandler_CreateEvent_InvalidCrossTeamIds_Maps400(t *testing.T) {
+	t.Parallel()
+	svc := &mockEventService{
+		createEvent: func(context.Context, string, string, *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error) {
+			return nil, events.ErrInvalidCrossTeamIds
+		},
+	}
+	h := events.NewHandler(svc, slog.Default())
+
+	crossTeamIds := []uuid.UUID{uuid.New()}
+	body := &gen.CreateEventJSONRequestBody{
+		Type:         gen.Training,
+		Title:        "Joint Practice",
+		Date:         openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+		CrossTeamIds: &crossTeamIds,
+	}
+	_, err := h.CreateEvent(ctxWithUser(), gen.CreateEventRequestObject{TeamId: uuid.New(), Body: body})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+}
+
 func TestEventHandler_UpdateEvent_RejectsTooManyNominatedRoleIds(t *testing.T) {
 	t.Parallel()
 	h := events.NewHandler(&mockEventService{}, slog.Default())

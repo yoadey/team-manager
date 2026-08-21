@@ -142,6 +142,11 @@ type EventSeries struct {
 	ExcludeFromStats  bool
 }
 
+type EventTeam struct {
+	EventID uuid.UUID
+	TeamID  uuid.UUID
+}
+
 type Invite struct {
 	ID        uuid.UUID
 	TeamID    uuid.UUID

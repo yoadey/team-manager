@@ -586,6 +586,8 @@ export const realApi = {
         /** Minutes before the event's start. */
         cancelLeadMinutes?: number | undefined;
         excludeFromStats?: boolean | undefined;
+        /** Additional team ids (besides teamId, the owning team) to target. Empty/absent creates a normal single-team event. */
+        crossTeamIds?: string[] | undefined;
       },
     ): Promise<TeamEvent> {
       const res = await apiClient.POST('/teams/{teamId}/events', {
@@ -607,6 +609,7 @@ export const realApi = {
           ...opt('repeatWeeks', payload.repeatWeeks),
           ...opt('endDate', payload.endDate),
           ...opt('cancelLeadMinutes', payload.cancelLeadMinutes),
+          ...opt('crossTeamIds', payload.crossTeamIds),
           excludeFromStats: payload.excludeFromStats ?? false,
         },
       });
@@ -646,6 +649,8 @@ export const realApi = {
         /** Minutes before the event's start. */
         cancelLeadMinutes?: number | undefined;
         excludeFromStats?: boolean | undefined;
+        /** When present, replaces the full set of additional target teams (empty array un-shares back to single-team); absent leaves the current target set unchanged. */
+        crossTeamIds?: string[] | undefined;
       },
       scope: 'single' | 'series',
       teamId: string,
@@ -671,6 +676,7 @@ export const realApi = {
           ...opt('nominatedRoleIds', patch.nominatedRoleIds),
           ...opt('cancelLeadMinutes', patch.cancelLeadMinutes),
           ...opt('excludeFromStats', patch.excludeFromStats),
+          ...opt('crossTeamIds', patch.crossTeamIds),
         },
       });
       const e = await check(res);

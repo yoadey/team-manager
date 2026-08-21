@@ -32,10 +32,10 @@ type mockSvcRepo struct {
 	deleteEventFn               func(ctx context.Context, eventID, teamID, scope string) error
 	getAttendanceSummaryFn      func(ctx context.Context, eventID, teamID string) (events.EventSummaryData, error)
 	getMyAttendanceFn           func(ctx context.Context, eventID, userID, teamID string) (*events.AttendanceDBRow, error)
-	getAttendanceSummariesFn    func(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]events.EventSummaryData, error)
+	getAttendanceSummariesFn    func(ctx context.Context, eventIDs []uuid.UUID, teamID string) (map[uuid.UUID]events.EventSummaryData, error)
 	getMyAttendancesFn          func(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.AttendanceDBRow, error)
 	getMyEffectiveAttendanceFn  func(ctx context.Context, eventID, userID, teamID string) (*events.EffectiveAttendance, error)
-	getMyEffectiveAttendancesFn func(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.EffectiveAttendance, error)
+	getMyEffectiveAttendancesFn func(ctx context.Context, eventIDs []uuid.UUID, userID, teamID string) (map[uuid.UUID]events.EffectiveAttendance, error)
 	listAttendanceFn            func(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error)
 	getReasonVisibilityCtxFn    func(ctx context.Context, teamID, viewerID string) ([]string, []string, error)
 	setAttendanceFn             func(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
@@ -44,6 +44,38 @@ type mockSvcRepo struct {
 	countCommentsFn             func(ctx context.Context, eventID, teamID string) (int, error)
 	addCommentFn                func(ctx context.Context, eventID, userID, teamID, text string) (*events.CommentRow, error)
 	deleteCommentFn             func(ctx context.Context, commentID, userID, teamID string) error
+	teamsExistFn                func(ctx context.Context, teamIDs []uuid.UUID) (bool, error)
+	getEventTeamsFn             func(ctx context.Context, eventID string) ([]events.EventTeamRow, error)
+	listEventTeamsBatchFn       func(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID][]events.EventTeamRow, error)
+	listEventMemberTeamsFn      func(ctx context.Context, eventID string) (map[uuid.UUID][]events.EventTeamRow, error)
+}
+
+func (m *mockSvcRepo) TeamsExist(ctx context.Context, teamIDs []uuid.UUID) (bool, error) {
+	if m.teamsExistFn != nil {
+		return m.teamsExistFn(ctx, teamIDs)
+	}
+	return true, nil
+}
+
+func (m *mockSvcRepo) GetEventTeams(ctx context.Context, eventID string) ([]events.EventTeamRow, error) {
+	if m.getEventTeamsFn != nil {
+		return m.getEventTeamsFn(ctx, eventID)
+	}
+	return nil, nil
+}
+
+func (m *mockSvcRepo) ListEventTeamsBatch(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID][]events.EventTeamRow, error) {
+	if m.listEventTeamsBatchFn != nil {
+		return m.listEventTeamsBatchFn(ctx, eventIDs)
+	}
+	return map[uuid.UUID][]events.EventTeamRow{}, nil
+}
+
+func (m *mockSvcRepo) ListEventMemberTeams(ctx context.Context, eventID string) (map[uuid.UUID][]events.EventTeamRow, error) {
+	if m.listEventMemberTeamsFn != nil {
+		return m.listEventMemberTeamsFn(ctx, eventID)
+	}
+	return map[uuid.UUID][]events.EventTeamRow{}, nil
 }
 
 func (m *mockSvcRepo) ListEvents(ctx context.Context, teamID string, scope gen.ListEventsParamsScope, limit int, cur *events.ListCursor) ([]events.EventRow, error) {
@@ -82,9 +114,9 @@ func (m *mockSvcRepo) GetMyAttendance(ctx context.Context, eventID, userID, team
 	return m.getMyAttendanceFn(ctx, eventID, userID, teamID)
 }
 
-func (m *mockSvcRepo) GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]events.EventSummaryData, error) {
+func (m *mockSvcRepo) GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID, teamID string) (map[uuid.UUID]events.EventSummaryData, error) {
 	if m.getAttendanceSummariesFn != nil {
-		return m.getAttendanceSummariesFn(ctx, eventIDs)
+		return m.getAttendanceSummariesFn(ctx, eventIDs, teamID)
 	}
 	return map[uuid.UUID]events.EventSummaryData{}, nil
 }
@@ -103,9 +135,9 @@ func (m *mockSvcRepo) GetMyEffectiveAttendance(ctx context.Context, eventID, use
 	return &events.EffectiveAttendance{Status: "pending"}, nil
 }
 
-func (m *mockSvcRepo) GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.EffectiveAttendance, error) {
+func (m *mockSvcRepo) GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID, teamID string) (map[uuid.UUID]events.EffectiveAttendance, error) {
 	if m.getMyEffectiveAttendancesFn != nil {
-		return m.getMyEffectiveAttendancesFn(ctx, eventIDs, userID)
+		return m.getMyEffectiveAttendancesFn(ctx, eventIDs, userID, teamID)
 	}
 	return map[uuid.UUID]events.EffectiveAttendance{}, nil
 }
@@ -287,7 +319,7 @@ func TestEventService_GetEvent_And_ListEvents_PopulateMyAutoFromEffectiveAttenda
 		listEventsFn: func(_ context.Context, _ string, _ gen.ListEventsParamsScope, _ int, _ *events.ListCursor) ([]events.EventRow, error) {
 			return []events.EventRow{row}, nil
 		},
-		getMyEffectiveAttendancesFn: func(_ context.Context, eventIDs []uuid.UUID, _ string) (map[uuid.UUID]events.EffectiveAttendance, error) {
+		getMyEffectiveAttendancesFn: func(_ context.Context, eventIDs []uuid.UUID, _, _ string) (map[uuid.UUID]events.EffectiveAttendance, error) {
 			return map[uuid.UUID]events.EffectiveAttendance{
 				row.Id: {Status: "yes", Auto: true},
 			}, nil
@@ -396,6 +428,52 @@ func TestEventService_CreateEvent_EnrichmentFailureDoesNotFailAlreadyCommittedWr
 	require.NotNil(t, result)
 	assert.Equal(t, row.Id, result.Id)
 	assert.Equal(t, 0, result.Summary.Total, "falls back to a zero-value summary rather than propagating the enrichment error")
+}
+
+// Regression test: the fallback path above must still report crossTeamIds
+// correctly, via its own independent GetEventTeams call, even though
+// enrichEvent itself failed on a DIFFERENT query (GetAttendanceSummary
+// here). Unlike the zero-value summary above, misreporting a just-created
+// cross-team event as single-team in this one response is worth a separate
+// best-effort refetch rather than silently accepting the loss.
+func TestEventService_CreateEvent_EnrichmentFailureStillReportsCrossTeamIds(t *testing.T) {
+	t.Parallel()
+
+	owningTeamID := uuid.MustParse(testTeamID)
+	otherTeamID := uuid.New()
+	row := svcMakeEventRow("Joint Training")
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, _ string, _ *events.CreateEventParams) (*events.EventRow, error) {
+			return &row, nil
+		},
+		getAttendanceSummaryFn: func(_ context.Context, _, _ string) (events.EventSummaryData, error) {
+			return events.EventSummaryData{}, errors.New("transient deadline exceeded")
+		},
+		getMyAttendanceFn: nilMyAttendanceFn,
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{
+				{TeamID: owningTeamID, TeamName: "Owning"},
+				{TeamID: otherTeamID, TeamName: "Other"},
+			}, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermCheckerPerTeam{
+		perms: map[uuid.UUID]teams.PermissionsJSON{
+			otherTeamID: {Events: "write"},
+		},
+	}, slog.Default())
+	body := &gen.CreateEventRequest{
+		Type:         gen.Training,
+		Title:        "Joint Training",
+		Date:         openapi_types.Date{Time: time.Now().UTC()},
+		CrossTeamIds: &[]uuid.UUID{otherTeamID},
+	}
+	result, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.CrossTeamIds, "crossTeamIds must still be populated in the fallback result")
+	assert.Equal(t, []openapi_types.UUID{otherTeamID}, *result.CrossTeamIds)
 }
 
 // Regression test: UpdateEventJSONRequestBody.NominatedRoleIds is a
@@ -702,6 +780,17 @@ func (m *mockPermChecker) GetPermissions(_ context.Context, _, _ uuid.UUID) (tea
 	return m.perms, m.err
 }
 
+func (m *mockPermChecker) GetPermissionsForTeams(_ context.Context, teamIDs []uuid.UUID, _ uuid.UUID) (map[uuid.UUID]teams.PermissionsJSON, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	out := make(map[uuid.UUID]teams.PermissionsJSON, len(teamIDs))
+	for _, id := range teamIDs {
+		out[id] = m.perms
+	}
+	return out, nil
+}
+
 func TestEventService_SetAttendance_ForOtherMember_RequiresEventsWrite(t *testing.T) {
 	t.Parallel()
 
@@ -752,17 +841,20 @@ func TestEventService_SetAttendance_ForOtherMember_AllowedWithEventsWrite(t *tes
 }
 
 // mockJobEnqueuer satisfies jobEnqueuer for tests exercising the
-// best-effort attendance-notification enqueue path, recording the args of
-// the last call it received.
+// best-effort notification enqueue path, recording every call it received
+// (allCalls) as well as the last one (lastArgs/calledN, kept for existing
+// single-notification tests).
 type mockJobEnqueuer struct {
 	err      error
 	lastArgs *jobs.NotificationArgs
 	calledN  int
+	allCalls []jobs.NotificationArgs
 }
 
 func (m *mockJobEnqueuer) EnqueueNotification(_ context.Context, args jobs.NotificationArgs) error {
 	m.calledN++
 	m.lastArgs = &args
+	m.allCalls = append(m.allCalls, args)
 	return m.err
 }
 
@@ -1579,4 +1671,489 @@ func TestEventService_UpdateEvent_PassesExcludeFromStatsToRepository(t *testing.
 	require.NotNil(t, capturedExclude, "UpdateEvent must forward body.ExcludeFromStats to the repository params")
 	assert.True(t, *capturedExclude)
 	assert.True(t, ev.ExcludeFromStats)
+}
+
+// ─── cross-team events ──────────────────────────────────────────────────────
+
+// mockPermCheckerPerTeam returns a different permission level per team ID --
+// unlike mockPermChecker (a single fixed value for every team), needed to
+// exercise "write in team A but not team B" scenarios.
+type mockPermCheckerPerTeam struct {
+	perms map[uuid.UUID]teams.PermissionsJSON
+}
+
+func (m *mockPermCheckerPerTeam) GetPermissions(_ context.Context, teamID, _ uuid.UUID) (teams.PermissionsJSON, error) {
+	if p, ok := m.perms[teamID]; ok {
+		return p, nil
+	}
+	return teams.PermissionsJSON{}, nil
+}
+
+func (m *mockPermCheckerPerTeam) GetPermissionsForTeams(_ context.Context, teamIDs []uuid.UUID, _ uuid.UUID) (map[uuid.UUID]teams.PermissionsJSON, error) {
+	out := make(map[uuid.UUID]teams.PermissionsJSON, len(teamIDs))
+	for _, id := range teamIDs {
+		if p, ok := m.perms[id]; ok {
+			out[id] = p
+		}
+	}
+	return out, nil
+}
+
+// TestEventService_CreateEvent_CrossTeam_RequiresWriteInAllTargets covers
+// spec.md's "Missing permission in one target" scenario: the URL's own
+// {teamId} is never re-checked here (RequirePermission middleware already
+// validated it before the handler ran), but every id in crossTeamIds must
+// still have events:write, checked directly against the mocked permission
+// checker.
+func TestEventService_CreateEvent_CrossTeam_RequiresWriteInAllTargets(t *testing.T) {
+	t.Parallel()
+
+	teamB := uuid.New()
+	repo := &mockSvcRepo{
+		createEventFn: func(context.Context, string, *events.CreateEventParams) (*events.EventRow, error) {
+			t.Fatal("repository must not be called when caller lacks events:write in one targeted team")
+			return nil, nil
+		},
+	}
+	svc := events.NewService(repo, nil, nil, nil, &mockPermCheckerPerTeam{
+		perms: map[uuid.UUID]teams.PermissionsJSON{
+			teamB: {Events: "read"},
+		},
+	}, slog.Default())
+
+	crossTeamIds := []openapi_types.UUID{teamB}
+	body := &gen.CreateEventRequest{
+		Type:         gen.Training,
+		Title:        "Joint Training",
+		Date:         openapi_types.Date{Time: time.Now().UTC()},
+		CrossTeamIds: &crossTeamIds,
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.ErrorIs(t, err, events.ErrCrossTeamWriteForbidden)
+}
+
+// TestEventService_CreateEvent_CrossTeam_AllowedWithWriteInAllTargets covers
+// spec.md's "Permission in all targets" scenario.
+func TestEventService_CreateEvent_CrossTeam_AllowedWithWriteInAllTargets(t *testing.T) {
+	t.Parallel()
+
+	teamB := uuid.New()
+	row := svcMakeEventRow("Joint Training")
+	createCalled := false
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, teamID string, params *events.CreateEventParams) (*events.EventRow, error) {
+			createCalled = true
+			assert.Equal(t, testTeamID, teamID)
+			require.Len(t, params.CrossTeamIds, 1)
+			assert.Equal(t, teamB, params.CrossTeamIds[0])
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{
+				{TeamID: row.TeamId, TeamName: "Owning Team"},
+				{TeamID: teamB, TeamName: "Team B"},
+			}, nil
+		},
+	}
+	svc := events.NewService(repo, nil, nil, nil, &mockPermCheckerPerTeam{
+		perms: map[uuid.UUID]teams.PermissionsJSON{
+			teamB: {Events: "write"},
+		},
+	}, slog.Default())
+
+	crossTeamIds := []openapi_types.UUID{teamB}
+	body := &gen.CreateEventRequest{
+		Type:         gen.Training,
+		Title:        "Joint Training",
+		Date:         openapi_types.Date{Time: time.Now().UTC()},
+		CrossTeamIds: &crossTeamIds,
+	}
+
+	result, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.NoError(t, err)
+	assert.True(t, createCalled)
+	require.NotNil(t, result.CrossTeamIds)
+	assert.ElementsMatch(t, []openapi_types.UUID{teamB}, *result.CrossTeamIds)
+}
+
+// TestEventService_CreateEvent_CrossTeam_NotifiesEveryTargetedTeam
+// regression-tests the gap where CreateEvent only ever enqueued the
+// "event_created" notification for the owning team, so a cross-team event's
+// other targeted teams never saw it in their own activity feed even though
+// they can see and RSVP to the event itself.
+func TestEventService_CreateEvent_CrossTeam_NotifiesEveryTargetedTeam(t *testing.T) {
+	t.Parallel()
+
+	teamB := uuid.New()
+	row := svcMakeEventRow("Joint Training")
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, _ string, _ *events.CreateEventParams) (*events.EventRow, error) {
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{
+				{TeamID: row.TeamId, TeamName: "Owning Team"},
+				{TeamID: teamB, TeamName: "Team B"},
+			}, nil
+		},
+	}
+	enq := &mockJobEnqueuer{}
+	svc := events.NewService(repo, enq, nil, nil, &mockPermCheckerPerTeam{
+		perms: map[uuid.UUID]teams.PermissionsJSON{
+			teamB: {Events: "write"},
+		},
+	}, slog.Default())
+
+	crossTeamIds := []openapi_types.UUID{teamB}
+	body := &gen.CreateEventRequest{
+		Type:         gen.Training,
+		Title:        "Joint Training",
+		Date:         openapi_types.Date{Time: time.Now().UTC()},
+		CrossTeamIds: &crossTeamIds,
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.NoError(t, err)
+
+	require.Len(t, enq.allCalls, 2, "must notify both the owning team and every crossTeamIds target")
+	notifiedTeams := make([]uuid.UUID, 0, len(enq.allCalls))
+	for _, call := range enq.allCalls {
+		assert.Equal(t, "event_created", call.Type)
+		notifiedTeams = append(notifiedTeams, call.TeamID)
+	}
+	assert.ElementsMatch(t, []uuid.UUID{row.TeamId, teamB}, notifiedTeams)
+}
+
+// TestEventService_SetStatus_Cancel_CrossTeam_NotifiesEveryTargetedTeam
+// mirrors TestEventService_CreateEvent_CrossTeam_NotifiesEveryTargetedTeam
+// for cancellation: SetStatus is itself deliberately reachable from any
+// targeted team's own URL (not just the owning team's), so the
+// "event_cancelled" notification must fan out the same way.
+func TestEventService_SetStatus_Cancel_CrossTeam_NotifiesEveryTargetedTeam(t *testing.T) {
+	t.Parallel()
+
+	teamB := uuid.New()
+	row := svcMakeEventRow("Joint Training")
+	row.Status = "cancelled"
+	repo := &mockSvcRepo{
+		setStatusFn: func(context.Context, string, string, string, string) (*events.EventRow, error) {
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{
+				{TeamID: row.TeamId, TeamName: "Owning Team"},
+				{TeamID: teamB, TeamName: "Team B"},
+			}, nil
+		},
+	}
+	enq := &mockJobEnqueuer{}
+	svc := events.NewService(repo, enq, nil, nil, nil, slog.Default())
+
+	_, err := svc.SetStatus(context.Background(), testUserID, row.Id.String(), teamB.String(), "cancelled", "single")
+	require.NoError(t, err)
+
+	require.Len(t, enq.allCalls, 2, "must notify both the owning team and every other targeted team")
+	notifiedTeams := make([]uuid.UUID, 0, len(enq.allCalls))
+	for _, call := range enq.allCalls {
+		assert.Equal(t, "event_cancelled", call.Type)
+		notifiedTeams = append(notifiedTeams, call.TeamID)
+	}
+	assert.ElementsMatch(t, []uuid.UUID{row.TeamId, teamB}, notifiedTeams)
+}
+
+// TestEventService_CreateEvent_CrossTeam_RejectsUnknownTeamID covers the
+// existence-check half of crossTeamIds validation (ErrInvalidCrossTeamIds),
+// which must be surfaced as 400 without ever reaching the permission check.
+func TestEventService_CreateEvent_CrossTeam_RejectsUnknownTeamID(t *testing.T) {
+	t.Parallel()
+
+	bogusTeam := uuid.New()
+	repo := &mockSvcRepo{
+		teamsExistFn: func(_ context.Context, teamIDs []uuid.UUID) (bool, error) {
+			assert.Equal(t, []uuid.UUID{bogusTeam}, teamIDs)
+			return false, nil
+		},
+		createEventFn: func(context.Context, string, *events.CreateEventParams) (*events.EventRow, error) {
+			t.Fatal("repository must not be called when crossTeamIds contains an unknown team")
+			return nil, nil
+		},
+	}
+	// A permChecker that would grant write for any team, to prove the
+	// existence check is what rejects this request, not the permission one.
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "write"}}, slog.Default())
+
+	crossTeamIds := []openapi_types.UUID{bogusTeam}
+	body := &gen.CreateEventRequest{
+		Type:         gen.Training,
+		Title:        "Joint Training",
+		Date:         openapi_types.Date{Time: time.Now().UTC()},
+		CrossTeamIds: &crossTeamIds,
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.ErrorIs(t, err, events.ErrInvalidCrossTeamIds)
+}
+
+// TestEventService_UpdateEvent_CrossTeam_RequiresWriteInFullSet covers
+// UpdateEvent's identical all-targets-write requirement when crossTeamIds
+// is present in the patch.
+func TestEventService_UpdateEvent_CrossTeam_RequiresWriteInFullSet(t *testing.T) {
+	t.Parallel()
+
+	teamB := uuid.New()
+	repo := &mockSvcRepo{
+		updateEventFn: func(context.Context, string, string, *events.UpdateEventParams, string) (*events.EventRow, error) {
+			t.Fatal("repository must not be called when caller lacks events:write in one new targeted team")
+			return nil, nil
+		},
+	}
+	svc := events.NewService(repo, nil, nil, nil, &mockPermCheckerPerTeam{
+		perms: map[uuid.UUID]teams.PermissionsJSON{
+			teamB: {Events: "none"},
+		},
+	}, slog.Default())
+
+	crossTeamIds := []openapi_types.UUID{teamB}
+	body := &gen.UpdateEventJSONRequestBody{CrossTeamIds: &crossTeamIds}
+
+	_, err := svc.UpdateEvent(context.Background(), testTeamID, testUserID, uuid.New().String(), "single", body)
+	require.ErrorIs(t, err, events.ErrCrossTeamWriteForbidden)
+}
+
+// TestEventService_UpdateEvent_CrossTeam_EmptyArrayUnshares covers
+// design.md's "an explicit empty array un-shares the event back to
+// single-team" -- an empty (non-nil) crossTeamIds must not trigger the
+// per-team write check (there is nothing to check write against) and must
+// still reach the repository.
+func TestEventService_UpdateEvent_CrossTeam_EmptyArrayUnshares(t *testing.T) {
+	t.Parallel()
+
+	var captured []uuid.UUID
+	repo := &mockSvcRepo{
+		updateEventFn: func(_ context.Context, _, _ string, params *events.UpdateEventParams, _ string) (*events.EventRow, error) {
+			captured = params.CrossTeamIds
+			row := svcMakeEventRow("Training")
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+	}
+	// No permChecker configured at all -- must not be consulted, since
+	// there's nothing in the (empty) crossTeamIds to check write against.
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+
+	emptyIds := []openapi_types.UUID{}
+	body := &gen.UpdateEventJSONRequestBody{CrossTeamIds: &emptyIds}
+
+	_, err := svc.UpdateEvent(context.Background(), testTeamID, testUserID, uuid.New().String(), "single", body)
+	require.NoError(t, err)
+	assert.NotNil(t, captured, "an explicit empty crossTeamIds must reach the repository as a non-nil empty slice")
+	assert.Empty(t, captured)
+}
+
+// TestEventService_ListAttendance_TeamBadge covers spec.md's "Team badge
+// follows the viewer's own team, then alphabetical order": an attendee who
+// shares the viewer's own team gets no badge and keeps every field; an
+// attendee who only belongs to other targeted teams gets the
+// alphabetically-first team name as a badge, with every profile-identifying
+// or free-text field stripped.
+func TestEventService_ListAttendance_TeamBadge(t *testing.T) {
+	t.Parallel()
+
+	viewerTeam := uuid.MustParse(testTeamID)
+	teamAlpha := uuid.New()
+	teamBravo := uuid.New()
+
+	ownTeamUser := uuid.New()
+	foreignUser := uuid.New()
+
+	ownMembershipID := uuid.New()
+	foreignMembershipID := uuid.New()
+	group := "U16"
+	title := "Captain"
+	reason := "running late"
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(context.Context, string, string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{
+					UserId:       ownTeamUser,
+					MembershipId: ownMembershipID,
+					Name:         "Own Team Member",
+					AvatarColor:  "#111111",
+					Status:       "yes",
+					Group:        &group,
+					Title:        &title,
+				},
+				{
+					UserId:       foreignUser,
+					MembershipId: foreignMembershipID,
+					Name:         "Foreign Member",
+					AvatarColor:  "#222222",
+					Status:       "no",
+					Reason:       &reason,
+				},
+			}, nil
+		},
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{
+				{TeamID: viewerTeam, TeamName: "Viewer Team"},
+				{TeamID: teamAlpha, TeamName: "Alpha"},
+				{TeamID: teamBravo, TeamName: "Bravo"},
+			}, nil
+		},
+		listEventMemberTeamsFn: func(context.Context, string) (map[uuid.UUID][]events.EventTeamRow, error) {
+			return map[uuid.UUID][]events.EventTeamRow{
+				ownTeamUser: {{TeamID: viewerTeam, TeamName: "Viewer Team"}},
+				// foreignUser belongs to both other targeted teams -- the
+				// badge must pick "Alpha" (alphabetically first), not
+				// "Bravo" (the membership ListAttendance happened to pick
+				// as the roster row's own "identity" membership).
+				foreignUser: {
+					{TeamID: teamBravo, TeamName: "Bravo"},
+					{TeamID: teamAlpha, TeamName: "Alpha"},
+				},
+			}, nil
+		},
+	}
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+
+	rows, err := svc.ListAttendance(context.Background(), "event-1", testTeamID, ownTeamUser.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+
+	var ownRow, foreignRow *gen.AttendanceRow
+	for i := range rows {
+		switch rows[i].UserId {
+		case ownTeamUser:
+			ownRow = &rows[i]
+		case foreignUser:
+			foreignRow = &rows[i]
+		}
+	}
+	require.NotNil(t, ownRow)
+	require.NotNil(t, foreignRow)
+
+	assert.Nil(t, ownRow.TeamName, "an attendee sharing the viewer's own team must get no badge")
+	require.NotNil(t, ownRow.MembershipId)
+	assert.Equal(t, ownMembershipID, *ownRow.MembershipId)
+	require.NotNil(t, ownRow.Group)
+	assert.Equal(t, group, *ownRow.Group)
+	assert.NotNil(t, ownRow.Auto, "a same-team attendee's auto flag must stay populated")
+	assert.NotNil(t, ownRow.Absent, "a same-team attendee's absent flag must stay populated")
+
+	require.NotNil(t, foreignRow.TeamName, "an attendee outside the viewer's own team must get a badge")
+	assert.Equal(t, "Alpha", *foreignRow.TeamName, "badge must be the alphabetically-first shared team, not whichever membership ListAttendance happened to pick")
+	assert.Nil(t, foreignRow.MembershipId, "a foreign attendee must not expose membershipId")
+	assert.Nil(t, foreignRow.Group, "a foreign attendee must not expose group")
+	assert.Nil(t, foreignRow.Title, "a foreign attendee must not expose title")
+	assert.Nil(t, foreignRow.PrimaryRole, "a foreign attendee must not expose primaryRole")
+	assert.Nil(t, foreignRow.Reason, "a foreign attendee must not expose reason")
+	assert.Nil(t, foreignRow.ReasonId, "a foreign attendee must not expose reasonId")
+	assert.Nil(t, foreignRow.ReasonVisibility, "a foreign attendee must not expose reasonVisibility")
+	assert.Nil(t, foreignRow.Auto, "a foreign attendee must not expose auto (whether their status was opt_out-derived)")
+	assert.Nil(t, foreignRow.Absent, "a foreign attendee must not expose absent (whether they have a planned absence logged)")
+	// status stays populated for everyone -- spec.md's "Team badge" scenario
+	// explicitly grants "attendance status" as part of the restricted
+	// projection, unlike auto/absent above.
+	assert.Equal(t, gen.No, foreignRow.Status)
+}
+
+// TestEventService_ListAttendance_TeamBadge_FailsClosedOnMissingMembershipData
+// covers a roster row whose user has no entry at all in
+// ListEventMemberTeams' result (e.g. a race between that query and the
+// roster query itself -- see applyBadge's doc comment). Redaction must not
+// silently skip in that case just because there's no team name to label the
+// attendee with.
+func TestEventService_ListAttendance_TeamBadge_FailsClosedOnMissingMembershipData(t *testing.T) {
+	t.Parallel()
+
+	viewerTeam := uuid.MustParse(testTeamID)
+	teamAlpha := uuid.New()
+
+	mysteryUser := uuid.New()
+	mysteryMembershipID := uuid.New()
+	group := "U16"
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(context.Context, string, string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{
+					UserId:       mysteryUser,
+					MembershipId: mysteryMembershipID,
+					Name:         "Mystery Member",
+					AvatarColor:  "#333333",
+					Status:       "yes",
+					Group:        &group,
+				},
+			}, nil
+		},
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{
+				{TeamID: viewerTeam, TeamName: "Viewer Team"},
+				{TeamID: teamAlpha, TeamName: "Alpha"},
+			}, nil
+		},
+		// mysteryUser is deliberately absent here -- simulating the roster
+		// snapshot observing a user that this later, separate query's own
+		// snapshot no longer has membership data for.
+		listEventMemberTeamsFn: func(context.Context, string) (map[uuid.UUID][]events.EventTeamRow, error) {
+			return map[uuid.UUID][]events.EventTeamRow{}, nil
+		},
+	}
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+
+	rows, err := svc.ListAttendance(context.Background(), "event-1", testTeamID, mysteryUser.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+
+	row := rows[0]
+	assert.Nil(t, row.TeamName, "no confirmed team to label the badge with")
+	assert.Nil(t, row.MembershipId, "must still redact -- missing membership data must not be treated as 'shares the viewer's team'")
+	assert.Nil(t, row.Group, "must still redact group")
+	assert.Nil(t, row.Auto, "must still redact auto in the fail-closed case, even with no badge to show")
+	assert.Nil(t, row.Absent, "must still redact absent in the fail-closed case, even with no badge to show")
+}
+
+// TestEventService_ListAttendance_SingleTeam_NoBadgeEverAndNoExtraQueries
+// covers "single-team events must produce identical roster membership and
+// ordering to today": with only one targeted team, ListAttendance must
+// never call GetEventTeams' cross-team follow-up (ListEventMemberTeams) at
+// all, and no attendee ever gets a teamName badge.
+func TestEventService_ListAttendance_SingleTeam_NoExtraCrossTeamQuery(t *testing.T) {
+	t.Parallel()
+
+	viewerTeam := uuid.MustParse(testTeamID)
+	userID := uuid.New()
+	membershipID := uuid.New()
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(context.Context, string, string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{UserId: userID, MembershipId: membershipID, Name: "Solo Member", AvatarColor: "#333333", Status: "yes"},
+			}, nil
+		},
+		getEventTeamsFn: func(context.Context, string) ([]events.EventTeamRow, error) {
+			return []events.EventTeamRow{{TeamID: viewerTeam, TeamName: "Viewer Team"}}, nil
+		},
+		listEventMemberTeamsFn: func(context.Context, string) (map[uuid.UUID][]events.EventTeamRow, error) {
+			t.Fatal("ListEventMemberTeams must not be called for a single-team event")
+			return nil, nil
+		},
+	}
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+
+	rows, err := svc.ListAttendance(context.Background(), "event-1", testTeamID, userID.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Nil(t, rows[0].TeamName)
+	require.NotNil(t, rows[0].MembershipId)
+	assert.Equal(t, membershipID, *rows[0].MembershipId)
 }

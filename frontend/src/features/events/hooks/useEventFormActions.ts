@@ -7,6 +7,7 @@ import { hhmm, todayStr } from '@/styles/tokens';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 import { useSaveEventMutation } from './useEventMutations';
+import { canForTeam } from '@/utils/permissions';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -27,8 +28,33 @@ function combineCancelLeadMinutes(f: EventFormValues): number | undefined {
   return total > 0 ? total : undefined;
 }
 
-/** Builds the base event write payload shared by create and edit -- everything except the create-only recurrence fields (see buildRecurrencePayload). */
-function buildBasePayload(f: EventFormValues) {
+/** True when both arrays contain the same set of ids, order and duplicates aside. */
+function sameIdSet(a: string[], b: string[]): boolean {
+  const sa = new Set(a);
+  const sb = new Set(b);
+  if (sa.size !== sb.size) return false;
+  for (const id of sa) if (!sb.has(id)) return false;
+  return true;
+}
+
+/** Builds the base event write payload shared by create and edit -- everything except the create-only recurrence fields (see buildRecurrencePayload) and crossTeamIds (see saveEvent's change-detection). */
+function buildBasePayload(f: EventFormValues): {
+  type: EventFormValues['type'];
+  title: string;
+  date: string;
+  multiDayEndDate: string;
+  location: string;
+  note: string;
+  meetTimeMandatory: boolean;
+  responseMode: 'opt_in' | 'opt_out';
+  meetT: string;
+  startT: string;
+  endT: string;
+  nominatedRoleIds: string[];
+  cancelLeadMinutes: number | undefined;
+  excludeFromStats: boolean;
+  crossTeamIds?: string[];
+} {
   return {
     type: f.type,
     title: f.title.trim(),
@@ -97,6 +123,7 @@ export function useEventFormActions({
             cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
             cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
             excludeFromStats: !!event.excludeFromStats,
+            crossTeamIds: event.crossTeamIds || [],
           }
         : {
             type: 'training',
@@ -118,6 +145,7 @@ export function useEventFormActions({
             cancelLeadHours: 0,
             cancelLeadMinutes: 0,
             excludeFromStats: false,
+            crossTeamIds: [],
           };
       setState((st) => ({
         sheet: {
@@ -172,6 +200,25 @@ export function useEventFormActions({
         cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
         cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
         excludeFromStats: !!event.excludeFromStats,
+        // The duplicate is created under the currently active team, which
+        // may be a non-owning team the source event was only reached
+        // through (Duplicate stays available for those viewers -- see the
+        // events feature's viewing-team fixes). event.crossTeamIds always
+        // excludes the source's *actual* owning team (event.teamId), so
+        // carrying that list over as-is would silently drop the original
+        // owner from the duplicate's target set whenever duplicating via a
+        // non-owning team. Recombine the full original target set --
+        // {event.teamId} ∪ event.crossTeamIds -- then drop whichever team
+        // becomes the new owner (it's implicit, not a cross-team target)
+        // before filtering to teams the duplicating user actually has
+        // events:write in -- CrossTeamPicker only ever renders (and lets
+        // the user deselect) teams meeting that bar, so an invisible team
+        // here would silently survive to the save request and get rejected
+        // by the server (write-in-all-targets) with no way for the user to
+        // see or remove it from the form.
+        crossTeamIds: Array.from(new Set([event.teamId, ...(event.crossTeamIds || [])]))
+          .filter((id) => id !== S().activeTeamId)
+          .filter((id) => canForTeam(S().teams.find((tm) => tm.id === id) || null, 'events', 'write')),
       };
       setState((st) => ({
         sheet: {
@@ -192,8 +239,27 @@ export function useEventFormActions({
       const mode = sh.mode;
       const back = sh.back;
       const payload = buildBasePayload(f);
+      // On create, always forward the picker's current selection (empty means
+      // single-team, same as absent). On edit, only forward it when the user
+      // actually changed the selection from what the form opened with --
+      // sending it unconditionally would make every edit (even an unrelated
+      // field) re-validate events:write across the *current* full target set
+      // (see UpdateEventRequest's "absent leaves the target set unchanged" --
+      // that's exactly the escape hatch this preserves for edits that don't
+      // touch sharing).
+      const initialCrossTeamIds = (sh.formInitial as EventFormValues | undefined)?.crossTeamIds ?? [];
+      const crossTeamIds = f.crossTeamIds ?? [];
+      const crossTeamIdsChanged = mode === 'create' || !sameIdSet(initialCrossTeamIds, crossTeamIds);
+      if (crossTeamIdsChanged) payload.crossTeamIds = crossTeamIds;
       try {
-        if (mode === 'edit') await saveEventAsync({ mode: 'edit', eventId: sh.eventId!, scope, payload });
+        if (mode === 'edit')
+          await saveEventAsync({
+            mode: 'edit',
+            eventId: sh.eventId!,
+            scope,
+            payload,
+            previousCrossTeamIds: crossTeamIdsChanged ? initialCrossTeamIds : undefined,
+          });
         else await saveEventAsync({ mode: 'create', payload: { ...payload, ...buildRecurrencePayload(f) } });
         loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a
