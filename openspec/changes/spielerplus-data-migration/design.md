@@ -257,6 +257,32 @@ render both). Photo import is entirely optional (skipped, not failed, when
 `S3_ENDPOINT`/`S3_BUCKET` aren't set) and only ever attempted for a newly created
 user, consistent with birthday's "existing account is left alone" rule.
 
+**Cross-team events (`event_teams`) turned an otherwise-cosmetic backend change into
+a silent-data-loss bug for this importer, caught by re-reading `main` rather than by
+any test.** Migration `00035_event_teams` (developed on a separate, later-merged
+branch) relaxed every event read/RSVP path from `events.team_id = $N` to an `EXISTS`
+join against a new `event_teams (event_id, team_id)` table, so a normal single-team
+event still needs exactly one row there - its own team - alongside the `events` row
+itself. `db.InsertEvent` previously only wrote `events`; after this migration that
+would have imported every event into a database state where it exists but is
+invisible to the very team it was imported for, with the local state file already
+marking it "done" so a re-run would never retry it either. `InsertEvent` now writes
+both rows inside a single transaction, so a mid-write failure can't produce that
+half-written, permanently-invisible state - the whole insert rolls back and the
+event is retried on the next run instead.
+
+**Multi-day events (`events.end_date`, migration `00025_event_multi_day`) turned a
+previously-discarded piece of real data into an importable one.** The `-:-`
+placeholder fix (see above) already established that a live SpielerPlus account
+renders a trailing date on a multi-day event's end time (`"17:00 am 17.11."`); at
+the time, `Event` had nowhere to put that second date, so `parseHM` simply discarded
+it and every imported event stayed single-day. Now that Teamverwaltung has an
+`end_date` column, `trailingDate` (new) extracts that trailing "DD.MM" and resolves
+it via the same closest-year `resolveDate` logic already used for the row's own
+date, anchored to the start day rather than a possibly-distant reference - a
+same-day result (or a resolution failure) leaves `Event.EndDate` unset, so only a
+genuinely later end day is ever imported as multi-day.
+
 ## Risks / Trade-offs
 
 - **Scraping fragility**: SpielerPlus can change its markup at any time and silently
@@ -274,12 +300,16 @@ user, consistent with birthday's "existing account is left alone" rule.
 - **ToS considerations**: scraping a third-party site outside its documented API may be
   against SpielerPlus's terms of service. This is the club's own account and data, same
   as the precedent community projects; flagged here, not blocking implementation.
-- **Schema dependency on `flexible-membership-fees`**: dues/penalty import
-  (`db.InsertContribution`, `db.InsertPenaltyAssignment`) targets the schema *after*
-  migrations `00018_flexible_membership_fees`/`00020_penalty_assignment_linked_payment`
-  are applied (`contributions.name`/`due_date`, no `month`/`status`;
-  `penalty_assignments` with no `paid` column). Running this importer against a
-  database that hasn't had that migration applied yet will fail loudly (unknown
-  column) rather than silently writing to the wrong shape - acceptable since both
-  are expected to land together operationally, but worth calling out since the two
-  changes were developed on separate branches.
+- **Schema dependency on `main`'s current migration state**: this importer's `db/`
+  package targets the schema shape *after* several migrations developed on separate
+  branches and merged into `main` over time -
+  `00018_flexible_membership_fees`/`00020_penalty_assignment_linked_payment`
+  (`contributions.name`/`due_date`, no `month`/`status`; `penalty_assignments` with
+  no `paid` column), `00022_contribution_archive_description`/`00024_transaction_note`
+  (the provenance-note columns), `00025_event_multi_day` (`events.end_date`), and
+  `00035_event_teams` (the `event_teams` table - see above). Running this importer
+  against a database missing any of these fails loudly (an unknown column, or a
+  foreign-key/not-null violation on `event_teams`) rather than silently writing to
+  the wrong shape - acceptable since the importer is meant to track `main`, but
+  worth calling out since none of these were developed alongside this importer
+  itself and a database lagging behind `main` will break it.

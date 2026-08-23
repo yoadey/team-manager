@@ -401,7 +401,7 @@ func importDues(ctx context.Context, sp *spielerplus.Client, store *db.Store, op
 			continue
 		}
 
-		tvID, err := store.InsertContribution(ctx, opts.TeamID, tvUserID, d.Label, d.AmountCents)
+		tvID, err := store.InsertContribution(ctx, opts.TeamID, tvUserID, d.Label, d.ID, d.AmountCents)
 		if err != nil {
 			summary.DuesSkipped++
 			summary.skip("due %s (member %s): %v", d.ID, d.MemberID, err)
@@ -480,7 +480,7 @@ func importPenalties(ctx context.Context, sp *spielerplus.Client, store *db.Stor
 			continue
 		}
 
-		tvID, err := store.InsertPenaltyAssignment(ctx, opts.TeamID, tvUserID, labelToPenaltyID[a.Reason], a.AmountCents, a.Reason, a.Date)
+		tvID, err := store.InsertPenaltyAssignment(ctx, opts.TeamID, tvUserID, labelToPenaltyID[a.Reason], a.ID, a.AmountCents, a.Reason, a.Date)
 		if err != nil {
 			summary.PenaltiesSkipped++
 			summary.skip("penalty assignment %s (%s): %v", a.ID, a.MemberName, err)

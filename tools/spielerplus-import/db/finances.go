@@ -31,13 +31,25 @@ func (s *Store) InsertTransaction(ctx context.Context, teamID string, tx spieler
 
 	newID := uuid.NewString()
 	_, err = s.Pool.Exec(ctx, `
-		INSERT INTO transactions (id, team_id, type, title, amount, date, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, now(), now())
-	`, newID, teamID, tx.Type, tx.Title, tx.AmountCents, tx.Date.Format("2006-01-02"))
+		INSERT INTO transactions (id, team_id, type, title, amount, date, note, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+	`, newID, teamID, tx.Type, tx.Title, tx.AmountCents, tx.Date.Format("2006-01-02"), spielerPlusProvenanceNote(tx.ID))
 	if err != nil {
 		return "", fmt.Errorf("db: insert transaction %q (%s): %w", tx.Title, tx.ID, err)
 	}
 	return newID, nil
+}
+
+// spielerPlusProvenanceNote is written into the same free-text note/
+// description column each of transactions/contributions/penalty_assignments
+// already offers for operator context (transactions.note added by migration
+// 00024_transaction_note; contributions.description by
+// 00022_contribution_archive_description; penalty_assignments.note has
+// existed since 00008_penalty_assignment_note, unused by this importer until
+// now), so a treasurer reconciling imported records can trace one back to
+// its SpielerPlus source id.
+func spielerPlusProvenanceNote(spielerPlusID string) string {
+	return "Importiert aus SpielerPlus (ID " + spielerPlusID + ")"
 }
 
 // InsertPenalty creates a Teamverwaltung penalty-catalog entry. Not
@@ -79,7 +91,7 @@ func (s *Store) InsertPenalty(ctx context.Context, teamID, label string, amountC
 // itself - callers must consult the local state file
 // (State.PenaltyAssignments), since penalty_assignments has no
 // external-id column.
-func (s *Store) InsertPenaltyAssignment(ctx context.Context, teamID, userID, penaltyID string, amountCents int64, label string, date time.Time) (id string, err error) {
+func (s *Store) InsertPenaltyAssignment(ctx context.Context, teamID, userID, penaltyID, sourceID string, amountCents int64, label string, date time.Time) (id string, err error) {
 	if amountCents <= 0 {
 		return "", fmt.Errorf("%w: penalty assignment (user %s) amount must be positive, got %d cents", ErrFinanceRecordSkipped, userID, amountCents)
 	}
@@ -89,9 +101,9 @@ func (s *Store) InsertPenaltyAssignment(ctx context.Context, teamID, userID, pen
 
 	newID := uuid.NewString()
 	_, err = s.Pool.Exec(ctx, `
-		INSERT INTO penalty_assignments (id, team_id, user_id, penalty_id, date, amount, label)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, newID, teamID, userID, nullIfEmpty(penaltyID), date.Format("2006-01-02"), amountCents, label)
+		INSERT INTO penalty_assignments (id, team_id, user_id, penalty_id, date, amount, label, note)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, newID, teamID, userID, nullIfEmpty(penaltyID), date.Format("2006-01-02"), amountCents, label, spielerPlusProvenanceNote(sourceID))
 	if err != nil {
 		return "", fmt.Errorf("db: insert penalty assignment (team %s, user %s): %w", teamID, userID, err)
 	}
@@ -115,7 +127,7 @@ func (s *Store) InsertPenaltyAssignment(ctx context.Context, teamID, userID, pen
 // the local state file (State.Dues), since contributions has no
 // external-id column (and, post-migration, no other natural unique key to
 // dedupe on either).
-func (s *Store) InsertContribution(ctx context.Context, teamID, userID, name string, amountCents int64) (id string, err error) {
+func (s *Store) InsertContribution(ctx context.Context, teamID, userID, name, sourceID string, amountCents int64) (id string, err error) {
 	if amountCents <= 0 {
 		return "", fmt.Errorf("%w: contribution %q (user %s) amount must be positive, got %d cents", ErrFinanceRecordSkipped, name, userID, amountCents)
 	}
@@ -125,9 +137,9 @@ func (s *Store) InsertContribution(ctx context.Context, teamID, userID, name str
 
 	newID := uuid.NewString()
 	_, err = s.Pool.Exec(ctx, `
-		INSERT INTO contributions (id, team_id, user_id, name, amount, updated_at)
-		VALUES ($1, $2, $3, $4, $5, now())
-	`, newID, teamID, userID, name, amountCents)
+		INSERT INTO contributions (id, team_id, user_id, name, amount, description, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, now())
+	`, newID, teamID, userID, name, amountCents, spielerPlusProvenanceNote(sourceID))
 	if err != nil {
 		return "", fmt.Errorf("db: insert contribution %q (user %s): %w", name, userID, err)
 	}

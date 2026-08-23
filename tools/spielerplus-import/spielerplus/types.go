@@ -44,6 +44,11 @@ type Event struct {
 	// approach for the same gap in SpielerPlus's markup.
 	EndIsEstimated bool
 	End            time.Time
+	// EndDate is set only for a multi-day event, i.e. when the page's end
+	// time carries a trailing date different from Start's own date (e.g.
+	// "17:00 am 17.11." for a tournament ending the next day - confirmed
+	// from a live account). Zero for the common single-day case.
+	EndDate time.Time
 	// TimeUnknown is true when the page showed no time information at all
 	// for this event (as opposed to a start time with only the end
 	// estimated) - Start's time-of-day is a meaningless midnight default in

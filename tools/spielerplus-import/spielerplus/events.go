@@ -163,7 +163,7 @@ func parseEventRow(row *goquery.Selection, reference time.Time) (Event, error) {
 	}
 
 	dateText := strings.TrimSpace(row.Find(eventDateSelector).First().Text())
-	meet, start, end, endIsEstimated, timeUnknown, err := parseDateTime(dateText, eventTimes(row), reference)
+	meet, start, end, endDate, endIsEstimated, timeUnknown, err := parseDateTime(dateText, eventTimes(row), reference)
 	if err != nil {
 		return Event{}, fmt.Errorf("event %s: %w", id, err)
 	}
@@ -179,6 +179,7 @@ func parseEventRow(row *goquery.Selection, reference time.Time) (Event, error) {
 		Title:          title,
 		Start:          start,
 		End:            end,
+		EndDate:        endDate,
 		EndIsEstimated: endIsEstimated,
 		TimeUnknown:    timeUnknown,
 		MeetTime:       meet,
@@ -281,20 +282,39 @@ func resolveDate(dateText string, reference time.Time) (time.Time, error) {
 	return best, nil
 }
 
+// trailingEventDateRegexp extracts a multi-day event's end date off its raw
+// end-time value, confirmed from a live account: "17:00 am 17.11." (time
+// plus the differing end date, "DD.MM" with a trailing dot) rather than a
+// bare "HH:MM" - only ever observed on the end slot, not meet/start.
+var trailingEventDateRegexp = regexp.MustCompile(`\bam\s+(\d{2}\.\d{2})\.?$`)
+
+// trailingDate returns the "DD.MM" date embedded in s (see
+// trailingEventDateRegexp), or ok=false for the common case of a bare
+// "HH:MM" with no trailing date.
+func trailingDate(s string) (dateText string, ok bool) {
+	m := trailingEventDateRegexp.FindStringSubmatch(strings.TrimSpace(s))
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
 // parseDateTime resolves a SpielerPlus "DD.MM" date (via resolveDate) plus
 // up to three positional time values (see eventTimes) into meet/start/end
 // times. Each of meet/start/end is independently optional (already
 // normalized to "" by eventTimes for an unset/placeholder slot - e.g. a
 // game with no confirmed kickoff yet) - only a missing/unset *start* forces
 // the whole event to TimeUnknown, since there's nothing else to anchor a
-// real time-of-day on.
-func parseDateTime(dateText string, times []string, reference time.Time) (meet, start, end time.Time, endIsEstimated, timeUnknown bool, err error) {
+// real time-of-day on. endDate is set only when the end slot carries a
+// trailing date genuinely after the start day (see trailingDate) - a
+// multi-day event, matching Teamverwaltung's events.end_date column.
+func parseDateTime(dateText string, times []string, reference time.Time) (meet, start, end, endDate time.Time, endIsEstimated, timeUnknown bool, err error) {
 	if dateText == "" {
-		return time.Time{}, time.Time{}, time.Time{}, false, false, fmt.Errorf("missing date")
+		return time.Time{}, time.Time{}, time.Time{}, time.Time{}, false, false, fmt.Errorf("missing date")
 	}
 	day, err := resolveDate(dateText, reference)
 	if err != nil {
-		return time.Time{}, time.Time{}, time.Time{}, false, false, err
+		return time.Time{}, time.Time{}, time.Time{}, time.Time{}, false, false, err
 	}
 
 	var meetHM, startHM, endHM string
@@ -319,25 +339,31 @@ func parseDateTime(dateText string, times []string, reference time.Time) (meet, 
 	if startHM == "" {
 		// No usable start time: day's time-of-day is a meaningless midnight
 		// placeholder, not a real start time.
-		return time.Time{}, day, day.Add(2 * time.Hour), true, true, nil
+		return time.Time{}, day, day.Add(2 * time.Hour), time.Time{}, true, true, nil
 	}
 	if start, err = at(startHM); err != nil {
-		return time.Time{}, time.Time{}, time.Time{}, false, false, err
+		return time.Time{}, time.Time{}, time.Time{}, time.Time{}, false, false, err
 	}
 	if meetHM != "" {
 		if meet, err = at(meetHM); err != nil {
-			return time.Time{}, time.Time{}, time.Time{}, false, false, err
+			return time.Time{}, time.Time{}, time.Time{}, time.Time{}, false, false, err
 		}
 	}
 	if endHM == "" {
 		// A start time is known but no end time: estimate start + 2h, same
 		// fallback the reference implementations use.
-		return meet, start, start.Add(2 * time.Hour), true, false, nil
+		return meet, start, start.Add(2 * time.Hour), time.Time{}, true, false, nil
 	}
 	if end, err = at(endHM); err != nil {
-		return time.Time{}, time.Time{}, time.Time{}, false, false, err
+		return time.Time{}, time.Time{}, time.Time{}, time.Time{}, false, false, err
 	}
-	return meet, start, end, false, false, nil
+	if dt, ok := trailingDate(endHM); ok {
+		if resolvedEndDay, derr := resolveDate(dt, day); derr == nil && resolvedEndDay.After(day) {
+			endDate = resolvedEndDay
+			end = time.Date(resolvedEndDay.Year(), resolvedEndDay.Month(), resolvedEndDay.Day(), end.Hour(), end.Minute(), 0, 0, end.Location())
+		}
+	}
+	return meet, start, end, endDate, false, false, nil
 }
 
 // parseHM parses the leading "HH:MM" of s, ignoring any trailing text.

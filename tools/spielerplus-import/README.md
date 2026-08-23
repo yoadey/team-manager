@@ -29,6 +29,12 @@ full design and rationale.
     fetched from the event's own detail page (one extra request per event,
     same N+1 pattern as member emails below); a missing/failed fetch is
     logged and the event is still imported without a location, not skipped.
+    A multi-day event (its end time showing a later date, e.g. a weekend
+    tournament) is imported with a real end date, not collapsed onto its
+    start day. Every imported event also gets the `event_teams` row
+    Teamverwaltung now requires for it to be visible to its own team at
+    all - written in the same transaction as the event itself, so a
+    failure there is never left half-done.
   - **Members** (`spielerplus/members.go`): `GET /team` is the roster, but
     it does **not** show email addresses - each member's email only shows
     on their own profile page (`GET /user/view?id=...`), so the importer
@@ -80,6 +86,9 @@ full design and rationale.
       category (`... were paid on SpielerPlus but will show as open until
       linked to a transaction`) so a treasurer knows how many to reconcile
       by hand (via Teamverwaltung's own "link a payment" UI).
+    - Every imported transaction, contribution, and penalty assignment gets
+      a short "Importiert aus SpielerPlus (ID ...)" note/description, so you
+      can trace an imported record back to its SpielerPlus id later.
   - **Member photos** (`spielerplus/members.go`, `storage/`): the `/team`
     roster page's own `.user-icon img` already carries each member's photo
     URL - no extra request needed to discover it (unlike email/birthday,

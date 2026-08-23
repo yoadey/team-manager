@@ -190,6 +190,35 @@ event's import solely because its location could not be fetched or parsed.
 - **THEN** the event is still imported, without a location, and the failure is
   logged
 
+### Requirement: Every imported event is visible to its own team
+Since Teamverwaltung determines an event's visibility via `event_teams` rather than
+`events.team_id` alone, the tool MUST create a matching `event_teams` row for every
+event it imports, and MUST NOT leave an `events` row committed without one.
+
+#### Scenario: An event is imported
+- **WHEN** the tool inserts a new `events` row for the target team
+- **THEN** a corresponding `event_teams` row for that event and team is created in
+  the same operation
+
+#### Scenario: The event_teams write fails
+- **WHEN** the `events` row was inserted but its `event_teams` row fails to insert
+- **THEN** neither row is committed, and the event is retried on the next run
+  rather than being recorded as already imported
+
+### Requirement: A multi-day event's end date is imported
+When an event's end time carries a date later than its start date, the tool MUST
+import that as the event's end date, so a multi-day event renders as such in
+Teamverwaltung rather than collapsing onto a single day.
+
+#### Scenario: An event spans multiple days
+- **WHEN** an event's end time is on a later calendar day than its start date
+- **THEN** the imported `events` row's end date is set to that later day
+
+#### Scenario: An event's end time has no distinct later date
+- **WHEN** an event's end time carries no date, or one that is not later than its
+  start date
+- **THEN** the imported `events` row's end date is left unset
+
 ### Requirement: Member photos are imported for newly created users when configured
 When object-store configuration is provided, the tool MUST upload each newly
 created member's SpielerPlus profile photo to the same object store

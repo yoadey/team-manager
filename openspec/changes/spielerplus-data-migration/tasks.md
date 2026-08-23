@@ -49,9 +49,15 @@
       `eventTimes`/`parseDateTime` now normalize any placeholder value to "not set"
       instead of failing to parse it as `HH:MM`. Also found and fixed: a multi-day
       event's end time can render with a trailing "am DD.MM." (e.g. "17:00 am
-      17.11."), not a bare "HH:MM" - `parseHM` now parses only the leading
-      whitespace-delimited token and discards the rest, since `Event` only has a
-      single `End` timestamp already anchored to the row's own resolved date.
+      17.11."), not a bare "HH:MM" - `parseHM` parses only the leading
+      whitespace-delimited token for the time-of-day. **Extended once
+      Teamverwaltung gained multi-day event support** (migration
+      `00025_event_multi_day`, adding `events.end_date`): that trailing date is no
+      longer discarded - `trailingDate`/`parseDateTime` now also resolve it (via
+      the same closest-year `resolveDate` logic, anchored to the start day) into
+      `Event.EndDate`, set only when it's genuinely a later day than the start (a
+      same-day trailing date, or one that fails to resolve, leaves `EndDate` unset)
+      - see 4.4.
 - [x] 2.3 Parse per-event attendance into a per-member status; map SpielerPlus states →
       Teamverwaltung's `attendance.status` enum. **Fully confirmed from the second HAR
       capture, including three full response bodies**: `POST
@@ -138,7 +144,17 @@
 - [x] 4.3 Upsert `memberships` + `membership_roles` for the target `TEAM_ID` using the
       resolved role mapping; skip if the membership already exists.
 - [x] 4.4 Insert `events` (using the state file for idempotency) with their real
-      historical `date`.
+      historical `date`, plus `end_date` for a multi-day event (see 2.2's
+      `EndDate`). **Adapted to the backend's cross-team-events change**
+      (migration `00035_event_teams`, developed on a separate branch and merged
+      after this task was first written): every event now also needs a matching
+      `event_teams (event_id, team_id)` row - since that migration, every
+      read/RSVP path scopes visibility via an `EXISTS` join against
+      `event_teams` instead of `events.team_id` directly, so an event with no
+      row there is invisible to its own team. `db.InsertEvent` now writes both
+      rows in a single transaction (never one without the other, so a
+      mid-write failure can't strand a permanently invisible event that the
+      local state file would then also wrongly mark as already imported).
 - [x] 4.5 Upsert `attendance` per event/member (naturally idempotent on
       `UNIQUE(event_id, user_id)`), setting `status` from the mapped enum.
 - [x] 4.6 Insert `absences` (using the state file for idempotency), enforcing
@@ -202,6 +218,13 @@
       every imported due/penalty is left unlinked; `Summary.DuesPaidNotLinked`/
       `PenaltiesPaidNotLinked` count how many were actually paid on SpielerPlus
       so the run summary can tell an operator how many to reconcile by hand.
+- [x] 4a.5 Write a SpielerPlus-source-id breadcrumb into each imported
+      transaction/contribution/penalty assignment's free-text note/description
+      field (`transactions.note` since migration `00024_transaction_note`;
+      `contributions.description` since `00022_contribution_archive_description`;
+      `penalty_assignments.note` has existed since `00008_penalty_assignment_note`
+      but was unused by this importer until now), so a treasurer reconciling
+      imported records can trace one back to its SpielerPlus id.
 
 ## 4b. Member photos (`storage/`, `spielerplus/client.go`'s `FetchAsset`,
       `importrun/run.go`'s `importMemberPhoto`)

@@ -128,16 +128,36 @@ func TestParseEvents_PlaceholderTimeValues(t *testing.T) {
 func TestParseEvents_TrailingDateOnTimeValue(t *testing.T) {
 	// Confirmed against a live account: a multi-day event's end time
 	// renders with a trailing "am DD.MM." (e.g. a tournament ending the
-	// next day), not a bare "HH:MM".
+	// next day), not a bare "HH:MM" - End and EndDate must both reflect the
+	// later day, not silently collapse back onto the start day.
 	html := panelHTML("1", "training", "Training", "16.11", "17:00", "18:00", "17:00 am 17.11.")
 	events, err := ParseEvents(strings.NewReader(html), time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ParseEvents() error = %v, want the trailing date on a time value handled without a parse error", err)
 	}
 	ev := events[0]
-	wantEnd := time.Date(2026, time.November, 16, 17, 0, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, time.November, 17, 17, 0, 0, 0, time.UTC)
 	if !ev.End.Equal(wantEnd) {
 		t.Errorf("End = %v, want %v", ev.End, wantEnd)
+	}
+	wantEndDate := time.Date(2026, time.November, 17, 0, 0, 0, 0, time.UTC)
+	if !ev.EndDate.Equal(wantEndDate) {
+		t.Errorf("EndDate = %v, want %v", ev.EndDate, wantEndDate)
+	}
+}
+
+func TestParseEvents_SameDayTrailingDateLeavesEndDateUnset(t *testing.T) {
+	// A trailing date that (for whatever reason) resolves to the same day
+	// as the start must not set EndDate - only a genuinely later day makes
+	// an event "multi-day".
+	html := panelHTML("1", "training", "Training", "16.11", "17:00", "18:00", "19:00 am 16.11.")
+	events, err := ParseEvents(strings.NewReader(html), time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ParseEvents() error = %v", err)
+	}
+	ev := events[0]
+	if !ev.EndDate.IsZero() {
+		t.Errorf("EndDate = %v, want zero (same-day trailing date)", ev.EndDate)
 	}
 }
 
