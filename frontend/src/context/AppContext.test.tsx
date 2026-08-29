@@ -47,6 +47,7 @@ function PhaseAndSheet({
   return (
     <div>
       <div data-testid="phase">{state.phase}</div>
+      <div data-testid="route">{state.route}</div>
       <div data-testid="sheet">{state.sheet?.type || 'none'}</div>
       <div data-testid="sheetEventId">{state.sheet?.eventId ?? ''}</div>
       <div data-testid="form">{JSON.stringify(state.sheet?.formInitial ?? null)}</div>
@@ -493,6 +494,46 @@ describe('AppProvider / actions (app phase)', () => {
 
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
     expect(unsubscribeWebPushMock).toHaveBeenCalledTimes(1);
+  });
+
+  // Regression test: opening an event detail sheet from a route other than
+  // Events (e.g. an EventCard on Home, or an event-linked notification --
+  // both reachable without switching state.route) used to leave the URL
+  // untouched, because buildPath only emitted the /events/<id> path when
+  // `state.route` already equalled 'events'. That left the browser Back
+  // button with no history entry to close the sheet, skipping straight past
+  // the app instead.
+  it('updates the URL when a detail sheet opens from a different route, and undoes it on close without stacking an extra entry', async () => {
+    window.history.pushState({}, '', '/');
+    await renderAndBootstrap();
+    expect(screen.getByTestId('route').textContent).toBe('home');
+
+    const pushSpy = vi.spyOn(window.history, 'pushState');
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
+
+    await act(async () => {
+      capturedActions.openEventDetail('ev1');
+    });
+    expect(screen.getByTestId('sheetEventId').textContent).toBe('ev1');
+    // The URL reflects the detail's own route (events), not the 'home'
+    // route the sheet was opened from -- and opening it is a push, so Back
+    // has a history entry to land on.
+    expect(window.location.pathname).toBe('/events/ev1');
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(replaceSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      capturedActions.setState({ sheet: null });
+    });
+    // Closing replaces (not pushes) the entry the sheet had pushed, so a
+    // later Back lands directly on '/home' instead of resurrecting the
+    // sheet.
+    expect(window.location.pathname).toBe('/home');
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(replaceSpy).toHaveBeenCalledTimes(1);
+
+    pushSpy.mockRestore();
+    replaceSpy.mockRestore();
   });
 });
 
