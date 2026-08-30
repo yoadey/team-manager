@@ -1359,7 +1359,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (target === lastSyncedPath.current) return;
     const [prevPath, prevQuery] = lastSyncedPath.current.split('?');
     const prev = parseLocation(prevPath ?? '', prevQuery ? '?' + prevQuery : '');
-    const isNavigation = prev.route !== next.route || (!prev.detailId && !!next.detail);
+    // Opening a detail sheet always pushes a new history entry -- even
+    // across a route switch (e.g. Home -> /events/<id> when an event is
+    // opened from a Home card or the notifications sheet, not from the
+    // Events route itself) -- so Back has something to land on. Closing
+    // one always replaces, so Back doesn't resurrect a sheet that was
+    // already closed. A route switch with no detail sheet on either side
+    // is ordinary tab-to-tab navigation, which also pushes.
+    const isNavigation =
+      (!prev.detailId && !!next.detail) || (!prev.detailId && !next.detail && prev.route !== next.route);
     if (isNavigation) history.pushState(null, '', target);
     else history.replaceState(null, '', target);
     lastSyncedPath.current = target;

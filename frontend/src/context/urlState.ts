@@ -69,12 +69,21 @@ export interface UrlState {
 
 /** Build the path+query string (e.g. "/events?scope=past") for the given state. */
 export function buildPath(s: UrlState): string {
-  let path = '/' + s.route;
-  const params = new URLSearchParams();
+  // A detail sheet's path is keyed off its own kind, not the current
+  // top-level `route` -- opening an event/member detail doesn't switch
+  // route (e.g. an event card on Home, or an event-linked entry in the
+  // notifications sheet, both reachable from any route), so gating this
+  // on `s.route` used to silently skip the URL update whenever a detail
+  // sheet was opened from anywhere but its own route, leaving Back with
+  // no history entry to close it.
+  if (s.detail) {
+    const detailRoute = s.detail.kind === 'event' ? 'events' : 'members';
+    return '/' + detailRoute + '/' + encodeURIComponent(s.detail.id);
+  }
 
-  if (s.detail && (s.route === 'events' || s.route === 'members')) {
-    path += '/' + encodeURIComponent(s.detail.id);
-  } else if (s.route === 'events') {
+  const path = '/' + s.route;
+  const params = new URLSearchParams();
+  if (s.route === 'events') {
     if (s.eventScope === 'past') params.set('scope', 'past');
     if (s.eventsView !== 'list') params.set('view', s.eventsView);
     if (s.eventsOnlyPending) params.set('pending', '1');

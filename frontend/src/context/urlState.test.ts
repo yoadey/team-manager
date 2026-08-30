@@ -42,6 +42,15 @@ describe('buildPath', () => {
     );
     expect(buildPath({ ...base, route: 'members', detail: { kind: 'member', id: 'm9' } })).toBe('/members/m9');
   });
+
+  it('encodes a detail sheet by its own kind even when `route` is a different value', () => {
+    // Opening an event/member detail sheet (e.g. from a Home card or the
+    // notifications sheet) doesn't switch the top-level route -- the URL
+    // must still reflect the detail, not silently stay on the old route's
+    // path (the bug this guards against).
+    expect(buildPath({ ...base, route: 'home', detail: { kind: 'event', id: 'ev1' } })).toBe('/events/ev1');
+    expect(buildPath({ ...base, route: 'home', detail: { kind: 'member', id: 'm9' } })).toBe('/members/m9');
+  });
 });
 
 describe('parseLocation', () => {
