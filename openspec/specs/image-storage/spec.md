@@ -1,7 +1,7 @@
 # image-storage Specification
 
 ## Purpose
-TBD - created by archiving change move-images-to-object-storage. Update Purpose after archive.
+Defines how team and user photos and logos are stored and delivered: images live in an S3-compatible object store with only the object key held in the database (no byte column, no legacy fallback), GET endpoints verify team membership before issuing access and deliver the image via a short-lived presigned URL rather than proxying bytes through the application server, and upload validation (2 MB limit, JPEG/PNG only, scaled to at most 800×800) is preserved.
 ## Requirements
 ### Requirement: Images stored in object storage
 Team and user photos and logos MUST be stored in an S3-compatible object

@@ -1,7 +1,7 @@
 # stats-access-control Specification
 
 ## Purpose
-TBD - created by archiving change stats-access-control. Update Purpose after archive.
+Defines the dedicated `stats` RBAC module gating the statistics area (overview, attendance matrix, per-member statistics, saved date-range presets, and the last-selected date range), independent of `events`: viewing statistics and saving the last-selected range require only `stats:read`, while defining a personal preset (create/rename/delete) requires `stats:write`; new teams grant `stats:read` to Member and `stats:write` to Admin by default, and existing teams are backfilled the same way on introduction of the module, with every other existing role backfilled to `stats:none`.
 
 ## Requirements
 

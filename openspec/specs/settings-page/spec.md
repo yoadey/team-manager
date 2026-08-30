@@ -1,7 +1,7 @@
 # settings-page Specification
 
 ## Purpose
-TBD - created by archiving change settings-page-restructure. Update Purpose after archive.
+Defines a dedicated, category-navigated `/settings` route for the caller's personal account settings — Profil, Darstellung & Sprache, Benachrichtigungen, Datenschutz, Rechtliches, plus a pinned Logout — reachable from the existing desktop sidebar and mobile header entry points without adding a main-navigation item, preserving every setting and behavior from the prior flat account sheet unchanged, and never RBAC-gated since it exposes only the caller's own data.
 ## Requirements
 ### Requirement: Settings is a dedicated, category-navigated page
 The application MUST provide a `/settings` route showing the caller's personal account settings grouped into categories with persistent navigation, reachable from the existing account entry points (desktop sidebar account row, mobile header avatar button) without adding a new item to the main navigation.

@@ -1,7 +1,7 @@
 # release-publishing Specification
 
 ## Purpose
-TBD - created by archiving change fix-release-latest-tag-prerelease. Update Purpose after archive.
+Defines how the release workflow tags published container images for a pushed `v*.*.*` tag: every release gets its exact-version and commit-SHA tags, but the `latest` tag is applied only for a stable (non-prerelease) semantic version, so a prerelease build never becomes the image pulled by default.
 ## Requirements
 ### Requirement: The `latest` GHCR tag only tracks stable releases
 When the release workflow publishes images for a pushed `v*.*.*` tag, it MUST apply the `latest` tag only when that tag is a stable (non-prerelease) semantic version. A prerelease tag (a version with a `-` suffix, e.g. `-alpha.1`, `-beta.2`, `-rc.1`) MUST NOT be published as `latest`.

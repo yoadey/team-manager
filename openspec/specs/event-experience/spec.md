@@ -1,7 +1,7 @@
 # event-experience Specification
 
 ## Purpose
-TBD - created by archiving change kleinere-findings. Update Purpose after archive.
+Defines a set of event UX refinements: the event form suggests previously used team locations (deduplicated case-insensitively) while still allowing free text, a recurring series can be bounded by an end date instead of a fixed occurrence count, and each visible member's birthday appears as a yearly recurring calendar entry without a stored per-year event row, gated by the same visibility rule as the birthday on their profile.
 ## Requirements
 ### Requirement: Event location autocomplete
 The event create/edit form MUST suggest previously used locations for the current team, deduplicated case-insensitively, while still allowing free-text entry.

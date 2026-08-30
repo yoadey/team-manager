@@ -1,7 +1,7 @@
 # profile-photos Specification
 
 ## Purpose
-TBD - created by archiving change consistent-profile-photos. Update Purpose after archive.
+Defines consistent avatar rendering for people throughout the app: a member's profile photo is shown wherever they appear (attendance, members, notifications, comments), falling back to the same colored-initials treatment and sizing when no photo exists or the photo URL fails to load, so no screen ever shows an empty avatar or a visually inconsistent one.
 ## Requirements
 ### Requirement: Photos render for event attendance
 An event's attendance list MUST show each member's profile photo when they have one.

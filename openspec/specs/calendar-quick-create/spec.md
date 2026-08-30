@@ -1,7 +1,7 @@
 # calendar-quick-create Specification
 
 ## Purpose
-TBD - created by archiving change calendar-double-click-create. Update Purpose after archive.
+Defines a quick-create shortcut in the calendar month view: a member with `events:write` can double-click, or tab to and press Enter/Space on, an in-month day cell to open the event-creation sheet with that day pre-filled as the date, while clicks on event/absence/birthday chips inside a cell keep their own behavior instead of triggering creation, and members without `events:write` (or out-of-month cells) get no such focusable, actionable target.
 
 ## Requirements
 

@@ -1,7 +1,7 @@
 # poll-transparency Specification
 
 ## Purpose
-TBD - created by archiving change kleinere-findings. Update Purpose after archive.
+Defines transparency safeguards for polls: the confirmation dialog shown before deleting a poll must name the specific poll (its question text) being deleted, and for a non-anonymous poll every team member can see which members voted for each option, while an anonymous poll never shows voter names for any option.
 ## Requirements
 ### Requirement: The delete-poll confirmation names the poll
 The confirmation dialog shown before deleting a poll MUST name the specific poll being deleted.

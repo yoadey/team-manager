@@ -1,7 +1,7 @@
 # deployment-setup Specification
 
 ## Purpose
-TBD - created by archiving change alpha-initial-setup. Update Purpose after archive.
+Defines how a fresh deployment bootstraps its database schema: a single initial goose migration takes an empty database to the full current schema (rather than replaying an accumulated history that never existed), applies and rolls back cleanly, and carries no dead legacy `photo_data`/`photo_mime`/`logo_data`/`logo_mime` BYTEA columns or code paths, since object-store-backed image storage is the only supported mechanism.
 ## Requirements
 ### Requirement: A fresh install applies one initial-setup migration
 A brand-new deployment MUST reach the full current schema by applying a

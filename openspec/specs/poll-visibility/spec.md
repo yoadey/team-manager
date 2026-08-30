@@ -1,7 +1,7 @@
 # poll-visibility Specification
 
 ## Purpose
-TBD - created by archiving change poll-vote-visibility. Update Purpose after archive.
+Defines how poll vote details are exposed in the UI: for a non-anonymous poll, per-option voter lists (avatar + name) and a user×option matrix (options as numbered columns, one row per user marking their selections) are both available, while an anonymous poll never exposes voter identities in any view, showing only aggregate counts and percentages.
 ## Requirements
 ### Requirement: Per-option voter lists for non-anonymous polls
 For a non-anonymous poll, the UI MUST be able to show, for each option, the list of members who selected it.

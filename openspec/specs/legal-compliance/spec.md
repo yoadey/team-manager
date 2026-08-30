@@ -1,7 +1,7 @@
 # legal-compliance Specification
 
 ## Purpose
-TBD - created by archiving change webapp-legal-compliance. Update Purpose after archive.
+Defines the application's legal-compliance surface for a German deployment: unauthenticated legal-notice (Impressum) and privacy-policy pages whose operator-identity and per-processor disclosure fields are configured at deploy time via `OPERATOR_*` container environment variables (showing explicit placeholders, never fabricated details, when unconfigured), footer links to both pages reachable from every screen including pre-login, a self-registration flow that links the privacy policy and gates submission on an explicit minimum-age confirmation, a recorded consent/necessity determination for the optional Sentry integration, and an operator checklist in `docs/operations.md` covering which `OPERATOR_*` variables and provider data-processing agreements a go-live requires.
 ## Requirements
 ### Requirement: Public legal notice (Impressum) page
 The system MUST provide a legal-notice page reachable without authentication, disclosing the operator's identity, address, and contact details per `§5 DDG`. Operator-identity fields (name, legal form, address, represented-by, phone, email, register entry, VAT ID) MUST be configurable at deploy time via container environment variables (`OPERATOR_*`), read at container start — not only by editing and rebuilding the frontend source.

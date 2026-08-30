@@ -1,7 +1,7 @@
 # penalty-history Specification
 
 ## Purpose
-TBD - created by archiving change preserve-penalty-history-on-delete. Update Purpose after archive.
+Defines how penalty assignment history survives deletion of the penalty catalog entry it came from: deleting a catalog entry never deletes or alters existing assignments, each assignment keeps its snapshot label and amount and remains readable and correctly valued with a null catalog reference, and finance overview paid/open sums for those assignments are unaffected.
 ## Requirements
 ### Requirement: Deleting a penalty preserves its assignments
 Deleting a penalty catalog entry MUST NOT delete or alter existing penalty assignments. Assignments MUST remain readable and correctly valued from their snapshot after the catalog entry is removed.

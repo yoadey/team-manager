@@ -1,7 +1,7 @@
 # attendance-notifications Specification
 
 ## Purpose
-TBD - created by archiving change fix-attendance-notifications. Update Purpose after archive.
+Defines when an `attendance` notification is created and who sees it: setting a member's attendance to an actual response (`yes`, `no`, or `maybe`) — whether by the member themselves or an organizer acting on their behalf — generates a notification attributed to the responding member, resetting to `pending` generates none, and visibility follows the same `events`-module RBAC gating as other event notification types.
 ## Requirements
 ### Requirement: An attendance response generates a team notification
 The system MUST create an `attendance` notification when a member's

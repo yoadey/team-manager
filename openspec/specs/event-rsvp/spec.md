@@ -1,7 +1,7 @@
 # event-rsvp Specification
 
 ## Purpose
-TBD - created by archiving change inline-event-rsvp. Update Purpose after archive.
+Defines inline RSVP controls on the events overview: a member can set their own attendance directly from an event row using compact icon controls without opening the event detail, their current status is highlighted when already set, and the controls are disabled once the event's cancellation cutoff has passed.
 ## Requirements
 ### Requirement: Inline RSVP from the events overview
 A member MUST be able to set their own attendance for an event directly from the events overview using compact icon controls, without opening the event detail.

@@ -1,7 +1,7 @@
 # backend-consistency Specification
 
 ## Purpose
-TBD - created by archiving change backend-quality-cleanup. Update Purpose after archive.
+Defines a set of backend consistency and correctness cleanups: the role-row-to-API mapping lives in exactly one place shared by all modules, the penalty snapshot read during assignment creation is scoped by team id in the query itself, and problem+json error responses never default their `type` URI to a placeholder/example domain, falling back to relative paths when unconfigured.
 ## Requirements
 ### Requirement: Single role mapper
 The mapping from a role row to its API representation MUST be defined in exactly one place and reused by all modules.

@@ -1,7 +1,7 @@
 # membership-fees Specification
 
 ## Purpose
-TBD - created by archiving change flexible-membership-fees. Update Purpose after archive.
+Defines how membership fees (contributions) and penalty assignments are defined, paid, and reviewed: a contribution is a free-text name plus amount with an optional due date and no automatic recurrence, can fan out to several members in one request, and its paid amount/status is always derived from the sum of income transactions linked to it rather than stored independently; deleting a contribution or penalty catalog entry preserves its linked/snapshot history, a transaction links to at most one fee or penalty, fee/penalty selection stays searchable at scale, and editing a fee period's shared fields is a group-level action while a single member's row stays a read-only detail view.
 
 ## Requirements
 

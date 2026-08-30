@@ -1,7 +1,7 @@
 # calendar-feed Specification
 
 ## Purpose
-TBD - created by archiving change add-calendar-feed-subscription. Update Purpose after archive.
+Defines a personal, subscribable `.ics` calendar feed per team member: a member with `events` read access can issue, rotate, and revoke a secret token bound to their identity, the feed is servable at a stable token URL without a login session, each request re-evaluates the token holder's current membership and `events` read permission so access changes take effect immediately, cancelled events are excluded, the subscriber can restrict the feed to chosen event types and toggle birthdays without re-subscribing, and the feed never leaks member emails or phone numbers.
 ## Requirements
 ### Requirement: A member can obtain a personal calendar subscription link
 The system MUST let a team member with at least "read" access to the

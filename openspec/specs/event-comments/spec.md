@@ -1,7 +1,7 @@
 # event-comments Specification
 
 ## Purpose
-TBD - created by archiving change keyset-event-comments. Update Purpose after archive.
+Defines how an event's comments are listed: keyset (cursor) pagination returning an opaque `{items, nextCursor}` envelope ordered oldest-first, so pagination cost does not grow with the comment count, no comment is skipped or repeated across pages, and the endpoint matches every other list in the API.
 ## Requirements
 ### Requirement: Event comment listing uses keyset pagination
 Listing an event's comments MUST use keyset (cursor) pagination and return an

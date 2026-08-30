@@ -1,7 +1,7 @@
 # events-scheduling Specification
 
 ## Purpose
-TBD - created by archiving change fix-events-attendance-correctness. Update Purpose after archive.
+Defines correctness rules for how events are scheduled and classified: today counts as upcoming rather than past, cancelling the remainder of a recurring series leaves past instances untouched, attendance can no longer be changed on a cancelled event, and a non-recurring event may span multiple days via an optional `multiDayEndDate` (bounded, never before `date`, clearable) with upcoming/past classification everywhere in the app keyed off the event's last occurring day rather than its start day.
 
 ## Requirements
 

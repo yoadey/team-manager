@@ -1,7 +1,7 @@
 # event-duplication Specification
 
 ## Purpose
-TBD - created by archiving change copy-and-multiday-events. Update Purpose after archive.
+Defines how a caller with write permission on the `events` module duplicates an existing event — standalone or a recurring series occurrence — into a new, independent, non-recurring event pre-filled from the source's descriptive fields and multi-day span but with no copied attendance responses or comments, a default date reset to today rather than the source's own date, and the action unavailable to read-only members.
 
 ## Requirements
 
