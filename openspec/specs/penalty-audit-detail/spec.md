@@ -1,7 +1,7 @@
 # penalty-audit-detail Specification
 
 ## Purpose
-TBD - created by archiving change kleinere-findings. Update Purpose after archive.
+Defines the auditable detail a penalty assignment can record: the date the penalty was actually earned, independent of and possibly predating the date it is recorded, plus an optional free-text note that is stored and shown alongside the assignment when given, with assignment still succeeding when the note is omitted.
 ## Requirements
 ### Requirement: Penalty assignments record when it was earned and why
 Assigning a penalty to a member MUST allow specifying the date the penalty was earned (independent of the date it is recorded) and an optional free-text note.

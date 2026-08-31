@@ -1,7 +1,7 @@
 # notification-clarity Specification
 
 ## Purpose
-TBD - created by archiving change kleinere-findings. Update Purpose after archive.
+Defines how a notification's secondary line handles missing data: any absent segment (title, date, note, actor) is omitted entirely rather than rendered, the literal string "undefined" must never appear in the output, and when all optional fields are present they are shown together in a stable, consistently separated order.
 ## Requirements
 ### Requirement: Event notifications never render a missing value as text
 A notification's secondary line MUST omit any data segment (title, date, note, actor) that is absent, and MUST NEVER render the literal string "undefined" in its place.

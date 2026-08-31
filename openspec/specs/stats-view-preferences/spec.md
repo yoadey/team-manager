@@ -1,7 +1,7 @@
 # stats-view-preferences Specification
 
 ## Purpose
-TBD - created by archiving change stats-personal-presets. Update Purpose after archive.
+Defines per-user, per-team persistence of statistics view preferences: the last-selected date range is automatically saved and restored on the user's next visit (falling back to the existing default on first visit), and a user can additionally save named custom date-range presets that are private to them within a team, remain selectable until deleted, and — if deleted while active — fall back to that preset's last-known dates rather than erroring or reverting silently.
 
 ## Requirements
 

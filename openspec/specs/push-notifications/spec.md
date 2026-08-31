@@ -1,7 +1,7 @@
 # push-notifications Specification
 
 ## Purpose
-TBD - created by archiving change add-web-push-notifications. Update Purpose after archive.
+Defines Web Push delivery of notifications to a user's browser: subscriptions are registered and removed per user, delivery is gated by the recipient's current module permissions (mirroring the in-app feed) and by their per-team, per-category push preferences (which default to fully enabled), delivery failures are handled gracefully (bounded payload size, retries on transient errors, automatic pruning of subscriptions the push service reports as permanently invalid) without blocking the underlying notification, the whole mechanism degrades to a no-op when unconfigured in dev but is required in production, and members can optionally enable a once-per-event reminder push sent a configurable number of hours before an event starts.
 ## Requirements
 ### Requirement: A user can enable Web Push notifications for their browser
 The system MUST let an authenticated user register their browser's push

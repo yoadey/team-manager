@@ -1,7 +1,7 @@
 # shared-calendar Specification
 
 ## Purpose
-TBD - created by archiving change shared-team-calendar. Update Purpose after archive.
+Defines cross-team read-only calendar sharing: a team with settings-write can grant or revoke another team's members visibility into its calendar, and a shared calendar exposes only each event's time, location, title, and type — never attendance, participants, comments, or notes — with no access at all absent an active grant.
 ## Requirements
 ### Requirement: Grant read-only calendar visibility to another team
 A team MUST be able to grant, and revoke, read-only visibility of its calendar to another team; only a member with settings write on the sharing team may manage grants.

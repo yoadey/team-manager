@@ -1,7 +1,7 @@
 # finance-matrix-transactions Specification
 
 ## Purpose
-TBD - created by archiving change finance-matrix-transactions. Update Purpose after archive.
+Defines the finance UI's matrix-first workflow for contributions and transactions: the contributions tab defaults to the member × fee-group matrix (list remains reachable via toggle), the link-picker matrix used from the transaction form renders compactly (no photo, minimal spacing, square selection cells), the transaction form exposes direct fee/penalty linking buttons and an editable date field, the transactions list is filterable by category, and clicking a populated matrix cell always opens that contribution's read-only detail view.
 
 ## Requirements
 

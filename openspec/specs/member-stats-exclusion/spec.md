@@ -1,7 +1,7 @@
 # member-stats-exclusion Specification
 
 ## Purpose
-TBD - created by archiving change exclude-members-from-stats. Update Purpose after archive.
+Defines the per-membership `excludeFromStats` flag, editable by a caller with `members:write`: an excluded member keeps full app access (RSVP, comments, etc.) but is omitted from personal-quota statistics — the overview's member quotas, the single-member statistics view, the attendance matrix's rows/columns, and the absence table — while their historical explicit responses continue to count toward per-event turnout statistics, since those describe the event rather than the excluded member's personal quota.
 
 ## Requirements
 

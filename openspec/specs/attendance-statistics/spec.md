@@ -1,7 +1,7 @@
 # attendance-statistics Specification
 
 ## Purpose
-TBD - created by archiving change align-stats-with-effective-attendance. Update Purpose after archive.
+Defines how attendance statistics are computed and shaped: overview quotes, the per-member-per-event matrix, and the single-member view all derive from the same effective-attendance status (explicit response, else a covering absence counts as not attending, else an opt-out event defaults to attending) so no view contradicts another; event- and member-level aggregations apply a consistent membership filter across former members; the matrix orders rows by attendance frequency and columns chronologically; and all three endpoints share the same date-range defaulting/clamping and require `stats`-module read authorization.
 
 ## Requirements
 

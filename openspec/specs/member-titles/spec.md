@@ -1,7 +1,7 @@
 # member-titles Specification
 
 ## Purpose
-TBD - created by archiving change member-titles. Update Purpose after archive.
+Defines a short, free-text, non-RBAC "title" on a membership: a member with at least `members:read` can set or clear their own title (capped at 40 characters) but never another member's via the self-service endpoint, a caller with `members:write` can set or clear any member's title through the existing member-update path, the title carries no permission meaning regardless of its text, and where set it is displayed in small, secondary text near the member's name in the member list and an event's attendance list.
 
 ## Requirements
 

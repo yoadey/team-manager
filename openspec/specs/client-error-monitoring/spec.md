@@ -1,7 +1,7 @@
 # client-error-monitoring Specification
 
 ## Purpose
-TBD - created by archiving change reduce-client-error-monitoring-pii. Update Purpose after archive.
+Defines how client-side error events are scrubbed before being sent to Sentry: the user context carries only an opaque user id, with email address, IP address, and display name never included anywhere in the event.
 ## Requirements
 ### Requirement: Sentry events carry no personally identifying user data
 Error events sent to Sentry MUST NOT include the user's email address, IP

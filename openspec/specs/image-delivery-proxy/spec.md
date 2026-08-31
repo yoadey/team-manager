@@ -1,7 +1,7 @@
 # image-delivery-proxy Specification
 
 ## Purpose
-TBD - created by archiving change kleinere-findings. Update Purpose after archive.
+Defines an optional proxy mode for image delivery (team/user photos, team logos, including the signed-in user's own photo) in which the backend streams the object store's bytes directly to the client instead of redirecting to a presigned object-store URL, for deployments where the object store isn't reachable from the browser, while preserving the same membership-based access control ahead of any bytes being streamed as the default redirect mode.
 ## Requirements
 ### Requirement: Image delivery can be proxied through the backend
 Team/user photo and logo delivery MUST support a configurable proxy mode where the backend streams the object store's bytes directly, as an alternative to redirecting the client to a presigned object-store URL, for deployments where the object store is not reachable from the browser. This applies to the signed-in user's own photo endpoint (`GET /auth/me/photo`) as well as team member photos, team photos, and team logos.

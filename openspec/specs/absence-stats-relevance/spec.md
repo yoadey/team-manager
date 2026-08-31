@@ -1,7 +1,7 @@
 # absence-stats-relevance Specification
 
 ## Purpose
-TBD - created by archiving change absence-stats-relevance. Update Purpose after archive.
+Defines how a planned absence can be flagged as not relevant for attendance statistics: any member may flag their own absence, flagging a colleague's requires `events:write`, and an event date covered by such a flagged absence is excluded entirely from that member's attendance statistics — neither attending, absent, nor counted toward the total — unless an explicit response for that date overrides the flag.
 
 ## Requirements
 

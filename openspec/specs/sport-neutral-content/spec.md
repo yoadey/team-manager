@@ -1,7 +1,7 @@
 # sport-neutral-content Specification
 
 ## Purpose
-TBD - created by archiving change kleinere-findings. Update Purpose after archive.
+Defines that default, non-user-authored UI copy shown to every team regardless of what sport they practice — such as event-type labels and form-field placeholders — must be phrased generically rather than presupposing one specific sport.
 ## Requirements
 ### Requirement: Default UI copy does not presuppose one sport
 Default, non-user-authored UI strings (event-type labels, form-field placeholders) that every team sees regardless of what sport they practice MUST NOT imply a specific sport such as dance/formation.

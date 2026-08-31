@@ -1,7 +1,7 @@
 # auth-hardening Specification
 
 ## Purpose
-TBD - created by archiving change harden-auth-privacy. Update Purpose after archive.
+Defines a set of targeted hardening measures for authentication and its surrounding infrastructure: audit log entries store a one-way hash of a member's email instead of plaintext, over-length passwords are rejected before hashing or lookup rather than silently truncated, cross-site mutating requests are blocked based on `Sec-Fetch-Site` even without a disallowed `Origin`, the mailer independently rejects header-injection attempts via CRLF in `to`/`from`/`subject`, and a missing auth context on an authenticated route reports 401 rather than 404.
 ## Requirements
 ### Requirement: No plaintext email in the audit log
 Audit log entries MUST NOT store a member's email address in plaintext. A one-way hash MAY be stored so repeated attempts for the same address stay correlatable.

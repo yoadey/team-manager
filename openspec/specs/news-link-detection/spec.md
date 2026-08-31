@@ -1,7 +1,7 @@
 # news-link-detection Specification
 
 ## Purpose
-TBD - created by archiving change kleinere-findings. Update Purpose after archive.
+Defines how bare URLs inside news body text are rendered: any `http://`, `https://`, or `www.`-prefixed URL is turned into a clickable link (defaulting to `https://` when no scheme is given) that opens in a new tab, the surrounding plain text is left unchanged, and body text with no URLs renders as plain text, all without allowing arbitrary HTML injection from the body.
 ## Requirements
 ### Requirement: Bare URLs in news text render as clickable links
 News body text MUST render any bare URL (`http://`, `https://`, or `www.`-prefixed) as a clickable link, without allowing arbitrary HTML injection from the body text.

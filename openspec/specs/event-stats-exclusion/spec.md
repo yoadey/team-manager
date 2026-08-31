@@ -1,7 +1,7 @@
 # event-stats-exclusion Specification
 
 ## Purpose
-TBD - created by archiving change exclude-events-from-stats. Update Purpose after archive.
+Defines the per-event `excludeFromStats` flag, settable at creation and edit time and seeded onto every occurrence of a recurring series (with per-occurrence override on single-scope edits): an excluded event remains fully visible and functional — listed, RSVP-able, commentable, and showing its own attendance summary — while being omitted from every attendance-statistics computation (overview quotas, per-event stats, absence stats, single-member stats, the attendance matrix) as if it did not exist for that purpose.
 
 ## Requirements
 

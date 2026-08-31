@@ -1,7 +1,7 @@
 # mobile-layout Specification
 
 ## Purpose
-TBD - created by archiving change mobile-layout-polish. Update Purpose after archive.
+Defines layout adjustments applied specifically at mobile viewport widths: bottom-anchored navigation and actions must stay fully visible and tappable around the mobile browser's toolbar and device safe area, and the calendar must use tighter cell spacing and smaller corner radii to give day entries more room, while desktop breakpoints retain their existing, roomier layout.
 
 ## Requirements
 

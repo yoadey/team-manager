@@ -1,7 +1,7 @@
 # password-reset Specification
 
 ## Purpose
-TBD - created by archiving change password-reset. Update Purpose after archive.
+Defines self-service password recovery by email: an unauthenticated visitor can request a reset link via `POST /auth/forgot-password`, which always returns the same generic response regardless of whether the email has no account, an account with no password, or an account with a password, so account existence and auth method are never leaked; a resulting reset token is single-use and expires, `POST /auth/reset-password` accepts it only with a password meeting the strength policy and then returns a session equivalent to login, a successful reset invalidates every other existing session on the account, the endpoint is per-IP rate-limited like the codebase's other public auth endpoints, and expired tokens are eventually cleaned up by the daily retention job.
 
 ## Requirements
 

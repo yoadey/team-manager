@@ -1,7 +1,7 @@
 # dev-tooling Specification
 
 ## Purpose
-TBD - created by archiving change tooling-and-docs-hardening. Update Purpose after archive.
+Defines the developer-facing quality gates that keep the repository's tooling honest: frontend lint fails the build on warnings rather than letting them accumulate, the pre-commit hook checks staged Go files (not only frontend files), the README documents running the full stack (database, backend, frontend), and CI runs `openspec validate --strict` on every pull request touching `openspec/changes/`.
 ## Requirements
 ### Requirement: Lint warnings are enforced
 The frontend lint gate MUST fail on warnings, so warning-level rules cannot accumulate silently.

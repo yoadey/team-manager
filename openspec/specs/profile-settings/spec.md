@@ -1,7 +1,7 @@
 # profile-settings Specification
 
 ## Purpose
-TBD - created by archiving change remove-self-service-role-toggle. Update Purpose after archive.
+Defines that team-role assignment is never self-service from the Profile Settings sheet: a user's own roles are shown there read-only, and changing them — including one's own — is only possible through Members management, using the same role-assignment control applied to any other member.
 ## Requirements
 ### Requirement: Team-role assignment is not self-service from Profile Settings
 The Profile Settings sheet (opened from the account/avatar entry point) MUST NOT let a user change which team roles they themselves hold. Role assignment, including for the signed-in user's own membership, MUST be done exclusively through Members management.

@@ -1,7 +1,7 @@
 # finance-listing Specification
 
 ## Purpose
-TBD - created by archiving change finance-pagination-and-idempotency. Update Purpose after archive.
+Defines how finance transactions and contributions are listed and cross-linked: transactions are reachable via uncapped cursor-based pagination and carry a client-settable (optionally back-dated) date, contributions can be viewed as a member × fee-group matrix alongside the existing list with overpayment shown at its true amount rather than capped, a matrix picker is used to link a new transaction to the contribution it pays, transactions may carry an optional note hidden from the list view, and each finance detail view (transaction, penalty assignment, contribution) surfaces the other entries it is linked to.
 
 ## Requirements
 

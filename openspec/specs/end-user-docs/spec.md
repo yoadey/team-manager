@@ -1,7 +1,7 @@
 # end-user-docs Specification
 
 ## Purpose
-TBD - created by archiving change add-end-user-documentation. Update Purpose after archive.
+Defines the non-technical, self-service documentation aimed at end users rather than developers: a getting-started guide covering invite-based onboarding and the actual login/registration methods the product ships, a plain-language explanation of the roles/permissions model, a chapter for every top-level app route, and a companion guide to the GDPR data-export and account-deletion flows — all reachable as browsable Markdown, built into a static site, and linked from the project README.
 ## Requirements
 ### Requirement: Onboarding is self-service
 A newly invited member MUST be able to join and start using their team

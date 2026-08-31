@@ -1,7 +1,7 @@
 # client-data-fetching Specification
 
 ## Purpose
-TBD - created by archiving change adopt-tanstack-query. Update Purpose after archive.
+Defines how the frontend fetches and caches server-derived data: it goes through a dedicated query cache (TanStack Query) rather than the global application context, so one module's failed request doesn't block another's rendering; cache keys are scoped by team id so a stale response for a previously active team can never overwrite the currently selected team's data; mutation pending state is tracked per operation so concurrent actions don't re-enable each other's controls; and the retry policy never retries 401/403/422 responses.
 ## Requirements
 ### Requirement: Server state managed by a query cache
 Server-derived data MUST be fetched and cached through a dedicated query cache (TanStack Query), not stored in the global application context. Feature screens MUST read data via query hooks.
