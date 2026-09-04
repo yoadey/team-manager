@@ -1,0 +1,18 @@
+# Maps SpielerPlus role names (as scraped from the roster page) to the name
+# of an existing Teamverwaltung role in the target team (TEAM_ID). Roles
+# must already exist in Teamverwaltung - create them via the normal UI
+# first. Every SpielerPlus role in use MUST have an entry here, or the
+# import fails before writing anything (see spec: "Unmapped SpielerPlus
+# roles fail loudly").
+#
+# Copy this file, adjust the right-hand side to your team's actual role
+# names, and pass its path as ROLE_MAPPING_PATH.
+
+# The role names on the left are examples - a HAR capture of a real
+# SpielerPlus roster showed "Trainer", "Betreuer" (assistant coach), and
+# "Spieler" (player) in use, plus "Kassenwart" (treasurer) and "Inaktiv"
+# (inactive) as configurable options - your club's roles may differ, check
+# your own /team page.
+Trainer: Trainer
+Betreuer: Trainer
+Spieler: Member
