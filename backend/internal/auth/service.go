@@ -55,7 +55,7 @@ var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("user-enumeration-
 type authRepo interface {
 	FindUserByEmail(ctx context.Context, email string) (*UserRow, error)
 	FindUserByID(ctx context.Context, id string) (*UserRow, error)
-	CreateSession(ctx context.Context, userID string, tokenHash string, expiresAt time.Time) (*SessionRow, error)
+	CreateSession(ctx context.Context, userID string, tokenHash string, expiresAt time.Time, provider string) (*SessionRow, error)
 	FindSession(ctx context.Context, tokenHash string) (*SessionRow, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	FindUserPhotoKeyByID(ctx context.Context, id string) (string, error)
@@ -72,6 +72,8 @@ type authRepo interface {
 	ConsumePasswordResetToken(ctx context.Context, tokenHash string) error
 	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID string) error
+	FindUserByOIDCSubject(ctx context.Context, provider, subject string) (*UserRow, error)
+	LinkOIDCAccount(ctx context.Context, userID, provider, subject string) error
 }
 
 // RegistrationConfig configures self-service registration. Grouped into its
@@ -217,7 +219,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (token stri
 		return "", nil, ErrEmailNotVerified
 	}
 
-	signed, err := s.createSessionAndSign(ctx, user)
+	signed, err := s.createSessionAndSign(ctx, user, SessionProviderPassword)
 	if err != nil {
 		return "", nil, fmt.Errorf("auth.Service.Login: %w", err)
 	}
@@ -225,10 +227,10 @@ func (s *Service) Login(ctx context.Context, email, password string) (token stri
 }
 
 // createSessionAndSign creates a DB-backed session for user and returns a
-// signed JWT carrying it. Shared by Login and VerifyEmail so a successful
-// email verification establishes a session identically to a successful
-// password login.
-func (s *Service) createSessionAndSign(ctx context.Context, user *UserRow) (string, error) {
+// signed JWT carrying it. Shared by Login, VerifyEmail, ResetPassword and
+// LoginWithOIDC so every way of establishing a session produces an identical
+// one; provider only records which of them it was.
+func (s *Service) createSessionAndSign(ctx context.Context, user *UserRow, provider string) (string, error) {
 	// Generate a random token and derive its SHA-256 hash for storage.
 	rawToken, tokenHash, err := generateTokenAndHash()
 	if err != nil {
@@ -236,7 +238,7 @@ func (s *Service) createSessionAndSign(ctx context.Context, user *UserRow) (stri
 	}
 
 	expiresAt := time.Now().Add(s.sessionTTL)
-	_, err = s.repo.CreateSession(ctx, user.Id.String(), tokenHash, expiresAt)
+	_, err = s.repo.CreateSession(ctx, user.Id.String(), tokenHash, expiresAt, provider)
 	if err != nil {
 		return "", fmt.Errorf("create session: %w", err)
 	}
@@ -368,11 +370,113 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) (token strin
 		return "", nil, fmt.Errorf("auth.Service.VerifyEmail: %w", err)
 	}
 
-	signed, err := s.createSessionAndSign(ctx, user)
+	signed, err := s.createSessionAndSign(ctx, user, SessionProviderPassword)
 	if err != nil {
 		return "", nil, fmt.Errorf("auth.Service.VerifyEmail: %w", err)
 	}
 	return signed, user, nil
+}
+
+// LoginWithOIDC establishes a session from a verified ID token, resolving the
+// local account in three steps:
+//
+//  1. an existing link for (provider, subject),
+//  2. otherwise an existing account with the same address, which gets linked,
+//  3. otherwise a freshly provisioned, passwordless account.
+//
+// A newly provisioned account has no team membership -- it lands on the
+// "no team yet" screen until somebody invites it, exactly like a self-service
+// registration.
+func (s *Service) LoginWithOIDC(ctx context.Context, provider string, claims OIDCClaims) (token string, user *UserRow, err error) {
+	// Everything below keys off the address the provider vouches for. Without
+	// that assertion, anyone able to set an arbitrary address at any federated
+	// identity provider could claim an existing account in step 2.
+	if !claims.EmailVerified || claims.Email == "" {
+		return "", nil, ErrOIDCEmailUnverified
+	}
+	if claims.Subject == "" {
+		return "", nil, ErrOIDCState
+	}
+
+	user, err = s.resolveOIDCUser(ctx, provider, claims)
+	if err != nil {
+		return "", nil, err
+	}
+
+	signed, err := s.createSessionAndSign(ctx, user, provider)
+	if err != nil {
+		return "", nil, fmt.Errorf("auth.Service.LoginWithOIDC: %w", err)
+	}
+	return signed, user, nil
+}
+
+// resolveOIDCUser performs the link/provision decision for LoginWithOIDC.
+func (s *Service) resolveOIDCUser(ctx context.Context, provider string, claims OIDCClaims) (*UserRow, error) {
+	linked, err := s.repo.FindUserByOIDCSubject(ctx, provider, claims.Subject)
+	if err == nil {
+		return linked, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("auth.Service.LoginWithOIDC: lookup subject: %w", err)
+	}
+
+	existing, err := s.repo.FindUserByEmail(ctx, claims.Email)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("auth.Service.LoginWithOIDC: lookup email: %w", err)
+	}
+	if err == nil && existing != nil {
+		// The provider has just proven control of this address, which is
+		// exactly what the emailed verification link proves -- so an account
+		// that never completed that step becomes verified here.
+		linked, linkErr := s.verifyAndLink(ctx, existing, provider, claims.Subject)
+		if linkErr != nil {
+			return nil, linkErr
+		}
+		s.logger.InfoContext(ctx, "OIDC login linked to existing account",
+			"user_id", linked.Id, "provider", provider)
+		return linked, nil
+	}
+
+	created, err := s.repo.CreateUnverifiedUser(ctx, claims.Name, claims.Email, "")
+	if err != nil {
+		// FindUserByEmail filters soft-deleted rows but the unique index does
+		// not, so a deleted account still holds the address and the insert
+		// conflicts. That is a distinct, explainable outcome rather than a
+		// server error.
+		if errors.Is(err, ErrEmailTaken) {
+			return nil, ErrOIDCAccountDeleted
+		}
+		return nil, fmt.Errorf("auth.Service.LoginWithOIDC: provision account: %w", err)
+	}
+	fresh, err := s.verifyAndLink(ctx, created, provider, claims.Subject)
+	if err != nil {
+		return nil, err
+	}
+	s.logger.InfoContext(ctx, "OIDC login provisioned a new account",
+		"user_id", fresh.Id, "provider", provider)
+	return fresh, nil
+}
+
+// verifyAndLink marks user's address verified (when it isn't already), links
+// the external subject to it, and returns the row as persisted.
+//
+// The re-read matters: both callers hand in a snapshot taken before
+// MarkEmailVerified ran, so returning it directly would report an account as
+// unverified in the very response that just verified it.
+func (s *Service) verifyAndLink(ctx context.Context, user *UserRow, provider, subject string) (*UserRow, error) {
+	if user.EmailVerifiedAt == nil {
+		if err := s.repo.MarkEmailVerified(ctx, user.Id.String()); err != nil {
+			return nil, fmt.Errorf("auth.Service.LoginWithOIDC: mark verified: %w", err)
+		}
+	}
+	if err := s.repo.LinkOIDCAccount(ctx, user.Id.String(), provider, subject); err != nil {
+		return nil, fmt.Errorf("auth.Service.LoginWithOIDC: link account: %w", err)
+	}
+	fresh, err := s.repo.FindUserByID(ctx, user.Id.String())
+	if err != nil {
+		return nil, fmt.Errorf("auth.Service.LoginWithOIDC: reload account: %w", err)
+	}
+	return fresh, nil
 }
 
 // ResendVerification always succeeds from the caller's perspective,
@@ -482,7 +586,7 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken, newPassword strin
 		return "", nil, fmt.Errorf("auth.Service.ResetPassword: %w", err)
 	}
 
-	signed, err := s.createSessionAndSign(ctx, user)
+	signed, err := s.createSessionAndSign(ctx, user, SessionProviderPassword)
 	if err != nil {
 		return "", nil, fmt.Errorf("auth.Service.ResetPassword: %w", err)
 	}

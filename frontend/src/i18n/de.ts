@@ -217,6 +217,11 @@ export const de = {
     resetPasswordTitle: 'Neues Passwort festlegen',
     resetPasswordSubmit: 'Neues Passwort speichern',
     resetPasswordFailed: 'Dieser Link zum Zurücksetzen ist ungültig oder abgelaufen. Bitte fordere einen neuen an.',
+    oidcFailed: 'Die Anmeldung konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
+    oidcUnavailable: 'Der Anmeldedienst ist gerade nicht erreichbar. Bitte versuche es später erneut oder melde dich mit E-Mail und Passwort an.',
+    oidcDenied: 'Die Anmeldung wurde abgebrochen.',
+    oidcEmailUnverified: 'Dein Anbieter hat keine bestätigte E-Mail-Adresse übermittelt. Bestätige die Adresse dort und versuche es erneut.',
+    oidcAccountDeleted: 'Zu dieser E-Mail-Adresse gehört ein gelöschtes Konto. Bitte wende dich an die Vereinsverwaltung.',
   },
   noTeam: {
     title: 'Noch kein Team',

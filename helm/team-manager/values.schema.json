@@ -252,6 +252,36 @@
         }
       }
     },
+    "oidc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "issuer": { "type": "string" },
+        "redirectUrl": { "type": "string" },
+        "providerId": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string" },
+        "displaySubtitle": { "type": "string" },
+        "icon": { "type": "string" },
+        "scopes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "secret": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": { "type": "string" },
+            "keys": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "clientId": { "type": "string", "minLength": 1 },
+                "clientSecret": { "type": "string", "minLength": 1 },
+                "extraScopes": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
     "push": {
       "type": "object",
       "additionalProperties": false,
@@ -512,6 +542,7 @@
         "apiBaseUrl": { "type": "string" },
         "sentryDsn": { "type": "string" },
         "vapidPublicKey": { "type": "string" },
+        "extraImgSrc": { "type": "string" },
         "operator": {
           "type": "object",
           "additionalProperties": false,

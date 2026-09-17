@@ -24,7 +24,6 @@ import {
   DEMO_PASSWORD,
   DEMO_LOGIN_EMAIL,
   DEMO_LOGIN_USER_ID,
-  DEMO_SSO_PROVIDER_IDS,
 } from './db';
 import type { UserRow, TeamRow, StatsPresetRow } from './db';
 import type { ModuleKey, PermLevel, RoleDto } from '@/types';
@@ -622,26 +621,21 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
-  // Demo-only. Two accepted paths:
-  //  1. The fixed demo email + password (see db.ts's DEMO_PASSWORD/
-  //     DEMO_LOGIN_EMAIL) — a wrong/missing password is rejected with 401,
-  //     unlike the old localStorage mock, which ignored the password
-  //     entirely (see proposal.md's security smell).
-  //  2. One of DEMO_SSO_PROVIDER_IDS as the "email" field with no password —
-  //     the app's Login screen historically offered one-tap SSO buttons
-  //     (never backed by a real OIDC flow; /auth/providers now only
-  //     advertises "password", so these no longer render) that call
-  //     `api.auth.login(providerId)`; kept working here as a demo
-  //     convenience distinct from (and not weakening) the password path.
+  // Demo-only: the fixed demo email + password (see db.ts's DEMO_PASSWORD/
+  // DEMO_LOGIN_EMAIL) or a self-registered account's own password. A
+  // wrong/missing password is rejected with 401, unlike the old localStorage
+  // mock, which ignored the password entirely (see proposal.md's security
+  // smell).
+  //
+  // There used to be a second path accepting a provider id in the "email"
+  // field, left over from one-tap SSO buttons that were never backed by a
+  // real OIDC flow. Provider login is now a redirect to the backend's
+  // /auth/oidc/start, which MSW has nothing to stand in for — and
+  // /auth/providers below advertises only "password" in demo mode, so no
+  // provider button renders here anyway.
   http.post(P('/auth/login'), async ({ request }) => {
     const body = (await request.json()) as S['LoginRequest'];
     await loginDelay();
-    if (DEMO_SSO_PROVIDER_IDS.includes(body.email)) {
-      const u = requireUser(DEMO_LOGIN_USER_ID);
-      session.userId = u.id;
-      const resp: S['LoginResponse'] = { user: toWireUser(u) };
-      return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
-    }
     const u = db.users.find((x) => x.email.toLowerCase() === body.email?.toLowerCase());
     // Self-registered accounts (created via POST /auth/register) carry their
     // own password on the row; the fixed demo account never has one set.

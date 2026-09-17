@@ -266,12 +266,25 @@ export function Login() {
                       justifyContent: 'center',
                       fontWeight: 800,
                       fontSize: p.name === 'Vereins-SSO' ? '13px' : '18px',
-                      background: isApple ? 'transparent' : 'rgba(0,0,0,.05)',
+                      background: isApple || p.icon ? 'transparent' : 'rgba(0,0,0,.05)',
                       color: p.fg,
                       flex: '0 0 auto',
                     }}
                   >
-                    {isApple ? <Sym name="phone_iphone" size={18} color={p.fg} /> : glyph}
+                    {p.icon ? (
+                      // alt="" keeps it decorative: the provider's name is
+                      // already the button's own label right next to it.
+                      <Box
+                        component="img"
+                        src={p.icon}
+                        alt=""
+                        sx={{ width: 20, height: 20, objectFit: 'contain', display: 'block' }}
+                      />
+                    ) : isApple ? (
+                      <Sym name="phone_iphone" size={18} color={p.fg} />
+                    ) : (
+                      glyph
+                    )}
                   </Box>
                   <Box component="span" sx={{ flex: 1, textAlign: 'left' }}>
                     <Box component="span" sx={{ display: 'block', fontSize: '15px', fontWeight: 600, lineHeight: 1.2 }}>

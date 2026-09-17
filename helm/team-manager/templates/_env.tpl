@@ -94,6 +94,34 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
 - name: SMTP_FROM_ADDRESS
   value: {{ . | quote }}
 {{- end }}
+{{- if .Values.oidc.enabled }}
+- name: OIDC_ENABLED
+  value: "true"
+- name: OIDC_ISSUER
+  value: {{ .Values.oidc.issuer | quote }}
+- name: OIDC_PROVIDER_ID
+  value: {{ .Values.oidc.providerId | quote }}
+{{- with .Values.oidc.redirectUrl }}
+- name: OIDC_REDIRECT_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.oidc.displayName }}
+- name: OIDC_PROVIDER_NAME
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.oidc.displaySubtitle }}
+- name: OIDC_PROVIDER_SUBTITLE
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.oidc.icon }}
+- name: OIDC_PROVIDER_ICON
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.oidc.scopes }}
+- name: OIDC_SCOPES
+  value: {{ join " " . | quote }}
+{{- end }}
+{{- end }}
 {{- with .Values.push.publicKey }}
 - name: VAPID_PUBLIC_KEY
   value: {{ . | quote }}
@@ -168,6 +196,27 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
     secretKeyRef:
       name: {{ $root.Values.smtp.secret.existingSecret }}
       key: {{ $root.Values.smtp.secret.keys.password }}
+      optional: true
+{{- end }}
+{{- if and $root.Values.oidc.enabled $root.Values.oidc.secret.existingSecret }}
+- name: OIDC_CLIENT_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ $root.Values.oidc.secret.existingSecret }}
+      key: {{ $root.Values.oidc.secret.keys.clientId }}
+- name: OIDC_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ $root.Values.oidc.secret.existingSecret }}
+      key: {{ $root.Values.oidc.secret.keys.clientSecret }}
+- name: OIDC_EXTRA_SCOPES
+  valueFrom:
+    secretKeyRef:
+      name: {{ $root.Values.oidc.secret.existingSecret }}
+      key: {{ $root.Values.oidc.secret.keys.extraScopes }}
+      # Optional: holds a provider-specific hint (see values.yaml's oidc
+      # comment), which most deployments don't need at all. A missing key
+      # must not block pod scheduling.
       optional: true
 {{- end }}
 {{- if $root.Values.pagination.secret.existingSecret }}

@@ -2,7 +2,7 @@ package auth_test
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -25,7 +25,11 @@ import (
 // mockRepo in service_test.go isn't a good fit for. regTestRepo is a small,
 // self-contained in-memory implementation of the authRepo interface instead.
 
-var errRegTestNotFound = errors.New("auth_test: not found")
+// Wraps pgx.ErrNoRows so this fake signals "no such row" the way the real
+// Repository does (which wraps the pgx error with %w) -- service code is
+// entitled to tell a missing row apart from a database failure, and a fake
+// that blurs the two would let that distinction go untested.
+var errRegTestNotFound = fmt.Errorf("auth_test: not found: %w", pgx.ErrNoRows)
 
 type regTestRepo struct {
 	mu        sync.Mutex
@@ -34,6 +38,8 @@ type regTestRepo struct {
 	tokens    map[string]*auth.EmailVerificationTokenRow // keyed by token hash
 	resetToks map[string]*auth.PasswordResetTokenRow     // keyed by token hash
 	sessions  map[string]*auth.SessionRow                // keyed by token hash
+	oidcLinks map[string]string                          // "provider\x00subject" -> user id
+	deleted   map[string]bool                            // user ids that are soft-deleted
 
 	// Records of the mail jobs CreateEmailVerificationToken/
 	// CreatePasswordResetToken would have enqueued transactionally alongside
@@ -56,14 +62,67 @@ func newRegTestRepo() *regTestRepo {
 		tokens:    map[string]*auth.EmailVerificationTokenRow{},
 		resetToks: map[string]*auth.PasswordResetTokenRow{},
 		sessions:  map[string]*auth.SessionRow{},
+		oidcLinks: map[string]string{},
+		deleted:   map[string]bool{},
 	}
+}
+
+// softDelete marks a user deleted the way the real schema does: lookups stop
+// finding them, but the unique index still holds their address, so a fresh
+// insert for it conflicts.
+func (r *regTestRepo) softDelete(email string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if u, ok := r.users[strings.ToLower(strings.TrimSpace(email))]; ok {
+		r.deleted[u.Id.String()] = true
+	}
+}
+
+// sessionsForUser returns the sessions recorded for a user, for assertions
+// about how a session was established.
+func (r *regTestRepo) sessionsForUser(userID string) []*auth.SessionRow {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []*auth.SessionRow
+	for _, s := range r.sessions {
+		if s.UserId.String() == userID {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func (r *regTestRepo) FindUserByOIDCSubject(_ context.Context, provider, subject string) (*auth.UserRow, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	userID, ok := r.oidcLinks[provider+"\x00"+subject]
+	if !ok {
+		return nil, errRegTestNotFound
+	}
+	u, ok := r.usersByID[userID]
+	if !ok {
+		return nil, errRegTestNotFound
+	}
+	cp := *u
+	return &cp, nil
+}
+
+func (r *regTestRepo) LinkOIDCAccount(_ context.Context, userID, provider, subject string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := provider + "\x00" + subject
+	if _, exists := r.oidcLinks[key]; exists {
+		return nil
+	}
+	r.oidcLinks[key] = userID
+	return nil
 }
 
 func (r *regTestRepo) FindUserByEmail(_ context.Context, email string) (*auth.UserRow, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	u, ok := r.users[strings.ToLower(strings.TrimSpace(email))]
-	if !ok {
+	if !ok || r.deleted[u.Id.String()] {
 		return nil, errRegTestNotFound
 	}
 	cp := *u
@@ -74,19 +133,19 @@ func (r *regTestRepo) FindUserByID(_ context.Context, id string) (*auth.UserRow,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	u, ok := r.usersByID[id]
-	if !ok {
+	if !ok || r.deleted[id] {
 		return nil, errRegTestNotFound
 	}
 	cp := *u
 	return &cp, nil
 }
 
-func (r *regTestRepo) CreateSession(_ context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error) {
+func (r *regTestRepo) CreateSession(_ context.Context, userID, tokenHash string, expiresAt time.Time, provider string) (*auth.SessionRow, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := &auth.SessionRow{
 		Id: uuid.New(), UserId: uuid.MustParse(userID), TokenHash: tokenHash,
-		Provider: "password", ExpiresAt: expiresAt, CreatedAt: time.Now(),
+		Provider: provider, ExpiresAt: expiresAt, CreatedAt: time.Now(),
 	}
 	r.sessions[tokenHash] = s
 	return s, nil
@@ -700,9 +759,9 @@ func TestService_ResetPassword_InvalidatesEveryExistingSession(t *testing.T) {
 	require.NoError(t, err)
 
 	// Simulate two pre-existing sessions (e.g. two logged-in devices).
-	_, err = repo.CreateSession(context.Background(), user.Id.String(), "existing-session-1", time.Now().Add(time.Hour))
+	_, err = repo.CreateSession(context.Background(), user.Id.String(), "existing-session-1", time.Now().Add(time.Hour), auth.SessionProviderPassword)
 	require.NoError(t, err)
-	_, err = repo.CreateSession(context.Background(), user.Id.String(), "existing-session-2", time.Now().Add(time.Hour))
+	_, err = repo.CreateSession(context.Background(), user.Id.String(), "existing-session-2", time.Now().Add(time.Hour), auth.SessionProviderPassword)
 	require.NoError(t, err)
 	require.Equal(t, 2, repo.sessionCountForUser(user.Id.String()))
 

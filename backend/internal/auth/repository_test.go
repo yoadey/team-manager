@@ -148,7 +148,7 @@ func TestRepository_CreateAndFindSession(t *testing.T) {
 	require.NoError(t, err)
 
 	expiresAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Millisecond)
-	sess, err := repo.CreateSession(ctx, "33333333-3333-3333-3333-333333333333", "testhash123", expiresAt)
+	sess, err := repo.CreateSession(ctx, "33333333-3333-3333-3333-333333333333", "testhash123", expiresAt, auth.SessionProviderPassword)
 	require.NoError(t, err)
 	assert.NotEmpty(t, sess.Id)
 	assert.Equal(t, "testhash123", sess.TokenHash)
@@ -353,7 +353,7 @@ func TestRepository_DeleteSession(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	sess, err := repo.CreateSession(ctx, "44444444-4444-4444-4444-444444444444", "deletehash", time.Now().Add(time.Hour))
+	sess, err := repo.CreateSession(ctx, "44444444-4444-4444-4444-444444444444", "deletehash", time.Now().Add(time.Hour), auth.SessionProviderPassword)
 	require.NoError(t, err)
 	require.NotEmpty(t, sess.Id)
 
@@ -643,11 +643,11 @@ func TestRepository_DeleteSessionsForUser(t *testing.T) {
 	require.NoError(t, err)
 
 	expiresAt := time.Now().Add(time.Hour)
-	_, err = repo.CreateSession(ctx, userID, "session-a", expiresAt)
+	_, err = repo.CreateSession(ctx, userID, "session-a", expiresAt, auth.SessionProviderPassword)
 	require.NoError(t, err)
-	_, err = repo.CreateSession(ctx, userID, "session-b", expiresAt)
+	_, err = repo.CreateSession(ctx, userID, "session-b", expiresAt, auth.SessionProviderPassword)
 	require.NoError(t, err)
-	_, err = repo.CreateSession(ctx, otherUserID, "session-c", expiresAt)
+	_, err = repo.CreateSession(ctx, otherUserID, "session-c", expiresAt, auth.SessionProviderPassword)
 	require.NoError(t, err)
 
 	require.NoError(t, repo.DeleteSessionsForUser(ctx, userID))

@@ -42,6 +42,7 @@ type mockAuthService struct {
 	resendVerification func(ctx context.Context, email string) error
 	forgotPassword     func(ctx context.Context, email string) error
 	resetPassword      func(ctx context.Context, rawToken, newPassword string) (string, *auth.UserRow, error)
+	loginWithOIDC      func(ctx context.Context, provider string, claims auth.OIDCClaims) (string, *auth.UserRow, error)
 }
 
 func (m *mockAuthService) Login(ctx context.Context, email, password string) (string, *auth.UserRow, error) {
@@ -103,6 +104,10 @@ func (m *mockAuthService) ForgotPassword(ctx context.Context, email string) erro
 
 func (m *mockAuthService) ResetPassword(ctx context.Context, rawToken, newPassword string) (string, *auth.UserRow, error) {
 	return m.resetPassword(ctx, rawToken, newPassword)
+}
+
+func (m *mockAuthService) LoginWithOIDC(ctx context.Context, provider string, claims auth.OIDCClaims) (string, *auth.UserRow, error) {
+	return m.loginWithOIDC(ctx, provider, claims)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

@@ -450,6 +450,14 @@ func (s *Server) ListProviders(ctx context.Context, req gen.ListProvidersRequest
 	return s.Auth.ListProviders(ctx, req)
 }
 
+func (s *Server) StartOidcLogin(ctx context.Context, req gen.StartOidcLoginRequestObject) (gen.StartOidcLoginResponseObject, error) {
+	return s.Auth.StartOidcLogin(ctx, req)
+}
+
+func (s *Server) OidcCallback(ctx context.Context, req gen.OidcCallbackRequestObject) (gen.OidcCallbackResponseObject, error) {
+	return s.Auth.OidcCallback(ctx, req)
+}
+
 func (s *Server) Register(ctx context.Context, req gen.RegisterRequestObject) (gen.RegisterResponseObject, error) {
 	return s.Auth.Register(ctx, req)
 }

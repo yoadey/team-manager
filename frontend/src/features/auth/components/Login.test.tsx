@@ -20,6 +20,17 @@ const googleProvider = {
   glyph: 'G',
 };
 
+const iconProvider = {
+  id: 'google',
+  name: 'Google',
+  sub: 'Mit Google anmelden',
+  bg: '#fff',
+  fg: '#1e293b',
+  border: true,
+  glyph: 'login',
+  icon: '/provider-icons/google.svg',
+};
+
 const appleProvider = {
   id: 'apple',
   name: 'Apple',
@@ -42,7 +53,7 @@ const passwordProvider = {
 
 function makeApp(
   overrides: {
-    providers?: (typeof googleProvider)[];
+    providers?: (typeof googleProvider | typeof iconProvider)[];
     busy?: string | null;
     error?: string | null;
     resetPasswordToken?: string | null;
@@ -140,6 +151,27 @@ describe('Login', () => {
     const googleBtn = screen.getByText('Google').closest('button');
     fireEvent.click(googleBtn!);
     expect(app.doLogin).not.toHaveBeenCalled();
+  });
+
+  // The backend advertises an icon as a URL (Provider.icon) so an operator
+  // can point it at one of the bundled /provider-icons/ assets -- or anywhere
+  // else -- without a frontend change.
+  it("renders a provider's icon when it has one", () => {
+    makeApp({ providers: [iconProvider] });
+    render(<Login />);
+    const img = screen.getByText('Google').closest('button')!.querySelector('img');
+    expect(img).toBeTruthy();
+    expect(img!.getAttribute('src')).toBe('/provider-icons/google.svg');
+    // Decorative: the provider's name is already the button's visible label.
+    expect(img!.getAttribute('alt')).toBe('');
+  });
+
+  it('falls back to the text glyph for a provider with no icon', () => {
+    makeApp({ providers: [googleProvider] });
+    render(<Login />);
+    const btn = screen.getByText('Google').closest('button')!;
+    expect(btn.querySelector('img')).toBeNull();
+    expect(btn.textContent).toContain('G');
   });
 
   it('shows no error banner when state.error is null', () => {

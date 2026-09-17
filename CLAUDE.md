@@ -69,7 +69,7 @@ team-manager/
 │   ├── cmd/healthcheck/   Docker HEALTHCHECK binary (no HTTP client at runtime)
 │   ├── cmd/genrbac/       Generates internal/middleware/rbac_table.gen.go from openapi.yaml's x-rbac-* extensions
 │   ├── internal/
-│   │   ├── auth/          Auth module (password login, JWT, OIDC-ready)
+│   │   ├── auth/          Auth module (password login, OIDC login, JWT)
 │   │   ├── teams/         Teams, invites
 │   │   ├── members/       Team members
 │   │   ├── roles/         RBAC roles and permissions
@@ -164,6 +164,7 @@ self-registration minimum-age gate.
 | `VITE_APP_NAME`           | `Teamverwaltung` | Browser title                    |
 | `VITE_SENTRY_DSN`         | _(empty)_        | Sentry; disabled when empty      |
 | `VITE_API_BASE_URL`       | _(empty)_        | Real backend URL                 |
+| `EXTRA_IMG_SRC`           | _(empty)_        | Space-separated extra sources appended to the app's `img-src` CSP at container start (same envsubst mechanism as `API_BASE_URL`). Only needed when `OIDC_PROVIDER_ICON` points at a host other than the frontend's own. |
 | `VITE_VAPID_PUBLIC_KEY`   | _(empty)_        | VAPID public key for Web Push; must match the backend's `VAPID_PUBLIC_KEY`. In production this is overridden at container start by the `VAPID_PUBLIC_KEY` runtime env var (see "Connecting the Real Backend" and `docs/operations.md`), same mechanism as `SENTRY_DSN`. |
 
 ### Backend
@@ -202,6 +203,15 @@ self-registration minimum-age gate.
 | `EMAIL_VERIFICATION_TTL_HOURS` | `48`         | How long a self-registration verification link stays valid before it must be re-requested via `POST /auth/resend-verification`. |
 | `PASSWORD_RESET_TTL_HOURS` | `1`              | How long a password-reset link stays valid before it must be re-requested via `POST /auth/forgot-password`. Deliberately much shorter than `EMAIL_VERIFICATION_TTL_HOURS` since it grants a credential change. |
 | `FORGOT_PASSWORD_RATE_LIMIT_PER_MIN` | `3`    | Per-IP `POST /auth/forgot-password` attempt limit per minute. |
+| `OIDC_ENABLED`    | `false`                     | Enables login through an external OpenID Connect provider, alongside (never instead of) password login. When `true`, `OIDC_ISSUER`/`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET` are required — startup fails without them. |
+| `OIDC_ISSUER`     | _(empty)_                   | Provider issuer URL, e.g. `https://sso.example.com`. Discovery runs lazily: an unreachable provider logs a warning and is retried on first login rather than failing startup, so password login stays usable during an outage. |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | _(empty)_ | Confidential-client credentials registered at the provider. |
+| `OIDC_REDIRECT_URL` | `<PUBLIC_BASE_URL>/api/v1/auth/oidc/callback` | Must match the redirect URI registered at the provider exactly. |
+| `OIDC_SCOPES`     | `openid profile email`      | Space-separated base scopes for the authorization request. |
+| `OIDC_EXTRA_SCOPES` | _(empty)_                 | Space-separated extra scopes appended to `OIDC_SCOPES`, for provider-specific hints the application itself knows nothing about. This is how a ZITADEL deployment skips ZITADEL's own login screen and forwards straight to an upstream IdP: set it to `urn:zitadel:iam:org:idp:id:<idpID>`. Note the authorization request deliberately sends no `prompt` parameter — ZITADEL renders its own login UI whenever one other than `select_account` is present, which would defeat this. |
+| `OIDC_PROVIDER_ID` | `oidc`                     | Identifies the provider in the login-provider list **and** in `oidc_accounts.provider`. Changing it orphans every existing account link. |
+| `OIDC_PROVIDER_NAME` / `OIDC_PROVIDER_SUBTITLE` | `Single Sign-On` / _(empty)_ | Login button label and sub-label. |
+| `OIDC_PROVIDER_ICON` | _(empty)_                | Icon URL for the login button. Must be a root-relative path or an `https://` URL — anything else fails startup. The frontend serves `/provider-icons/{google,apple,microsoft,github,facebook,openid}.svg`; another host additionally needs the frontend's `EXTRA_IMG_SRC` CSP hook or the browser blocks the image silently. |
 | `SMTP_HOST`       | _(empty)_                   | SMTP relay host for outgoing self-registration verification email. **Required when `COOKIE_SECURE=true`** (with `SMTP_FROM_ADDRESS`) — startup fails without it. Unset in dev falls back to a logging fake mailer (the verification link is only written to the server log). |
 | `SMTP_PORT`       | `587`                       | SMTP relay port (STARTTLS). |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | _(empty)_   | SMTP auth credentials; may be blank for an open relay. |

@@ -69,6 +69,17 @@ var ErrSMTPConfigRequired = errors.New("SMTP_HOST and SMTP_FROM_ADDRESS are requ
 // Web Push would otherwise silently never deliver.
 var ErrVAPIDConfigRequired = errors.New("VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are all required when COOKIE_SECURE=true")
 
+// ErrOIDCConfigRequired is returned when OIDC_ENABLED is true but the issuer
+// or client credentials are missing -- the login button would otherwise be
+// advertised to users and then fail at the first click.
+var ErrOIDCConfigRequired = errors.New("OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET are all required when OIDC_ENABLED=true")
+
+// ErrOIDCIconInvalid is returned for an OIDC_PROVIDER_ICON that is neither a
+// same-origin path nor an https URL. A javascript:/data: value here would be
+// rendered into the login page's markup, so it is rejected at startup rather
+// than sanitized later.
+var ErrOIDCIconInvalid = errors.New("OIDC_PROVIDER_ICON must be a root-relative path (/provider-icons/...) or an https:// URL")
+
 // ErrDBPoolMinConnsExceedsMax is returned when DB_POOL_MIN_CONNS is greater
 // than DB_POOL_MAX_CONNS -- pgxpool would never actually keep MinConns idle
 // connections open under a lower MaxConns ceiling, so this is almost always a
@@ -162,6 +173,9 @@ type Config struct {
 	SMTPUsername    string
 	SMTPPassword    string
 	SMTPFromAddress string
+	// OIDC holds the optional external identity provider configuration. Zero
+	// value (Enabled false) means password login only.
+	OIDC OIDCSettings
 	// SelfRegistrationEnabled is a server-side kill switch for
 	// POST /auth/register. Defaults to true. Set via
 	// SELF_REGISTRATION_ENABLED.
@@ -303,6 +317,7 @@ func Load() (*Config, error) {
 	vapid := extra.VAPID
 	imageDeliveryProxyEnabled := extra.ImageDeliveryProxyEnabled
 	dbPool := extra.DBPool
+	oidcSettings := extra.OIDC
 
 	return &Config{
 		Port:                              envOr("PORT", "8080"),
@@ -316,6 +331,7 @@ func Load() (*Config, error) {
 		CookieSecure:                      cookieSecure,
 		CookieName:                        os.Getenv("COOKIE_NAME"),
 		PublicBaseURL:                     publicBaseURL,
+		OIDC:                              oidcSettings.withDefaults(publicBaseURL),
 		MetricsToken:                      os.Getenv("METRICS_TOKEN"),
 		SentryDSN:                         os.Getenv("SENTRY_DSN"),
 		RateLimitRPS:                      rateLimitRPS,
@@ -364,6 +380,7 @@ type additionalConfig struct {
 	VAPID                     vapidSettings
 	ImageDeliveryProxyEnabled bool
 	DBPool                    dbPoolSettings
+	OIDC                      OIDCSettings
 }
 
 // loadAdditionalConfig also folds in loadDBPoolConfig -- this keeps Load
@@ -382,7 +399,16 @@ func loadAdditionalConfig(cookieSecure bool) (additionalConfig, error) {
 	if err != nil {
 		return additionalConfig{}, err
 	}
-	return additionalConfig{VAPID: vapid, ImageDeliveryProxyEnabled: imageDeliveryProxyEnabled, DBPool: dbPool}, nil
+	oidcSettings, err := loadOIDCConfig()
+	if err != nil {
+		return additionalConfig{}, err
+	}
+	return additionalConfig{
+		VAPID:                     vapid,
+		ImageDeliveryProxyEnabled: imageDeliveryProxyEnabled,
+		DBPool:                    dbPool,
+		OIDC:                      oidcSettings,
+	}, nil
 }
 
 // vapidSettings mirrors the VAPID-related Config fields; kept as its own
@@ -890,4 +916,104 @@ func parseInt(s string, defaultVal int) (int, error) {
 		return 0, fmt.Errorf("got %d: %w", n, ErrInvalidPositiveInt)
 	}
 	return n, nil
+}
+
+// OIDCSettings is the external identity provider configuration. It mirrors
+// auth.OIDCConfig but lives here so the config package stays the single place
+// env vars are read; cmd/server translates between the two.
+type OIDCSettings struct {
+	Enabled      bool
+	Issuer       string
+	ClientID     string
+	ClientSecret string
+	// RedirectURL is the absolute URI the provider sends the browser back to.
+	// Empty means "derive it from PUBLIC_BASE_URL" -- see withDefaults.
+	RedirectURL string
+	// Scopes is the final, merged scope list for the authorization request.
+	Scopes []string
+	// ProviderID is both the button id in the provider list and the value
+	// stored in oidc_accounts.provider, so changing it orphans existing links.
+	ProviderID       string
+	ProviderName     string
+	ProviderSubtitle string
+	ProviderIcon     string
+}
+
+// oidcCallbackPath is where cmd/server mounts the OIDC callback; used to
+// derive RedirectURL when none is configured explicitly.
+const oidcCallbackPath = "/api/v1/auth/oidc/callback"
+
+// withDefaults fills in the values that can be derived rather than configured.
+func (o OIDCSettings) withDefaults(publicBaseURL string) OIDCSettings {
+	if o.Enabled && o.RedirectURL == "" {
+		o.RedirectURL = publicBaseURL + oidcCallbackPath
+	}
+	return o
+}
+
+// loadOIDCConfig reads the OIDC_* env vars. Unlike loadS3Config and friends it
+// keys off its own OIDC_ENABLED switch rather than COOKIE_SECURE: an external
+// identity provider is genuinely optional in production, whereas an object
+// store or SMTP relay is not.
+func loadOIDCConfig() (OIDCSettings, error) {
+	enabled, err := strconv.ParseBool(envOr("OIDC_ENABLED", "false"))
+	if err != nil {
+		return OIDCSettings{}, fmt.Errorf("OIDC_ENABLED: %w", err)
+	}
+	if !enabled {
+		return OIDCSettings{}, nil
+	}
+
+	o := OIDCSettings{
+		Enabled:          true,
+		Issuer:           strings.TrimSpace(os.Getenv("OIDC_ISSUER")),
+		ClientID:         strings.TrimSpace(os.Getenv("OIDC_CLIENT_ID")),
+		ClientSecret:     os.Getenv("OIDC_CLIENT_SECRET"),
+		RedirectURL:      strings.TrimSpace(os.Getenv("OIDC_REDIRECT_URL")),
+		Scopes:           mergeOIDCScopes(envOr("OIDC_SCOPES", "openid profile email"), os.Getenv("OIDC_EXTRA_SCOPES")),
+		ProviderID:       envOr("OIDC_PROVIDER_ID", "oidc"),
+		ProviderName:     envOr("OIDC_PROVIDER_NAME", "Single Sign-On"),
+		ProviderSubtitle: os.Getenv("OIDC_PROVIDER_SUBTITLE"),
+		ProviderIcon:     strings.TrimSpace(os.Getenv("OIDC_PROVIDER_ICON")),
+	}
+	if o.Issuer == "" || o.ClientID == "" || o.ClientSecret == "" {
+		return OIDCSettings{}, ErrOIDCConfigRequired
+	}
+	if err := validateOIDCIcon(o.ProviderIcon); err != nil {
+		return OIDCSettings{}, err
+	}
+	return o, nil
+}
+
+// mergeOIDCScopes combines the base and extra scope lists, de-duplicating
+// while preserving order. Extra scopes are how a deployment passes a
+// provider-specific hint (for example a ZITADEL IdP selection scope) without
+// this application knowing anything about that provider.
+func mergeOIDCScopes(base, extra string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, scope := range append(strings.Fields(base), strings.Fields(extra)...) {
+		if _, dup := seen[scope]; dup {
+			continue
+		}
+		seen[scope] = struct{}{}
+		out = append(out, scope)
+	}
+	return out
+}
+
+// validateOIDCIcon rejects anything that isn't a root-relative path or an
+// https URL. The value ends up as an <img src> on the unauthenticated login
+// screen, so the scheme allow-list is the whole point.
+func validateOIDCIcon(icon string) error {
+	if icon == "" {
+		return nil
+	}
+	if strings.HasPrefix(icon, "/") && !strings.HasPrefix(icon, "//") {
+		return nil
+	}
+	if strings.HasPrefix(icon, "https://") && len(icon) > len("https://") {
+		return nil
+	}
+	return ErrOIDCIconInvalid
 }

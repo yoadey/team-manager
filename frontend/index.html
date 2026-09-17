@@ -12,8 +12,14 @@
       `vite preview`) the placeholder is left un-substituted; CSP silently
       drops unrecognized source expressions rather than failing the whole
       directive, so 'self' still applies as before.
+
+      img-src carries ${EXTRA_IMG_SRC} for the same reason: a login provider's
+      icon (OIDC_PROVIDER_ICON) pointed at a host other than this one would
+      otherwise be blocked with no visible cause. The icons this app ships
+      under /provider-icons/ are same-origin and need nothing here, so it is
+      empty by default.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' ${API_BASE_URL} https://*.ingest.sentry.io; manifest-src 'self'; worker-src 'self';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: ${EXTRA_IMG_SRC}; connect-src 'self' ${API_BASE_URL} https://*.ingest.sentry.io; manifest-src 'self'; worker-src 'self';" />
     <!--
       IMPORTANT: frame-ancestors cannot be set via <meta> — browsers ignore it here.
       The production web server MUST emit these HTTP response headers to prevent clickjacking:

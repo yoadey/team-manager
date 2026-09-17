@@ -119,6 +119,7 @@ export function mapProvider(p: S['Provider']): Provider {
     bg: p.bg,
     fg: p.fg,
     ...opt('border', p.border ? true : undefined),
+    ...opt('icon', p.icon || undefined),
   };
 }
 

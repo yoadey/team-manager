@@ -189,6 +189,17 @@ export const realApi = {
       return providers.map(mapProvider);
     },
 
+    // Starts an external identity provider login. This is a full-page
+    // navigation, not a fetch: the browser has to leave the app for the
+    // provider's own domain, follow its redirects, and come back with the
+    // session cookie set. An XHR could do none of that.
+    //
+    // Returns nothing useful -- by the time the navigation commits, this
+    // document is being torn down.
+    startProviderLogin(): void {
+      window.location.assign(apiOrigin + '/api/v1/auth/oidc/start');
+    },
+
     // login accepts either (email, password) for real backend OR (providerId) for compatibility.
     // When called from tests without VITE_API_BASE_URL, the mock path is used instead.
     async login(email: string, password?: string): Promise<{ provider: string; user: User }> {

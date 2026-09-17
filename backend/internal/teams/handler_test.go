@@ -138,6 +138,10 @@ func (f *fakeAuthSvc) ResetPassword(_ context.Context, _, _ string) (string, *au
 	return "", nil, nil
 }
 
+func (f *fakeAuthSvc) LoginWithOIDC(_ context.Context, _ string, _ auth.OIDCClaims) (string, *auth.UserRow, error) {
+	return "token", f.user, nil
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func testAuthUser() *auth.UserRow {
