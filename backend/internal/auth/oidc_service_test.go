@@ -22,7 +22,7 @@ func TestLoginWithOIDC_ProvisionsNewAccount(t *testing.T) {
 	repo := newRegTestRepo()
 	svc := newRegTestService(t, repo, time.Hour, true)
 
-	token, user, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	token, user, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
 		oidcClaims("sub-1", "New@Example.com", "New User"))
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
@@ -44,11 +44,11 @@ func TestLoginWithOIDC_SecondLoginReusesTheSameAccount(t *testing.T) {
 	repo := newRegTestRepo()
 	svc := newRegTestService(t, repo, time.Hour, true)
 
-	_, first, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	_, first, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
 		oidcClaims("sub-1", "user@example.com", "User"))
 	require.NoError(t, err)
 
-	_, second, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	_, second, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
 		oidcClaims("sub-1", "user@example.com", "User"))
 	require.NoError(t, err)
 
@@ -62,11 +62,11 @@ func TestLoginWithOIDC_MatchesBySubjectAfterEmailChange(t *testing.T) {
 	repo := newRegTestRepo()
 	svc := newRegTestService(t, repo, time.Hour, true)
 
-	_, original, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	_, original, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
 		oidcClaims("sub-1", "old@example.com", "User"))
 	require.NoError(t, err)
 
-	_, afterChange, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	_, afterChange, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
 		oidcClaims("sub-1", "new@example.com", "User"))
 	require.NoError(t, err)
 
@@ -85,7 +85,7 @@ func TestLoginWithOIDC_LinksExistingPasswordAccount(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, existing.PasswordHash)
 
-	_, user, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	_, user, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
 		oidcClaims("sub-1", "existing@example.com", "Existing"))
 	require.NoError(t, err)
 
@@ -102,7 +102,7 @@ func TestLoginWithOIDC_RejectsUnverifiedEmail(t *testing.T) {
 	claims := oidcClaims("sub-1", "user@example.com", "User")
 	claims.EmailVerified = false
 
-	_, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider, claims)
+	_, _, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider, claims)
 	require.ErrorIs(t, err, auth.ErrOIDCEmailUnverified)
 
 	_, findErr := repo.FindUserByEmail(context.Background(), "user@example.com")
@@ -113,7 +113,7 @@ func TestLoginWithOIDC_RejectsMissingEmail(t *testing.T) {
 	t.Parallel()
 	svc := newRegTestService(t, newRegTestRepo(), time.Hour, true)
 
-	_, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	_, _, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
 		oidcClaims("sub-1", "", "User"))
 	require.ErrorIs(t, err, auth.ErrOIDCEmailUnverified)
 }
@@ -122,7 +122,7 @@ func TestLoginWithOIDC_RejectsMissingSubject(t *testing.T) {
 	t.Parallel()
 	svc := newRegTestService(t, newRegTestRepo(), time.Hour, true)
 
-	_, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	_, _, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
 		oidcClaims("", "user@example.com", "User"))
 	require.ErrorIs(t, err, auth.ErrOIDCState)
 }
@@ -138,7 +138,7 @@ func TestLoginWithOIDC_AddressHeldByDeletedAccount(t *testing.T) {
 	require.NoError(t, svc.Register(context.Background(), "gone@example.com", "longenoughpassword"))
 	repo.softDelete("gone@example.com")
 
-	_, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	_, _, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
 		oidcClaims("sub-1", "gone@example.com", "Gone"))
 	require.ErrorIs(t, err, auth.ErrOIDCAccountDeleted)
 }
@@ -151,8 +151,57 @@ func TestLoginWithOIDC_WorksWhileSelfRegistrationIsDisabled(t *testing.T) {
 	repo := newRegTestRepo()
 	svc := newRegTestService(t, repo, time.Hour, false)
 
-	_, user, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	_, user, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
 		oidcClaims("sub-1", "user@example.com", "User"))
 	require.NoError(t, err)
 	assert.NotNil(t, user)
+}
+
+// The three resolution paths must be distinguishable by the caller, which is
+// what lets the handler audit a first-time link or provision separately from
+// routine repeat logins.
+func TestLoginWithOIDC_ReportsWhichPathItTook(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	svc := newRegTestService(t, repo, time.Hour, true)
+	ctx := context.Background()
+
+	_, _, provisioned, err := svc.LoginWithOIDC(ctx, testOIDCProvider,
+		oidcClaims("sub-new", "fresh@example.com", "Fresh"))
+	require.NoError(t, err)
+	assert.Equal(t, auth.OIDCLoginProvisioned, provisioned)
+
+	_, _, repeat, err := svc.LoginWithOIDC(ctx, testOIDCProvider,
+		oidcClaims("sub-new", "fresh@example.com", "Fresh"))
+	require.NoError(t, err)
+	assert.Equal(t, auth.OIDCLoginExisting, repeat)
+
+	require.NoError(t, svc.Register(ctx, "haspassword@example.com", "longenoughpassword"))
+	_, _, linked, err := svc.LoginWithOIDC(ctx, testOIDCProvider,
+		oidcClaims("sub-linked", "haspassword@example.com", "Has Password"))
+	require.NoError(t, err)
+	assert.Equal(t, auth.OIDCLoginLinked, linked)
+}
+
+// Two first-time logins for the same new address can race (a double-clicked
+// button, two tabs): one insert wins, the other comes back ErrEmailTaken. That
+// must resolve to the account that won, not to "this address belonged to a
+// deleted account" -- which is what a blanket ErrEmailTaken mapping reported,
+// and is simply untrue for a live account.
+func TestLoginWithOIDC_ConcurrentFirstLoginIsNotReportedAsDeleted(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	svc := newRegTestService(t, repo, time.Hour, true)
+	ctx := context.Background()
+
+	// Stand in for the racing winner: the row exists by the time this login's
+	// own insert runs, exactly as if a concurrent request had just created it.
+	repo.simulateEmailTakenOnce("raced@example.com")
+
+	_, user, outcome, err := svc.LoginWithOIDC(ctx, testOIDCProvider,
+		oidcClaims("sub-race", "raced@example.com", "Raced"))
+	require.NoError(t, err, "a lost race must still log the user in")
+	require.NotNil(t, user)
+	assert.Equal(t, "raced@example.com", user.Email)
+	assert.Equal(t, auth.OIDCLoginLinked, outcome)
 }

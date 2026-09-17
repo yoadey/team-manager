@@ -387,74 +387,100 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) (token strin
 // A newly provisioned account has no team membership -- it lands on the
 // "no team yet" screen until somebody invites it, exactly like a self-service
 // registration.
-func (s *Service) LoginWithOIDC(ctx context.Context, provider string, claims OIDCClaims) (token string, user *UserRow, err error) {
+func (s *Service) LoginWithOIDC(ctx context.Context, provider string, claims OIDCClaims) (token string, user *UserRow, outcome OIDCLoginOutcome, err error) {
 	// Everything below keys off the address the provider vouches for. Without
 	// that assertion, anyone able to set an arbitrary address at any federated
 	// identity provider could claim an existing account in step 2.
 	if !claims.EmailVerified || claims.Email == "" {
-		return "", nil, ErrOIDCEmailUnverified
+		return "", nil, "", ErrOIDCEmailUnverified
 	}
 	if claims.Subject == "" {
-		return "", nil, ErrOIDCState
+		return "", nil, "", ErrOIDCState
 	}
 
-	user, err = s.resolveOIDCUser(ctx, provider, claims)
+	user, outcome, err = s.resolveOIDCUser(ctx, provider, claims)
 	if err != nil {
-		return "", nil, err
+		return "", nil, "", err
 	}
 
 	signed, err := s.createSessionAndSign(ctx, user, provider)
 	if err != nil {
-		return "", nil, fmt.Errorf("auth.Service.LoginWithOIDC: %w", err)
+		return "", nil, "", fmt.Errorf("auth.Service.LoginWithOIDC: %w", err)
 	}
-	return signed, user, nil
+	return signed, user, outcome, nil
 }
 
-// resolveOIDCUser performs the link/provision decision for LoginWithOIDC.
-func (s *Service) resolveOIDCUser(ctx context.Context, provider string, claims OIDCClaims) (*UserRow, error) {
+// resolveOIDCUser performs the link/provision decision for LoginWithOIDC and
+// reports which of the three paths it took, so the caller can audit a first-time
+// link or provision distinctly from an ordinary repeat login.
+func (s *Service) resolveOIDCUser(ctx context.Context, provider string, claims OIDCClaims) (*UserRow, OIDCLoginOutcome, error) {
 	linked, err := s.repo.FindUserByOIDCSubject(ctx, provider, claims.Subject)
 	if err == nil {
-		return linked, nil
+		return linked, OIDCLoginExisting, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("auth.Service.LoginWithOIDC: lookup subject: %w", err)
+		return nil, "", fmt.Errorf("auth.Service.LoginWithOIDC: lookup subject: %w", err)
 	}
 
 	existing, err := s.repo.FindUserByEmail(ctx, claims.Email)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("auth.Service.LoginWithOIDC: lookup email: %w", err)
+		return nil, "", fmt.Errorf("auth.Service.LoginWithOIDC: lookup email: %w", err)
 	}
 	if err == nil && existing != nil {
-		// The provider has just proven control of this address, which is
-		// exactly what the emailed verification link proves -- so an account
-		// that never completed that step becomes verified here.
-		linked, linkErr := s.verifyAndLink(ctx, existing, provider, claims.Subject)
-		if linkErr != nil {
-			return nil, linkErr
-		}
-		s.logger.InfoContext(ctx, "OIDC login linked to existing account",
-			"user_id", linked.Id, "provider", provider)
-		return linked, nil
+		return s.linkExisting(ctx, existing, provider, claims.Subject)
 	}
 
 	created, err := s.repo.CreateUnverifiedUser(ctx, claims.Name, claims.Email, "")
 	if err != nil {
-		// FindUserByEmail filters soft-deleted rows but the unique index does
-		// not, so a deleted account still holds the address and the insert
-		// conflicts. That is a distinct, explainable outcome rather than a
-		// server error.
 		if errors.Is(err, ErrEmailTaken) {
-			return nil, ErrOIDCAccountDeleted
+			return s.resolveEmailConflict(ctx, provider, claims)
 		}
-		return nil, fmt.Errorf("auth.Service.LoginWithOIDC: provision account: %w", err)
+		return nil, "", fmt.Errorf("auth.Service.LoginWithOIDC: provision account: %w", err)
 	}
 	fresh, err := s.verifyAndLink(ctx, created, provider, claims.Subject)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	s.logger.InfoContext(ctx, "OIDC login provisioned a new account",
 		"user_id", fresh.Id, "provider", provider)
-	return fresh, nil
+	return fresh, OIDCLoginProvisioned, nil
+}
+
+// linkExisting attaches the external subject to an account already holding the
+// verified address. The provider has just proven control of that address, which
+// is exactly what the emailed verification link proves -- so an account that
+// never completed that step becomes verified here.
+func (s *Service) linkExisting(ctx context.Context, existing *UserRow, provider, subject string) (*UserRow, OIDCLoginOutcome, error) {
+	linked, err := s.verifyAndLink(ctx, existing, provider, subject)
+	if err != nil {
+		return nil, "", err
+	}
+	s.logger.InfoContext(ctx, "OIDC login linked to existing account",
+		"user_id", linked.Id, "provider", provider)
+	return linked, OIDCLoginLinked, nil
+}
+
+// resolveEmailConflict decides what an ErrEmailTaken from the provision step
+// actually means. Two quite different situations produce it:
+//
+//   - A soft-deleted account still holds the address. FindUserByEmail filters
+//     deleted_at IS NOT NULL but the unique index does not, so the insert
+//     conflicts with a row no lookup can see.
+//   - Two first-time logins for the same new address raced (a double-clicked
+//     button, two tabs). One insert won; this one lost.
+//
+// Re-reading tells them apart. Without this, the race reported "this address
+// belonged to a deleted account" to a user for whom that is simply untrue.
+func (s *Service) resolveEmailConflict(ctx context.Context, provider string, claims OIDCClaims) (*UserRow, OIDCLoginOutcome, error) {
+	existing, err := s.repo.FindUserByEmail(ctx, claims.Email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Nothing visible holds the address, so a soft-deleted row does.
+			return nil, "", ErrOIDCAccountDeleted
+		}
+		return nil, "", fmt.Errorf("auth.Service.LoginWithOIDC: resolve email conflict: %w", err)
+	}
+	return s.linkExisting(ctx, existing, provider, claims.Subject)
 }
 
 // verifyAndLink marks user's address verified (when it isn't already), links

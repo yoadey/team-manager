@@ -35,7 +35,7 @@ type authService interface {
 	ResendVerification(ctx context.Context, email string) error
 	ForgotPassword(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, rawToken, newPassword string) (token string, user *UserRow, err error)
-	LoginWithOIDC(ctx context.Context, provider string, claims OIDCClaims) (token string, user *UserRow, err error)
+	LoginWithOIDC(ctx context.Context, provider string, claims OIDCClaims) (token string, user *UserRow, outcome OIDCLoginOutcome, err error)
 }
 
 // Handler implements the auth-related methods of gen.StrictServerInterface.

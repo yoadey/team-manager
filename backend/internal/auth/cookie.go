@@ -257,6 +257,13 @@ func (c *SessionCookieCodec) StrictMiddleware() gen.StrictMiddlewareFunc {
 				return resp, err
 			}
 			for _, cookie := range extra {
+				// The codec is the single choke point every extra cookie
+				// passes through, so it stamps the transport-security
+				// attributes here rather than trusting each handler to have
+				// got them right. Secure tracks COOKIE_SECURE, exactly like
+				// the session cookie (Set/Clear above).
+				cookie.Secure = c.secure
+				cookie.HttpOnly = true
 				http.SetCookie(w, cookie)
 			}
 			if cookieErr := c.applyCookie(w, operationID, resp, token); cookieErr != nil {

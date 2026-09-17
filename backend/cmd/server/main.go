@@ -711,17 +711,24 @@ func main() {
 		// request context, since a generated strict handler never sees the
 		// *http.Request itself.
 		//
-		// start carries the login rate limit (it is the entry point an
-		// attacker would hammer); the callback does not, mirroring
-		// verify-email/reset-password -- it is worthless without the matching
-		// state cookie, and that check runs before any outbound request.
+		// Both carry the login rate limit. The state check does run before any
+		// outbound request, but that only bounds a single callback: nothing
+		// stops a scripted client from calling start once, keeping the
+		// tv_oidc cookie it was issued, and replaying the callback with it
+		// until the state expires. Each replay reaches the token exchange, so
+		// without a limit here that is an unthrottled relay against the
+		// identity provider, authenticated with this app's own client
+		// credentials. The cookie's Max-Age only constrains a browser.
 		r.With(
 			middleware.PerIPRateLimit(cfg.LoginRateLimitPerMin, time.Minute, trustedProxies),
 			authHandler.OIDCStateMiddleware,
 		).Get("/auth/oidc/start", func(w http.ResponseWriter, req *http.Request) {
 			strictSrv.StartOidcLogin(w, req)
 		})
-		r.With(authHandler.OIDCStateMiddleware).Get("/auth/oidc/callback", func(w http.ResponseWriter, req *http.Request) {
+		r.With(
+			middleware.PerIPRateLimit(cfg.LoginRateLimitPerMin, time.Minute, trustedProxies),
+			authHandler.OIDCStateMiddleware,
+		).Get("/auth/oidc/callback", func(w http.ResponseWriter, req *http.Request) {
 			// Unlike the other public overrides, this operation declares query
 			// parameters, so the generated wrapper takes them as an argument
 			// rather than parsing them itself.

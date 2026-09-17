@@ -18,8 +18,8 @@
 - [x] 4.2 `service.go`: `LoginWithOIDC` — reject unverified email, then subject → email-link (marking verified) → provision passwordless, all onto `createSessionAndSign`; map `ErrEmailTaken` to a distinct deleted-account error
 - [x] 4.3 `cookie.go`: carry an OIDC state-cookie action in the ctx holder; set the session cookie for the 302 callback response
 - [x] 4.4 `handler.go`: `ListProviders` advertises the configured provider; `StartOidcLogin` / `OidcCallback`; validate state before any token exchange; always 302 back with `?login_error=` on failure
-- [x] 4.5 `cmd/server/main.go`: register both routes in the public block; rate-limit start with the login limiter
-- [x] 4.6 `internal/audit`: `auth.oidc.login` / `auth.oidc.link` / `auth.oidc.provision` constants; reuse the existing `LoginAttempts` metric labels
+- [x] 4.5 `cmd/server/main.go`: register both routes in the public block; rate-limit both with the login limiter (the callback too — the state check bounds one request, not a replay series against a captured cookie)
+- [x] 4.6 `internal/audit`: record `auth.oidc_login` on every attempt plus `auth.oidc_link` / `auth.oidc_provision` on a first-time link or provision (`LoginWithOIDC` reports which path it took); reuse the existing `LoginAttempts` metric labels
 
 ## 5. Frontend
 - [x] 5.1 `serviceLayerReal`: `startProviderLogin(pid)` navigating to the start endpoint; `doLogin` uses it instead of the legacy password POST
@@ -40,4 +40,4 @@
 - [x] 7.3 `make lint` + `make test` green; migration gates unaffected (no migration added). govulncheck and the Docker-backed repository tests could not be run in the authoring environment (blocked vuln.go.dev egress / no Docker daemon) — both run in CI.
 - [x] 7.4 Frontend `lint` + `typecheck` + `test:coverage` (80/65/75/80) + `build` + `check:bundle` (250 KB/chunk, 600 KB total gzipped) green
 - [x] 7.5 `openspec validate add-oidc-login --strict` green
-- [ ] 7.6 Independent code review by a fresh subagent with no prior context on the change
+- [x] 7.6 Independent code review by a fresh subagent with no prior context on the change — three findings, all fixed: unrate-limited callback replay, `ErrEmailTaken` from a concurrent first login mislabelled as "account deleted", and the link/provision audit constants declared but never recorded

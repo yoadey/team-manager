@@ -239,11 +239,19 @@ const SessionProviderPassword = "password"
 func (r *Repository) FindUserByOIDCSubject(ctx context.Context, provider, subject string) (*UserRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	// EXISTS rather than a JOIN: selectUserFields lists its columns
+	// unqualified, and oidc_accounts also has an "id", so joining the two
+	// makes the projection ambiguous (SQLSTATE 42702). Keeping oidc_accounts
+	// inside a subquery leaves only "users" in the outer FROM, so the shared
+	// field list stays usable as-is.
 	q := fmt.Sprintf(`
 		SELECT %s
-		FROM users u
-		JOIN oidc_accounts oa ON oa.user_id = u.id
-		WHERE oa.provider = $1 AND oa.subject = $2 AND u.deleted_at IS NULL
+		FROM users
+		WHERE deleted_at IS NULL
+		  AND EXISTS (
+		      SELECT 1 FROM oidc_accounts oa
+		      WHERE oa.user_id = users.id AND oa.provider = $1 AND oa.subject = $2
+		  )
 	`, selectUserFields)
 	row := r.pool.QueryRow(ctx, q, provider, subject)
 	u, err := scanUser(row)

@@ -131,8 +131,15 @@ envsubst mechanism that already injects `${API_BASE_URL}` into `connect-src`.
   the de-facto standard client and `golang.org/x/oauth2` is already in the module
   graph.
 - **The callback performs outbound HTTP.** State is validated against the cookie
-  *before* the token exchange, so an attacker cannot use the endpoint to make the
-  server issue requests on demand.
+  before the token exchange, so an unsolicited callback never reaches the
+  provider. That bounds a single request, not a series of them: a scripted
+  client can call the start endpoint once, keep the `tv_oidc` cookie it was
+  issued, and replay the callback with it until the state's ten minutes run
+  out — the cookie's `Max-Age` only constrains a browser. Each replay would
+  reach the token exchange, so the callback carries the same per-IP login rate
+  limit as the start endpoint. A server-side single-use record would close the
+  window completely, at the cost of a table and a cleanup job; the rate limit
+  plus the short TTL is the proportionate trade for now.
 - **Changing `doLogin` to a navigation** retires the legacy provider-id-as-email
   path. The MSW demo backend keeps advertising only `password`, so demo mode is
   unaffected; the tests that drove the old path are updated.

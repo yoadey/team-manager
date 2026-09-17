@@ -130,7 +130,7 @@ func (h *Handler) OidcCallback(ctx context.Context, request gen.OidcCallbackRequ
 		return h.callbackRedirect(h.loginErrorURL(loginErrorUnavailable)), nil
 	}
 
-	token, user, err := h.svc.LoginWithOIDC(ctx, h.oidc.Config().ProviderID, *claims)
+	token, user, outcome, err := h.svc.LoginWithOIDC(ctx, h.oidc.Config().ProviderID, *claims)
 	if err != nil {
 		h.logger.WarnContext(ctx, "OIDC callback: login rejected", "err", err)
 		h.recordOIDCFailure(ctx, "login")
@@ -145,8 +145,22 @@ func (h *Handler) OidcCallback(ctx context.Context, request gen.OidcCallbackRequ
 	}
 
 	metrics.LoginAttempts.WithLabelValues("success").Inc()
+	providerID := h.oidc.Config().ProviderID
 	h.audit.Record(ctx, audit.EventOIDCLogin, audit.Success, user.Id.String(),
-		slog.String("provider", h.oidc.Config().ProviderID))
+		slog.String("provider", providerID), slog.String("outcome", string(outcome)))
+	// A first-time link or provision attaches an external identity to a local
+	// account, which is worth being able to find in the audit log without
+	// reading every routine login next to it.
+	switch outcome {
+	case OIDCLoginLinked:
+		h.audit.Record(ctx, audit.EventOIDCLink, audit.Success, user.Id.String(),
+			slog.String("provider", providerID))
+	case OIDCLoginProvisioned:
+		h.audit.Record(ctx, audit.EventOIDCProvision, audit.Success, user.Id.String(),
+			slog.String("provider", providerID))
+	case OIDCLoginExisting:
+		// Ordinary repeat login; EventOIDCLogin above already covers it.
+	}
 	// Same contract as password login: the session JWT reaches the browser
 	// only as the httpOnly cookie applyCookie sets, never in a body or URL.
 	SetSessionToken(ctx, token)

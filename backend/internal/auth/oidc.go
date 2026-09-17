@@ -65,6 +65,23 @@ type OIDCConfig struct {
 	PostLoginURL string
 }
 
+// OIDCLoginOutcome reports which of LoginWithOIDC's three account-resolution
+// paths a login took. The handler audits the two that attach an external
+// identity to a local account, since those are the security-relevant events --
+// a repeat login through an existing link is ordinary traffic.
+type OIDCLoginOutcome string
+
+const (
+	// OIDCLoginExisting: an oidc_accounts row already pointed at the account.
+	OIDCLoginExisting OIDCLoginOutcome = "existing"
+	// OIDCLoginLinked: an account already held the verified address and the
+	// external subject was attached to it.
+	OIDCLoginLinked OIDCLoginOutcome = "linked"
+	// OIDCLoginProvisioned: no account held the address, so a passwordless one
+	// was created.
+	OIDCLoginProvisioned OIDCLoginOutcome = "provisioned"
+)
+
 // OIDCClaims is the subset of the ID token this application acts on.
 type OIDCClaims struct {
 	Subject       string

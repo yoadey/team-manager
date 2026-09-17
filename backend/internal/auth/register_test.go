@@ -78,6 +78,25 @@ func (r *regTestRepo) softDelete(email string) {
 	}
 }
 
+// simulateEmailTakenOnce makes the next CreateUnverifiedUser for this address
+// behave like a lost race: the row is created out-of-band first (as a
+// concurrent request would have), so the insert hits the unique constraint even
+// though a live account now holds the address.
+func (r *regTestRepo) simulateEmailTakenOnce(email string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	normalized := strings.ToLower(strings.TrimSpace(email))
+	u := &auth.UserRow{
+		Id:          uuid.New(),
+		Name:        "Race Winner",
+		Email:       normalized,
+		AvatarColor: "#6366f1",
+		CreatedAt:   time.Now(),
+	}
+	r.users[normalized] = u
+	r.usersByID[u.Id.String()] = u
+}
+
 // sessionsForUser returns the sessions recorded for a user, for assertions
 // about how a session was established.
 func (r *regTestRepo) sessionsForUser(userID string) []*auth.SessionRow {
