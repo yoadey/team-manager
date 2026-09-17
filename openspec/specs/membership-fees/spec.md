@@ -49,7 +49,10 @@ the same name, amount, and due date.
 A contribution's paid amount MUST be the sum of income transactions linked
 to it, and its status (open, partial, or paid) MUST be derived by comparing
 that sum to the contribution's amount, rather than stored as an
-independently settable value.
+independently settable value. Editing a linked transaction's `type` away
+from `income` MUST be rejected while the link still exists, so a
+contribution's or penalty assignment's paid amount can never be silently
+reduced by an edit that looks unrelated to the link itself.
 
 #### Scenario: Recording a partial payment
 - **WHEN** the treasurer books an income transaction for less than a
@@ -73,6 +76,25 @@ independently settable value.
 - **WHEN** the treasurer attempts to link an expense transaction to a
   contribution
 - **THEN** the request is rejected
+
+#### Scenario: Changing a linked transaction's type away from income
+- **WHEN** the treasurer edits a transaction that has a `contributionId` or
+  `penaltyAssignmentId` set, changing its `type` from `income` to `expense`
+- **THEN** the request is rejected with a 400 error
+- **AND** the transaction's type, link, and the contribution's/assignment's
+  paid amount are unchanged
+
+#### Scenario: Changing an unlinked transaction's type
+- **WHEN** the treasurer edits a transaction that has no `contributionId`
+  and no `penaltyAssignmentId`, changing its `type`
+- **THEN** the request succeeds and the transaction's type is updated
+
+#### Scenario: Changing the amount of a linked transaction
+- **WHEN** the treasurer edits a transaction that has a `contributionId` or
+  `penaltyAssignmentId` set, changing its `amount` but not its `type`
+- **THEN** the request succeeds
+- **AND** the linked contribution's or penalty assignment's paid amount
+  reflects the new amount
 
 ### Requirement: Deleting a contribution preserves its booked income
 Deleting a contribution MUST NOT delete any transaction linked to it; linked
