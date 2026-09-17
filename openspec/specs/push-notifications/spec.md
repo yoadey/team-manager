@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines Web Push delivery of notifications to a user's browser: subscriptions are registered and removed per user, delivery is gated by the recipient's current module permissions (mirroring the in-app feed) and by their per-team, per-category push preferences (which default to fully enabled), delivery failures are handled gracefully (bounded payload size, retries on transient errors, automatic pruning of subscriptions the push service reports as permanently invalid) without blocking the underlying notification, the whole mechanism degrades to a no-op when unconfigured in dev but is required in production, and members can optionally enable a once-per-event reminder push sent a configurable number of hours before an event starts.
+
 ## Requirements
+
 ### Requirement: A user can enable Web Push notifications for their browser
 The system MUST let an authenticated user register their browser's push
 subscription so they receive push notifications independent of whether the
@@ -22,7 +24,10 @@ app is open.
 
 ### Requirement: A user can disable Web Push notifications
 The system MUST let an authenticated user remove a previously registered
-subscription so no further pushes are sent to it.
+subscription so no further pushes are sent to it. Logging out MUST also
+revoke the browser's current Web Push subscription, so a shared/kiosk
+device stops receiving the logged-out account's push notifications
+without requiring the user to remember to disable push separately.
 
 #### Scenario: Unregistering a subscription
 - **WHEN** a user disables push (or the browser unsubscribes locally) and the
@@ -34,6 +39,25 @@ subscription so no further pushes are sent to it.
 - **WHEN** a delete request names an endpoint that belongs to a different
   user's subscription
 - **THEN** the request has no effect on that other user's subscription
+
+#### Scenario: Logging out with an active push subscription
+- **WHEN** a user with an active Web Push subscription on this browser logs
+  out
+- **THEN** the browser's `PushSubscription` is unsubscribed locally and
+  `DELETE /users/me/push-subscriptions` is called for it, so no further
+  pushes are delivered to this browser for that account
+
+#### Scenario: Logout with no active subscription, or an unsupported browser
+- **WHEN** a user logs out and either the browser has no active
+  `PushSubscription` or the browser doesn't support Web Push
+- **THEN** logout proceeds normally with no push-related network call
+
+#### Scenario: Push unsubscribe fails during logout
+- **WHEN** the local unsubscribe or the backend delete call fails (e.g. the
+  device is offline) during logout
+- **THEN** logout still completes and the user is returned to the login
+  screen — the failure is reported for diagnostics but never blocks or
+  fails the logout flow
 
 ### Requirement: Push delivery respects the recipient's current module permissions
 A push notification MUST NOT be sent for a notification whose originating
@@ -249,4 +273,3 @@ read access to the events module.
   time the reminder would become due
 - **THEN** no reminder is sent to that member for that event, matching how
   other push categories are gated by module read access
-
