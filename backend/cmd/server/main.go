@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -231,6 +232,76 @@ func initAuthComponents(
 	return auth.NewHandler(svc, logger, codec, auditLogger), codec, nil
 }
 
+// oidcCallbackParams extracts the provider's callback query parameters. All
+// four are optional in the spec, so an absent one stays nil and the handler
+// treats it as a failed login rather than a malformed request.
+func oidcCallbackParams(req *http.Request) gen.OidcCallbackParams {
+	return gen.OidcCallbackParams{
+		Code:             optionalQuery(req, "code"),
+		State:            optionalQuery(req, "state"),
+		Error:            optionalQuery(req, "error"),
+		ErrorDescription: optionalQuery(req, "error_description"),
+	}
+}
+
+// oidcStartParams does the same for the OIDC start route's single parameter.
+func oidcStartParams(req *http.Request) gen.StartOidcLoginParams {
+	return gen.StartOidcLoginParams{ReturnTo: optionalQuery(req, "return_to")}
+}
+
+// optionalQuery returns a pointer to the named query parameter, or nil when
+// the request does not carry it at all -- the distinction the generated
+// optional-parameter types are built around.
+func optionalQuery(req *http.Request, key string) *string {
+	q := req.URL.Query()
+	if !q.Has(key) {
+		return nil
+	}
+	v := q.Get(key)
+	return &v
+}
+
+// initOIDC wires the optional external identity provider onto the auth
+// handler. A disabled deployment is left untouched, which is what makes the
+// OIDC endpoints answer 404 and keeps /auth/providers password-only.
+//
+// Discovery is only warmed here, never required: an identity provider that is
+// down at boot must not stop this service from starting, because password
+// login is exactly the fallback that situation calls for.
+func initOIDC(authHandler *auth.Handler, cfg *config.Config, logger *slog.Logger) error {
+	if !cfg.OIDC.Enabled {
+		return nil
+	}
+	stateCodec, err := auth.NewOIDCStateCodec(cfg.CookieEncryptionKeys, cfg.CookieSecure)
+	if err != nil {
+		return fmt.Errorf("oidc state codec: %w", err)
+	}
+	client := auth.NewOIDCClient(auth.OIDCConfig{
+		Issuer:           cfg.OIDC.Issuer,
+		ClientID:         cfg.OIDC.ClientID,
+		ClientSecret:     cfg.OIDC.ClientSecret,
+		RedirectURL:      cfg.OIDC.RedirectURL,
+		Scopes:           cfg.OIDC.Scopes,
+		ProviderID:       cfg.OIDC.ProviderID,
+		ProviderName:     cfg.OIDC.ProviderName,
+		ProviderSubtitle: cfg.OIDC.ProviderSubtitle,
+		ProviderIcon:     cfg.OIDC.ProviderIcon,
+		PostLoginURL:     cfg.PublicBaseURL,
+	}, logger)
+
+	warmCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client.Warm(warmCtx)
+
+	authHandler.SetOIDC(client, stateCodec)
+	slog.Info("OIDC login enabled",
+		"issuer", cfg.OIDC.Issuer,
+		"provider_id", cfg.OIDC.ProviderID,
+		"redirect_url", cfg.OIDC.RedirectURL,
+		"scopes", strings.Join(cfg.OIDC.Scopes, " "))
+	return nil
+}
+
 // initMailer constructs the Mailer used to send self-registration
 // verification email. Falls back to an in-memory fake (logs the link) when
 // SMTP_HOST is unset -- config.Load() already hard-requires it when
@@ -439,6 +510,10 @@ func main() {
 		os.Exit(1)
 	}
 	authHandler.SetImageDeliveryProxyEnabled(cfg.ImageDeliveryProxyEnabled)
+	if err := initOIDC(authHandler, cfg, logger); err != nil {
+		slog.Error("OIDC init failed", "err", err)
+		os.Exit(1)
+	}
 
 	// ─── Pagination ──────────────────────────────────────────────────────────
 
@@ -638,6 +713,44 @@ func main() {
 		})
 		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {
 			strictSrv.ListProviders(w, req)
+		})
+		// OIDC login. Both are plain browser navigations, so they sit outside
+		// the authenticated group like every other /auth route above.
+		// OIDCStateMiddleware lifts the encrypted tv_oidc cookie into the
+		// request context, since a generated strict handler never sees the
+		// *http.Request itself.
+		//
+		// Both carry the login rate limit. The state check does run before any
+		// outbound request, but that only bounds a single callback: nothing
+		// stops a scripted client from calling start once, keeping the
+		// tv_oidc cookie it was issued, and replaying the callback with it
+		// until the state expires. Each replay reaches the token exchange, so
+		// without a limit here that is an unthrottled relay against the
+		// identity provider, authenticated with this app's own client
+		// credentials. The cookie's Max-Age only constrains a browser.
+		//
+		// The limiter answers with a redirect rather than problem+json: these
+		// two routes are reached by navigating, so the user is looking at
+		// whatever comes back. Both handlers already 302 on every outcome for
+		// the same reason.
+		oidcRateLimit := middleware.PerIPRateLimitRedirect(
+			cfg.LoginRateLimitPerMin, time.Minute, trustedProxies,
+			authHandler.RateLimitRedirectURL(),
+		)
+		r.With(
+			oidcRateLimit,
+			authHandler.OIDCStateMiddleware,
+		).Get("/auth/oidc/start", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.StartOidcLogin(w, req, oidcStartParams(req))
+		})
+		r.With(
+			oidcRateLimit,
+			authHandler.OIDCStateMiddleware,
+		).Get("/auth/oidc/callback", func(w http.ResponseWriter, req *http.Request) {
+			// Unlike the other public overrides, this operation declares query
+			// parameters, so the generated wrapper takes them as an argument
+			// rather than parsing them itself.
+			strictSrv.OidcCallback(w, req, oidcCallbackParams(req))
 		})
 		// Self-registration and its verification endpoints are rate-limited the
 		// same way as login -- each is a plausible target for volumetric abuse

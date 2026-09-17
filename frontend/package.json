@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
-  "description": "Verwaltung von Trainingsterminen und Spielern für einen Verein",
+  "description": "Verwaltung von Trainingsterminen und Spielern f\u00fcr einen Verein",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -19,6 +19,7 @@
     "sbom": "cyclonedx-npm --omit dev --output-format JSON --output-file sbom.json",
     "check:bundle": "node scripts/check-bundle-size.mjs",
     "icons": "node scripts/generate-pwa-icons.mjs",
+    "icons:providers": "node scripts/generate-provider-icons.mjs",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "postinstall": "node scripts/patch-react-transition-group.mjs"

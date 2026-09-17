@@ -189,6 +189,28 @@ export const realApi = {
       return providers.map(mapProvider);
     },
 
+    // Starts an external identity provider login. This is a full-page
+    // navigation, not a fetch: the browser has to leave the app for the
+    // provider's own domain, follow its redirects, and come back with the
+    // session cookie set. An XHR could do none of that.
+    //
+    // Returns nothing useful -- by the time the navigation commits, this
+    // document is being torn down.
+    //
+    // returnTo is the path to come back to afterwards. It matters for more
+    // than convenience: an invite link (/join/<teamId>/<code>) is redeemed
+    // from the URL the app loads on, so without it "sign in with Google to
+    // join this team" would log the user in and join nothing. The backend
+    // keeps the value in its own encrypted state cookie and re-validates it
+    // as root-relative before redirecting.
+    startProviderLogin(returnTo?: string): void {
+      // String concatenation rather than `new URL`: apiOrigin is empty in the
+      // ordinary same-origin deployment, and `new URL('/api/v1/...')` with no
+      // base throws. location.assign resolves the relative path itself.
+      const query = returnTo ? '?return_to=' + encodeURIComponent(returnTo) : '';
+      window.location.assign(apiOrigin + '/api/v1/auth/oidc/start' + query);
+    },
+
     // login accepts either (email, password) for real backend OR (providerId) for compatibility.
     // When called from tests without VITE_API_BASE_URL, the mock path is used instead.
     async login(email: string, password?: string): Promise<{ provider: string; user: User }> {

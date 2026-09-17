@@ -31,7 +31,7 @@ import (
 type mockRepo struct {
 	userByEmail            func(ctx context.Context, email string) (*auth.UserRow, error)
 	userByID               func(ctx context.Context, id string) (*auth.UserRow, error)
-	createSess             func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error)
+	createSess             func(ctx context.Context, userID, tokenHash string, expiresAt time.Time, provider string) (*auth.SessionRow, error)
 	findSess               func(ctx context.Context, tokenHash string) (*auth.SessionRow, error)
 	deleteSess             func(ctx context.Context, tokenHash string) error
 	updatePhoto            func(ctx context.Context, userID, objectKey string) error
@@ -48,6 +48,9 @@ type mockRepo struct {
 	consumeResetTok        func(ctx context.Context, tokenHash string) error
 	updateUserPassword     func(ctx context.Context, userID, passwordHash string) error
 	deleteSessionsForUser  func(ctx context.Context, userID string) error
+	userByOIDCSubject      func(ctx context.Context, provider, subject string) (*auth.UserRow, error)
+	linkOIDCAccount        func(ctx context.Context, userID, provider, subject string) error
+	clearPassword          func(ctx context.Context, userID string) error
 }
 
 func (m *mockRepo) FindUserByEmail(ctx context.Context, email string) (*auth.UserRow, error) {
@@ -58,8 +61,29 @@ func (m *mockRepo) FindUserByID(ctx context.Context, id string) (*auth.UserRow, 
 	return m.userByID(ctx, id)
 }
 
-func (m *mockRepo) CreateSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error) {
-	return m.createSess(ctx, userID, tokenHash, expiresAt)
+func (m *mockRepo) CreateSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time, provider string) (*auth.SessionRow, error) {
+	return m.createSess(ctx, userID, tokenHash, expiresAt, provider)
+}
+
+func (m *mockRepo) FindUserByOIDCSubject(ctx context.Context, provider, subject string) (*auth.UserRow, error) {
+	if m.userByOIDCSubject == nil {
+		return nil, pgx.ErrNoRows
+	}
+	return m.userByOIDCSubject(ctx, provider, subject)
+}
+
+func (m *mockRepo) ClearPassword(ctx context.Context, userID string) error {
+	if m.clearPassword == nil {
+		return nil
+	}
+	return m.clearPassword(ctx, userID)
+}
+
+func (m *mockRepo) LinkOIDCAccount(ctx context.Context, userID, provider, subject string) error {
+	if m.linkOIDCAccount == nil {
+		return nil
+	}
+	return m.linkOIDCAccount(ctx, userID, provider, subject)
 }
 
 func (m *mockRepo) FindSession(ctx context.Context, tokenHash string) (*auth.SessionRow, error) {
@@ -201,7 +225,7 @@ func TestService_Login_Success(t *testing.T) {
 			assert.Equal(t, "test@example.com", email)
 			return user, nil
 		},
-		createSess: func(_ context.Context, _, _ string, _ time.Time) (*auth.SessionRow, error) {
+		createSess: func(_ context.Context, _, _ string, _ time.Time, _ string) (*auth.SessionRow, error) {
 			return sess, nil
 		},
 		findSess: func(_ context.Context, hash string) (*auth.SessionRow, error) {
@@ -302,7 +326,7 @@ func TestService_ValidateToken_Expired(t *testing.T) {
 
 	user := makeUserWithPassword(t, "pw")
 	repo.userByEmail = func(_ context.Context, _ string) (*auth.UserRow, error) { return user, nil }
-	repo.createSess = func(_ context.Context, _, _ string, _ time.Time) (*auth.SessionRow, error) {
+	repo.createSess = func(_ context.Context, _, _ string, _ time.Time, _ string) (*auth.SessionRow, error) {
 		return makeSession(), nil
 	}
 

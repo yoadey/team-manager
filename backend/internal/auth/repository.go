@@ -166,17 +166,24 @@ func (r *Repository) FindUserPhotoKeyByID(ctx context.Context, id string) (strin
 	return *key, nil
 }
 
-// CreateSession inserts a new session row and returns it.
-func (r *Repository) CreateSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*SessionRow, error) {
+// CreateSession inserts a new session row and returns it. provider records how
+// the session was established ("password", or an OIDC provider id) -- the
+// column has existed since the initial schema but every caller used to hardcode
+// "password", which made an OIDC session indistinguishable from a password one
+// in the audit trail.
+func (r *Repository) CreateSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time, provider string) (*SessionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	if provider == "" {
+		provider = SessionProviderPassword
+	}
 	q := `
 		INSERT INTO sessions (user_id, token_hash, provider, expires_at)
-		VALUES ($1, $2, 'password', $3)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id, user_id, token_hash, provider, expires_at, created_at
 	`
 	s := &SessionRow{}
-	err := r.pool.QueryRow(ctx, q, userID, tokenHash, expiresAt).Scan(
+	err := r.pool.QueryRow(ctx, q, userID, tokenHash, provider, expiresAt).Scan(
 		&s.Id, &s.UserId, &s.TokenHash, &s.Provider, &s.ExpiresAt, &s.CreatedAt,
 	)
 	if err != nil {
@@ -218,6 +225,63 @@ func (r *Repository) DeleteSession(ctx context.Context, tokenHash string) error 
 // ErrEmailTaken is returned by CreateUnverifiedUser when a user already
 // exists with the given email (the ON CONFLICT DO NOTHING branch).
 var ErrEmailTaken = errors.New("auth: email already registered")
+
+// SessionProviderPassword is the sessions.provider value for a session
+// established with email + password.
+const SessionProviderPassword = "password"
+
+// FindUserByOIDCSubject returns the user linked to (provider, subject), or
+// pgx.ErrNoRows when no link exists.
+//
+// Subject, not email, is the identity an external provider guarantees to be
+// stable: a user may change their address at the provider, and matching on
+// email alone would then silently strand their account.
+func (r *Repository) FindUserByOIDCSubject(ctx context.Context, provider, subject string) (*UserRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	// EXISTS rather than a JOIN: selectUserFields lists its columns
+	// unqualified, and oidc_accounts also has an "id", so joining the two
+	// makes the projection ambiguous (SQLSTATE 42702). Keeping oidc_accounts
+	// inside a subquery leaves only "users" in the outer FROM, so the shared
+	// field list stays usable as-is.
+	q := fmt.Sprintf(`
+		SELECT %s
+		FROM users
+		WHERE deleted_at IS NULL
+		  AND EXISTS (
+		      SELECT 1 FROM oidc_accounts oa
+		      WHERE oa.user_id = users.id AND oa.provider = $1 AND oa.subject = $2
+		  )
+	`, selectUserFields)
+	row := r.pool.QueryRow(ctx, q, provider, subject)
+	u, err := scanUser(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("auth.Repository.FindUserByOIDCSubject: %w", err)
+	}
+	return u, nil
+}
+
+// LinkOIDCAccount records that (provider, subject) belongs to userID.
+//
+// Idempotent on the (provider, subject) unique constraint so a racing second
+// login of the same brand-new user doesn't fail; the DO NOTHING branch means
+// the link already exists, which is the desired end state either way.
+func (r *Repository) LinkOIDCAccount(ctx context.Context, userID, provider, subject string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO oidc_accounts (user_id, provider, subject)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (provider, subject) DO NOTHING
+	`, userID, provider, subject)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.LinkOIDCAccount: %w", err)
+	}
+	return nil
+}
 
 // CreateUnverifiedUser inserts a new, unverified user row (email_verified_at
 // left NULL) with the given bcrypt password hash. name is a placeholder
@@ -529,6 +593,13 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 		{`UPDATE attendance SET reason = NULL WHERE user_id = $1`, []any{userID}},
 		{`UPDATE absences SET reason = NULL WHERE user_id = $1`, []any{userID}},
 		{`DELETE FROM sessions WHERE user_id = $1`, []any{userID}},
+		// The provider subject is personal data, so erasure has to take it
+		// with everything else. It also frees the (provider, subject) pair:
+		// left behind, it stays bound to the soft-deleted row, and a later
+		// sign-in by the same person provisions a fresh account whose
+		// LinkOIDCAccount then silently no-ops on the unique constraint --
+		// leaving that account with no link at all.
+		{`DELETE FROM oidc_accounts WHERE user_id = $1`, []any{userID}},
 	}
 	for _, s := range steps {
 		if _, err := tx.Exec(ctx, s.sql, s.args...); err != nil {
@@ -538,6 +609,21 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("auth.Repository.EraseUser: commit: %w", err)
+	}
+	return nil
+}
+
+// ClearPassword removes an account's password, leaving it reachable only
+// through its external identity. Used when an OIDC login adopts an account
+// that never completed email verification -- see Service.verifyAndLink.
+func (r *Repository) ClearPassword(ctx context.Context, userID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if _, err := r.pool.Exec(ctx,
+		`UPDATE users SET password_hash = NULL WHERE id = $1 AND deleted_at IS NULL`,
+		userID,
+	); err != nil {
+		return fmt.Errorf("auth.Repository.ClearPassword: %w", err)
 	}
 	return nil
 }

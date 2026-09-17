@@ -58,13 +58,38 @@ import {
   parseLocation,
   buildPath,
   currentPath,
+  parseLoginError,
   parsePendingInvite,
   parseResetPasswordToken,
   parseVerifyEmailToken,
   ROUTE_MODULE,
+  type LoginErrorCode,
   type Route,
   type UrlState,
 } from './urlState';
+
+/** i18n key per OIDC login-error code the backend can redirect back with. */
+const LOGIN_ERROR_MESSAGES: Record<LoginErrorCode, string> = {
+  oidc_failed: 'auth.oidcFailed',
+  oidc_unavailable: 'auth.oidcUnavailable',
+  oidc_denied: 'auth.oidcDenied',
+  oidc_email_unverified: 'auth.oidcEmailUnverified',
+  oidc_account_deleted: 'auth.oidcAccountDeleted',
+  oidc_rate_limited: 'auth.oidcRateLimited',
+};
+
+/**
+ * Consumes a `?login_error=<code>` left behind by the OIDC callback: returns
+ * the translated message and strips the parameter from the address bar, so a
+ * reload (or a later share of that URL) doesn't resurrect a stale error.
+ * Returns null when there is nothing to report.
+ */
+function takeLoginErrorFromURL(): string | null {
+  const code = parseLoginError(window.location.search);
+  if (!code) return null;
+  history.replaceState({}, '', window.location.pathname);
+  return t(LOGIN_ERROR_MESSAGES[code]);
+}
 
 /** Map the active detail sheet (walking the back-stack) to a URL detail ref. */
 function detailOfSheet(sheet: SheetState | null): UrlState['detail'] {
@@ -998,25 +1023,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [api, setState, afterLoginLoad, toastMsg, ensureRouteData],
   );
 
+  // Hands the browser to the backend's OIDC start endpoint, which redirects
+  // on to the identity provider. Deliberately not a fetch/establishSession
+  // pair like doPasswordLogin: the session is established by the callback
+  // (which sets the cookie) and picked up by the bootstrap effect when the
+  // browser lands back here, so there is nothing for this document to await.
+  //
+  // busy is still set: the navigation is not instantaneous, and leaving the
+  // buttons live invites a second click that starts a competing login.
   const doLogin = useCallback(
     async (pid: string) => {
       const owner = 'login:' + pid;
       setState({ busy: owner, error: null });
       try {
-        await api.auth.login(pid);
-        const user = await api.auth.currentUser();
-        await establishSession(user);
+        // Hand the round trip the path we are standing on, so an invite link
+        // still redeems once the provider sends the browser back.
+        api.auth.startProviderLogin(currentPath());
       } catch (err) {
+        // On the success path the navigation tears this document down, so
+        // busy is deliberately never cleared -- there is nothing left to
+        // render it. Only a navigation that fails outright lands here, and
+        // that one has to give the button back rather than leave the login
+        // screen spinning at a user who can still use the password form.
         const msg = err instanceof Error ? err.message : t('error.login');
-        // Guard against a different, still-in-flight login (Login.tsx
-        // normally prevents this by disabling every control while any login
-        // is busy, but a defensive owner-check here costs nothing and keeps
-        // this consistent with every other busy-setting flow in the app).
-        if (S().busy === owner) setState({ busy: null, error: msg });
-        else setState({ error: msg });
+        // The functional form, not S(): setState above has not been committed
+        // by React yet when a synchronous throw lands here, so a snapshot read
+        // would still show the previous owner and skip the reset. The guard
+        // itself stays -- busy is one shared field, and clearing an owner that
+        // is no longer ours is the bug it exists to prevent.
+        setState((s) => (s.busy === owner ? { busy: null, error: msg } : { error: msg }));
       }
     },
-    [api, S, setState, establishSession],
+    [api, setState],
   );
 
   const doPasswordLogin = useCallback(
@@ -1398,6 +1436,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // exact same way a password login does (reusing establishSession, so a
       // pending team invite in the URL still gets redeemed); on failure fall
       // through to the normal login screen with an explanatory error.
+
+      // An external-identity login bounced back here. Success needs no
+      // handling at all -- the callback already set the session cookie, so
+      // the currentUser() restore below picks it up like any other reload.
+      // Only a failure carries anything, as ?login_error=<code>; read it
+      // before establishSession runs, since that rewrites the URL from app
+      // state and would drop the parameter unseen.
+      const oidcError = takeLoginErrorFromURL();
+
       // A password-reset link (/reset-password/<token>) brought the user
       // here. Unlike verify-email, this doesn't consume the token
       // immediately -- ResetPassword.tsx needs the user to actually choose
@@ -1439,7 +1486,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         const providers = await api.auth.providers();
-        setState({ providers, phase: 'login' });
+        setState({ providers, phase: 'login', ...(oidcError ? { error: oidcError } : {}) });
       } catch {
         // A valid session but a failed establishSession (e.g. a transient
         // network error loading the team list, already retried once inside
@@ -1449,9 +1496,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // user is stuck with only a manual page reload to recover.
         try {
           const providers = await api.auth.providers();
-          setState({ phase: 'login', providers, error: t('error.network') });
+          setState({ phase: 'login', providers, error: oidcError ?? t('error.network') });
         } catch {
-          setState({ phase: 'login', providers: [], error: t('error.network') });
+          setState({ phase: 'login', providers: [], error: oidcError ?? t('error.network') });
         }
       }
     })();

@@ -38,6 +38,14 @@ const (
 	EventResendVerification   = "auth.resend_verification"
 	EventPasswordResetRequest = "auth.password_reset_request"
 	EventPasswordReset        = "auth.password_reset"
+	// EventOIDCLogin is recorded for every completed or rejected external
+	// identity provider login. EventOIDCLink and EventOIDCProvision
+	// additionally mark the two ways a first-time OIDC login reaches an
+	// account, since both attach an external identity to a local one and are
+	// worth being able to audit separately after the fact.
+	EventOIDCLogin     = "auth.oidc_login"
+	EventOIDCLink      = "auth.oidc_link"
+	EventOIDCProvision = "auth.oidc_provision"
 
 	EventRoleCreate = "role.create"
 	EventRoleUpdate = "role.update"

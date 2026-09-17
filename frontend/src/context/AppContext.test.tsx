@@ -257,7 +257,6 @@ describe('AppProvider / actions (app phase)', () => {
     expect(form.title).toBe('Großes Training');
   });
 
-
   it('duplicateEvent opens a create form pre-filled from the source event, with seriesId stripped and date reset', async () => {
     await renderAndBootstrap();
     const event = {
@@ -978,7 +977,7 @@ describe('AppProvider / invite-redemption join flow', () => {
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
 
     await act(async () => {
-      await actions!.doLogin('google');
+      await actions!.doPasswordLogin(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     });
 
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
@@ -1045,7 +1044,7 @@ describe('AppProvider / invite-redemption join flow', () => {
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
 
     await act(async () => {
-      await actions!.doLogin('google');
+      await actions!.doPasswordLogin(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     });
 
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
@@ -1081,7 +1080,7 @@ describe('AppProvider / invite-redemption join flow', () => {
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
 
     await act(async () => {
-      await actions!.doLogin('google');
+      await actions!.doPasswordLogin(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     });
 
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
@@ -1089,15 +1088,11 @@ describe('AppProvider / invite-redemption join flow', () => {
   });
 });
 
-// Regression test: doLogin/doPasswordLogin used to clear `busy` (and set
-// `error`) unconditionally in their catch blocks, the same class of bug
-// round 63 fixed for every other save/delete flow via reportActionError's
-// S+busyOwner guard. `busy` is one shared field, so a login that fails AFTER
-// a different, still-in-flight login has taken it over must not clear it out
-// from under that second login (Login.tsx also disables every control while
-// any login is busy, closing the UI-level half of this, but the state guard
-// is the actual fix -- this test exercises it directly, bypassing the UI).
-describe('AppProvider / overlapping login does not clobber a different in-flight login', () => {
+// Provider login is a full-page navigation to the backend's OIDC start
+// endpoint, not a fetch: the browser has to leave this origin for the
+// identity provider and come back with a session cookie. These cover that
+// contract, since jsdom won't actually navigate.
+describe('AppProvider / external provider login', () => {
   async function freshModules() {
     vi.resetModules();
     localStorage.clear();
@@ -1106,7 +1101,16 @@ describe('AppProvider / overlapping login does not clobber a different in-flight
     return { api: svc.api, AppProvider: ctx.AppProvider, useApp: ctx.useApp, useAppActions: ctx.useAppActions };
   }
 
-  it("a late-failing login only reports its own error, without clearing a different login's busy state", async () => {
+  // The login_error cases below put a query string on the URL, and the
+  // bootstrap only strips it on the path that actually runs. A test that
+  // fails before that point would otherwise leave ?login_error= on window
+  // .location for every test after it in this file, which reads as an
+  // unrelated failure somewhere else entirely.
+  beforeEach(() => {
+    history.replaceState({}, '', '/');
+  });
+
+  it('navigates to the start endpoint and marks the provider busy', async () => {
     const {
       api,
       AppProvider: FreshAppProvider,
@@ -1114,14 +1118,90 @@ describe('AppProvider / overlapping login does not clobber a different in-flight
       useAppActions: freshUseAppActions,
     } = await freshModules();
 
-    let rejectGoogle!: (err: Error) => void;
-    const googleLoginPromise = new Promise<never>((_resolve, reject) => {
-      rejectGoogle = reject;
-    });
-    const originalLogin = api.auth.login.bind(api.auth);
-    vi.spyOn(api.auth, 'login').mockImplementation((providerId: string, password?: string) =>
-      providerId === 'google' ? googleLoginPromise : originalLogin(providerId, password),
+    const start = vi.spyOn(api.auth, 'startProviderLogin').mockImplementation(() => {});
+    const login = vi.spyOn(api.auth, 'login');
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="busy">{state.busy ?? ''}</div>
+          <div data-testid="phase">{state.phase}</div>
+        </div>
+      );
+    }
+    renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
     );
+    // Wait for the bootstrap to settle on the login screen first -- otherwise
+    // this asserts against the loading phase it happens to race.
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+
+    expect(start).toHaveBeenCalledTimes(1);
+    // The session is established by the callback, not from here -- this
+    // document must not try to log in over HTTP as well.
+    expect(login).not.toHaveBeenCalled();
+    // Busy stays set: the navigation isn't instantaneous, and live buttons
+    // invite a second click that starts a competing login.
+    expect(screen.getByTestId('busy').textContent).toBe('login:google');
+    expect(screen.getByTestId('phase').textContent).toBe('login');
+  });
+
+  // An invite link is redeemed from the URL the app loads on, so the round
+  // trip to the provider has to be told where it started -- otherwise "sign
+  // in with Google to join this team" comes back to / and joins nothing.
+  it('hands the current path to the provider round trip', async () => {
+    const {
+      api,
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
+
+    const start = vi.spyOn(api.auth, 'startProviderLogin').mockImplementation(() => {});
+    history.replaceState({}, '', '/join/team-1/abc123');
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return <div data-testid="phase">{state.phase}</div>;
+    }
+    renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+
+    expect(start).toHaveBeenCalledWith('/join/team-1/abc123');
+  });
+
+  // A navigation that never commits must give the login screen back rather
+  // than leave it spinning at a user whose password form still works.
+  it('clears busy when the navigation itself fails', async () => {
+    const {
+      api,
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
+
+    vi.spyOn(api.auth, 'startProviderLogin').mockImplementation(() => {
+      throw new Error('navigation blocked');
+    });
 
     let actions: ReturnType<typeof freshUseAppActions>;
     function Probe() {
@@ -1131,6 +1211,7 @@ describe('AppProvider / overlapping login does not clobber a different in-flight
         <div>
           <div data-testid="busy">{state.busy ?? ''}</div>
           <div data-testid="error">{state.error ?? ''}</div>
+          <div data-testid="phase">{state.phase}</div>
         </div>
       );
     }
@@ -1139,45 +1220,130 @@ describe('AppProvider / overlapping login does not clobber a different in-flight
         <Probe />
       </FreshAppProvider>,
     );
-    await waitFor(() => expect(actions).toBeTruthy());
-
-    act(() => {
-      void actions!.doLogin('google');
-    });
-    await waitFor(() => expect(screen.getByTestId('busy').textContent).toBe('login:google'));
-
-    let applePromise!: Promise<void>;
-    act(() => {
-      applePromise = actions!.doLogin('apple');
-    });
-    await waitFor(() => expect(screen.getByTestId('busy').textContent).toBe('login:apple'));
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
 
     await act(async () => {
-      rejectGoogle(new Error('google unreachable'));
-      await googleLoginPromise.catch(() => {});
+      await actions!.doLogin('google');
     });
 
-    // apple's login is still in flight -- google's failure must not clear it.
-    expect(screen.getByTestId('busy').textContent).toBe('login:apple');
-    // The error message still surfaces regardless of busy ownership.
-    expect(screen.getByTestId('error').textContent).toContain('google unreachable');
+    expect(screen.getByTestId('busy').textContent).toBe('');
+    expect(screen.getByTestId('error').textContent).toContain('navigation blocked');
+  });
 
-    // Let apple's login run to completion (a REAL login against the mock
-    // backend, unlike google's which is stubbed out above) before the test
-    // ends. `doLogin`'s promise only resolves once login -> currentUser ->
-    // establishSession's whole chain (including the team-list fetch and
-    // afterLoginLoad) has settled -- left dangling, this in-flight promise
-    // keeps running in the background after the test returns and
-    // `afterEach`'s resetDb() clears session.userId, since MSW's session
-    // singleton (mocks/db.ts) is shared for the whole file and isn't part of
-    // any test's own vi.resetModules() reset. Under CI's slower/more
-    // contended scheduling this occasionally landed during a LATER test's own
-    // fresh-boot check (e.g. session-restore resilience below), making a
-    // brand-new "no session yet" render see apple's now-established session
-    // and jump straight to the app phase instead of login.
+  // The callback redirects back with ?login_error=<code> on failure. The
+  // bootstrap has to read it before establishSession rewrites the URL from
+  // app state, and clear it so a reload doesn't resurrect a stale error.
+  it('surfaces and clears a login_error returned by the OIDC callback', async () => {
+    const { AppProvider: FreshAppProvider, useApp: freshUseApp } = await freshModules();
+
+    history.replaceState({}, '', '/?login_error=oidc_email_unverified');
+
+    function Probe() {
+      const { state } = freshUseApp();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="error">{state.error ?? ''}</div>
+        </div>
+      );
+    }
+    renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    expect(screen.getByTestId('error').textContent).toContain('bestätigte E-Mail-Adresse');
+    expect(window.location.search).toBe('');
+  });
+
+  it('ignores an unrecognized login_error code', async () => {
+    const { AppProvider: FreshAppProvider, useApp: freshUseApp } = await freshModules();
+
+    history.replaceState({}, '', '/?login_error=<script>alert(1)</script>');
+
+    function Probe() {
+      const { state } = freshUseApp();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="error">{state.error ?? ''}</div>
+        </div>
+      );
+    }
+    renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    expect(screen.getByTestId('error').textContent).toBe('');
+  });
+
+  // Regression test: the login actions used to clear `busy` (and set `error`)
+  // unconditionally in their catch blocks, the same class of bug round 63
+  // fixed for every other save/delete flow via reportActionError's
+  // S+busyOwner guard. `busy` is one shared field, so a login that fails AFTER
+  // something else has taken it over must not clear it out from under that
+  // second attempt. doPasswordLogin is the flow that still has a catch block
+  // to get this wrong -- doLogin hands off to a full-page navigation -- so
+  // this pairs the two: a slow password login failing while a provider login
+  // now owns busy.
+  it("a late-failing password login only reports its own error, without clearing another login's busy state", async () => {
+    const {
+      api,
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
+
+    let rejectPassword!: (err: Error) => void;
+    const pendingLogin = new Promise<never>((_resolve, reject) => {
+      rejectPassword = reject;
+    });
+    vi.spyOn(api.auth, 'login').mockImplementation(() => pendingLogin);
+    vi.spyOn(api.auth, 'startProviderLogin').mockImplementation(() => {});
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="busy">{state.busy ?? ''}</div>
+          <div data-testid="error">{state.error ?? ''}</div>
+          <div data-testid="phase">{state.phase}</div>
+        </div>
+      );
+    }
+    renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+
+    let passwordPromise!: Promise<void>;
+    act(() => {
+      passwordPromise = actions!.doPasswordLogin(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
+    });
+    await waitFor(() => expect(screen.getByTestId('busy').textContent).toBe('login:password'));
+
+    // A provider login takes busy over while the password login is still out.
     await act(async () => {
-      await applePromise;
+      await actions!.doLogin('google');
     });
+    expect(screen.getByTestId('busy').textContent).toBe('login:google');
+
+    await act(async () => {
+      rejectPassword(new Error('backend unreachable'));
+      await passwordPromise;
+    });
+
+    expect(screen.getByTestId('busy').textContent).toBe('login:google');
+    expect(screen.getByTestId('error').textContent).toContain('backend unreachable');
   });
 });
 
@@ -1238,7 +1404,7 @@ describe('AppProvider / session-restore resilience', () => {
     // A normal login establishes a real session (session.userId in the mock),
     // which persists across remounts within this module instance.
     await act(async () => {
-      await actions!.doLogin('google');
+      await actions!.doPasswordLogin(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
     unmount();
@@ -1325,7 +1491,7 @@ describe('AppProvider / session-restore resilience', () => {
     // mock), which persists across remounts within this module instance --
     // same technique the test above uses to simulate a reload.
     await act(async () => {
-      await actions!.doLogin('google');
+      await actions!.doPasswordLogin(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
     first.unmount();
@@ -1395,7 +1561,7 @@ describe('AppProvider / session-restore resilience', () => {
     );
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
     await act(async () => {
-      await actions!.doLogin('google');
+      await actions!.doPasswordLogin(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
     first.unmount();
@@ -1449,7 +1615,7 @@ describe('AppProvider / session-restore resilience', () => {
     );
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
     await act(async () => {
-      await actions!.doLogin('google');
+      await actions!.doPasswordLogin(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
 
@@ -1506,7 +1672,7 @@ describe('AppProvider / session-restore resilience', () => {
     );
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
     await act(async () => {
-      await actions!.doLogin('google');
+      await actions!.doPasswordLogin(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
 
@@ -1540,7 +1706,7 @@ describe('AppProvider / session-restore resilience', () => {
     );
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
     await act(async () => {
-      await actions!.doLogin('google');
+      await actions!.doPasswordLogin(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
     expect(localStorage.getItem('tv_active_team_id')).not.toBeNull();

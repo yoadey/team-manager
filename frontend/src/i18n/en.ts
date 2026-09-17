@@ -216,6 +216,12 @@ export const en: Messages = {
     resetPasswordTitle: 'Choose a new password',
     resetPasswordSubmit: 'Set new password',
     resetPasswordFailed: 'This reset link is invalid or has expired. Please request a new one.',
+    oidcFailed: 'Sign-in could not be completed. Please try again.',
+    oidcUnavailable: 'The sign-in service is currently unreachable. Please try again later, or sign in with your email and password.',
+    oidcDenied: 'Sign-in was cancelled.',
+    oidcEmailUnverified: 'Your provider did not supply a verified email address. Verify it there and try again.',
+    oidcAccountDeleted: 'This email address belongs to a deleted account. Please contact your club administrator.',
+    oidcRateLimited: 'Too many sign-in attempts. Please wait a minute and try again.',
   },
   noTeam: {
     title: 'No team yet',

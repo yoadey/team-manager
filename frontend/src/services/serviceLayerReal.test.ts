@@ -123,6 +123,44 @@ describe('auth', () => {
     expect(res[0]).toMatchObject({ __mapped: 'provider' });
   });
 
+  // The provider login is a full-page navigation, not a fetch -- and with
+  // apiOrigin empty (the ordinary same-origin deployment) the target is a
+  // relative path, which is exactly the case a URL-object build would throw on.
+  describe('startProviderLogin', () => {
+    let assign: ReturnType<typeof vi.fn>;
+    let originalLocation: Location;
+
+    beforeEach(() => {
+      assign = vi.fn();
+      originalLocation = window.location;
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: { ...originalLocation, assign },
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    });
+
+    it('navigates to the start endpoint', () => {
+      realApi.auth.startProviderLogin();
+      expect(assign).toHaveBeenCalledWith('/api/v1/auth/oidc/start');
+    });
+
+    it('carries the return path so an invite link survives the round trip', () => {
+      realApi.auth.startProviderLogin('/join/team-1/abc123');
+      expect(assign).toHaveBeenCalledWith('/api/v1/auth/oidc/start?return_to=%2Fjoin%2Fteam-1%2Fabc123');
+    });
+
+    it('encodes a return path that carries its own query string', () => {
+      realApi.auth.startProviderLogin('/events?view=absences&scope=past');
+      expect(assign).toHaveBeenCalledWith(
+        '/api/v1/auth/oidc/start?return_to=%2Fevents%3Fview%3Dabsences%26scope%3Dpast',
+      );
+    });
+  });
+
   it('login posts credentials and returns the mapped user (no session token in the body)', async () => {
     // The session token travels only via the httpOnly cookie the server
     // sets -- the JSON body never carries it (see backend/internal/auth/handler.go).

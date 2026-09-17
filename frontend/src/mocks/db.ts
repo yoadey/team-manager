@@ -331,10 +331,6 @@ export interface PushSubscriptionRow {
 export const DEMO_PASSWORD = 'demo-tanzsport';
 export const DEMO_LOGIN_EMAIL = 'lena.bergmann@example.de';
 export const DEMO_LOGIN_USER_ID = 'u1';
-// Legacy one-tap "SSO" login ids, accepted with no password as a demo
-// convenience (see handlers.ts's POST /auth/login) — distinct from, and not
-// a weakening of, the DEMO_PASSWORD-gated email+password path.
-export const DEMO_SSO_PROVIDER_IDS = ['google', 'apple', 'microsoft', 'vereins-sso'];
 
 export function createSeedData(): DemoDb {
   const db: DemoDb = {

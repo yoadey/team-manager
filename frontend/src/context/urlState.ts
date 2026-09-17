@@ -172,3 +172,31 @@ export function parseResetPasswordToken(pathname: string): string | null {
   if (segs.length !== 2 || segs[0] !== 'reset-password' || !segs[1]) return null;
   return decodeURIComponent(segs[1]);
 }
+
+/**
+ * The `login_error` codes the backend's OIDC callback can redirect back with
+ * (internal/auth/handler_oidc.go). Anything not on this list is ignored
+ * rather than shown: the value comes straight off the query string, so
+ * treating it as an allow-list keeps arbitrary text from being rendered as an
+ * error message.
+ */
+export const LOGIN_ERROR_CODES = [
+  'oidc_failed',
+  'oidc_unavailable',
+  'oidc_denied',
+  'oidc_email_unverified',
+  'oidc_account_deleted',
+  'oidc_rate_limited',
+] as const;
+
+export type LoginErrorCode = (typeof LOGIN_ERROR_CODES)[number];
+
+/**
+ * Reads a recognized `?login_error=<code>` from a query string. Returns null
+ * for an absent or unrecognized code. Pure -- the caller decides what to do
+ * with the URL afterwards.
+ */
+export function parseLoginError(search: string): LoginErrorCode | null {
+  const raw = new URLSearchParams(search).get('login_error');
+  return LOGIN_ERROR_CODES.find((code) => code === raw) ?? null;
+}

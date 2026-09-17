@@ -21,6 +21,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/oidc/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Begin the OIDC authorization-code flow
+         * @description Redirects the browser to the configured identity provider's authorization endpoint (Authorization Code + PKCE) and stores the state/nonce/PKCE verifier in a short-lived encrypted cookie. This is a top-level navigation target, not an XHR endpoint -- the browser must follow the redirect off-origin for the flow to work. Returns 404 when no OIDC provider is configured.
+         */
+        get: operations["startOidcLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Complete the OIDC authorization-code flow
+         * @description Consumes the provider's redirect, verifies state/nonce and the ID token, resolves or provisions the local account, and establishes the usual session cookie. Always redirects back to the application: on failure with a `login_error` query parameter rather than an error document, since the caller is a browser mid-navigation and not an API client.
+         */
+        get: operations["oidcCallback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -1380,6 +1420,8 @@ export interface components {
             bg: string;
             fg: string;
             border?: string;
+            /** @description Optional URL of an icon to render in the provider's button instead of the text `glyph`. Same-origin paths (e.g. one of the icons this deployment serves under /provider-icons/) work out of the box; an absolute URL on another host additionally has to be allowed by the frontend's img-src content security policy. */
+            icon?: string;
         };
         LoginRequest: {
             /** Format: email */
@@ -2359,6 +2401,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Browser redirect. On the start endpoint this points at the identity provider's authorization endpoint; on the callback it points back at this deployment's frontend, carrying a `login_error` query parameter when the login did not succeed. */
+        OidcRedirect: {
+            headers: {
+                /** @description Where the browser is sent next. */
+                Location?: string;
+                [name: string]: unknown;
+            };
+            content?: never;
+        };
         /** @description Redirect to a short-lived presigned URL for the image, hosted by the object store rather than this API. Access is membership-gated before the URL is issued; the URL itself carries no further authorization. */
         PhotoRedirect: {
             headers: {
@@ -2411,6 +2462,40 @@ export interface operations {
                     "application/json": components["schemas"]["Provider"][];
                 };
             };
+        };
+    };
+    startOidcLogin: {
+        parameters: {
+            query?: {
+                /** @description Where to send the browser after a successful login, as a path within this application (for example an invite link's `/join/{teamId}/{code}`, which would otherwise be lost across the round trip to the provider). Must be a root-relative path; anything else -- an absolute URL, a protocol-relative `//host` -- is ignored and the user lands on the application root. */
+                return_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            302: components["responses"]["OidcRedirect"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    oidcCallback: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+                error_description?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            302: components["responses"]["OidcRedirect"];
         };
     };
     login: {

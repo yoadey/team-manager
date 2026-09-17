@@ -169,6 +169,10 @@ default key name(s) and which fields are required when
 | `s3.secret.*` | — | — | `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`. See "Secrets" above. |
 | `smtp.host` / `port` / `fromAddress` | string | see `values.yaml` | `SMTP_HOST`/`SMTP_PORT`/`SMTP_FROM_ADDRESS`. |
 | `smtp.secret.*` | — | — | `SMTP_USERNAME`/`SMTP_PASSWORD`. See "Secrets" above. |
+| `oidc.enabled` | bool | `false` | `OIDC_ENABLED`. Adds an external identity provider alongside password login. |
+| `oidc.issuer` / `redirectUrl` / `providerId` / `scopes` | string/list | see `values.yaml` | `OIDC_ISSUER`/`OIDC_REDIRECT_URL`/`OIDC_PROVIDER_ID`/`OIDC_SCOPES`. An empty `redirectUrl` derives `<PUBLIC_BASE_URL>/api/v1/auth/oidc/callback`, which is correct for this chart's single-ingress layout; set it explicitly if the API is served on a separate host. `openid` is always in the requested scopes whether or not `scopes` lists it. |
+| `oidc.displayName` / `displaySubtitle` / `icon` | string | `""` | `OIDC_PROVIDER_NAME`/`OIDC_PROVIDER_SUBTITLE`/`OIDC_PROVIDER_ICON` — the login button's label and icon URL. Icons for the common providers ship at `/provider-icons/*.svg`. |
+| `oidc.secret.*` | — | — | `OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`/`OIDC_EXTRA_SCOPES`. See "Secrets" above. |
 | `push.publicKey` / `subject` | string | `""` | `VAPID_PUBLIC_KEY`/`VAPID_SUBJECT`. |
 | `push.secret.*` | — | — | `VAPID_PRIVATE_KEY`. See "Secrets" above. |
 | `selfRegistration.*` | bool/int | see `values.yaml` | `SELF_REGISTRATION_ENABLED`/`EMAIL_VERIFICATION_TTL_HOURS`/`REGISTER_RATE_LIMIT_PER_MIN`/`RESEND_VERIFICATION_RATE_LIMIT_PER_MIN`/`PASSWORD_RESET_TTL_HOURS`/`FORGOT_PASSWORD_RATE_LIMIT_PER_MIN`. |
@@ -208,6 +212,7 @@ default key name(s) and which fields are required when
 | `frontend.apiBaseUrl` | string | `""` | The backend's public URL this frontend talks to. Unset serves the built-in mock backend. |
 | `frontend.sentryDsn` | string | `""` | Frontend Sentry DSN; not secret (shipped to the browser regardless). |
 | `frontend.vapidPublicKey` | string | `""` | VAPID public key shown to the browser; resolves to `push.publicKey` when unset — must match whichever backend `apiBaseUrl` points at. |
+| `frontend.extraImgSrc` | string | `""` | Extra sources appended to the app's `img-src` CSP. Only needed when `oidc.icon` points at another host; the bundled `/provider-icons/` assets are same-origin. |
 | `frontend.operator.*` | string | all `""` | Operator legal-notice identity (`name`/`legalForm`/`street`/`postalCode`/`city`/`representedBy`/`phone`/`email`/`registerCourt`/`registerNumber`/`vatId`/`dataProtectionEmail`/`s3Provider`/`smtpProvider`/`sentryProvider`/`otelProvider`) — see `docs/operations.md`'s "Legal setup before going public". |
 | `frontend.resources` | object | `requests: 25m/32Mi`, `limits: 250m/64Mi` | Frontend container resource requests/limits. |
 | `frontend.livenessProbe` / `readinessProbe` | object | both `httpGet: /healthz` | Frontend probe timing. |

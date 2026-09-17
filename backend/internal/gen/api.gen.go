@@ -929,9 +929,12 @@ type Provider struct {
 	Border *string `json:"border,omitempty"`
 	Fg     string  `json:"fg"`
 	Glyph  string  `json:"glyph"`
-	Id     string  `json:"id"`
-	Name   string  `json:"name"`
-	Sub    string  `json:"sub"`
+
+	// Icon Optional URL of an icon to render in the provider's button instead of the text `glyph`. Same-origin paths (e.g. one of the icons this deployment serves under /provider-icons/) work out of the box; an absolute URL on another host additionally has to be allowed by the frontend's img-src content security policy.
+	Icon *string `json:"icon,omitempty"`
+	Id   string  `json:"id"`
+	Name string  `json:"name"`
+	Sub  string  `json:"sub"`
 }
 
 // PushCategoryPreferences Per-team Web Push opt-out, one boolean per notification category. A category set to false suppresses push delivery for that category in this team only; the in-app notification feed is unaffected. Also carries the member's event-reminder push settings for this team -- a separate, time-triggered push (not tied to any notification category) sent shortly before an upcoming event starts.
@@ -1372,6 +1375,20 @@ type UploadMyPhotoMultipartBody struct {
 	Photo openapi_types.File `json:"photo"`
 }
 
+// OidcCallbackParams defines parameters for OidcCallback.
+type OidcCallbackParams struct {
+	Code             *string `form:"code,omitempty" json:"code,omitempty"`
+	State            *string `form:"state,omitempty" json:"state,omitempty"`
+	Error            *string `form:"error,omitempty" json:"error,omitempty"`
+	ErrorDescription *string `form:"error_description,omitempty" json:"error_description,omitempty"`
+}
+
+// StartOidcLoginParams defines parameters for StartOidcLogin.
+type StartOidcLoginParams struct {
+	// ReturnTo Where to send the browser after a successful login, as a path within this application (for example an invite link's `/join/{teamId}/{code}`, which would otherwise be lost across the round trip to the provider). Must be a root-relative path; anything else -- an absolute URL, a protocol-relative `//host` -- is ignored and the user lands on the application root.
+	ReturnTo *string `form:"return_to,omitempty" json:"return_to,omitempty"`
+}
+
 // ListAbsencesParams defines parameters for ListAbsences.
 type ListAbsencesParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -1661,6 +1678,12 @@ type ServerInterface interface {
 	// Upload / replace profile photo (scaled to max 800×800 px)
 	// (PUT /auth/me/photo)
 	UploadMyPhoto(w http.ResponseWriter, r *http.Request)
+	// Complete the OIDC authorization-code flow
+	// (GET /auth/oidc/callback)
+	OidcCallback(w http.ResponseWriter, r *http.Request, params OidcCallbackParams)
+	// Begin the OIDC authorization-code flow
+	// (GET /auth/oidc/start)
+	StartOidcLogin(w http.ResponseWriter, r *http.Request, params StartOidcLoginParams)
 	// List available login providers
 	// (GET /auth/providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
@@ -1985,6 +2008,18 @@ func (_ Unimplemented) GetMyPhoto(w http.ResponseWriter, r *http.Request) {
 // Upload / replace profile photo (scaled to max 800×800 px)
 // (PUT /auth/me/photo)
 func (_ Unimplemented) UploadMyPhoto(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Complete the OIDC authorization-code flow
+// (GET /auth/oidc/callback)
+func (_ Unimplemented) OidcCallback(w http.ResponseWriter, r *http.Request, params OidcCallbackParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Begin the OIDC authorization-code flow
+// (GET /auth/oidc/start)
+func (_ Unimplemented) StartOidcLogin(w http.ResponseWriter, r *http.Request, params StartOidcLoginParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2682,6 +2717,111 @@ func (siw *ServerInterfaceWrapper) UploadMyPhoto(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UploadMyPhoto(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OidcCallback operation middleware
+func (siw *ServerInterfaceWrapper) OidcCallback(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params OidcCallbackParams
+
+	// ------------- Optional query parameter "code" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "code", r.URL.Query(), &params.Code, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "code"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "error" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "error", r.URL.Query(), &params.Error, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "error"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "error", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "error_description" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "error_description", r.URL.Query(), &params.ErrorDescription, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "error_description"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "error_description", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OidcCallback(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartOidcLogin operation middleware
+func (siw *ServerInterfaceWrapper) StartOidcLogin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StartOidcLoginParams
+
+	// ------------- Optional query parameter "return_to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "return_to", r.URL.Query(), &params.ReturnTo, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "return_to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "return_to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartOidcLogin(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6358,6 +6498,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/auth/me/photo", wrapper.UploadMyPhoto)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/oidc/callback", wrapper.OidcCallback)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/oidc/start", wrapper.StartOidcLogin)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/auth/providers", wrapper.ListProviders)
 	})
 	r.Group(func(r chi.Router) {
@@ -6639,6 +6785,13 @@ type ConflictApplicationProblemPlusJSONResponse Problem
 type ForbiddenApplicationProblemPlusJSONResponse Problem
 
 type NotFoundApplicationProblemPlusJSONResponse Problem
+
+type OidcRedirectResponseHeaders struct {
+	Location *string
+}
+type OidcRedirectResponse struct {
+	Headers OidcRedirectResponseHeaders
+}
 
 type PayloadTooLargeApplicationProblemPlusJSONResponse Problem
 
@@ -6983,6 +7136,74 @@ func (response UploadMyPhoto413ApplicationProblemPlusJSONResponse) VisitUploadMy
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OidcCallbackRequestObject struct {
+	Params OidcCallbackParams
+}
+
+type OidcCallbackResponseObject interface {
+	VisitOidcCallbackResponse(w http.ResponseWriter) error
+}
+
+type OidcCallback302Response = OidcRedirectResponse
+
+func (response OidcCallback302Response) VisitOidcCallbackResponse(w http.ResponseWriter) error {
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	w.WriteHeader(302)
+	return nil
+}
+
+type StartOidcLoginRequestObject struct {
+	Params StartOidcLoginParams
+}
+
+type StartOidcLoginResponseObject interface {
+	VisitStartOidcLoginResponse(w http.ResponseWriter) error
+}
+
+type StartOidcLogin302Response = OidcRedirectResponse
+
+func (response StartOidcLogin302Response) VisitStartOidcLoginResponse(w http.ResponseWriter) error {
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	w.WriteHeader(302)
+	return nil
+}
+
+type StartOidcLogin404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response StartOidcLogin404ApplicationProblemPlusJSONResponse) VisitStartOidcLoginResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartOidcLogin429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response StartOidcLogin429ApplicationProblemPlusJSONResponse) VisitStartOidcLoginResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -9358,6 +9579,12 @@ type StrictServerInterface interface {
 	// Upload / replace profile photo (scaled to max 800×800 px)
 	// (PUT /auth/me/photo)
 	UploadMyPhoto(ctx context.Context, request UploadMyPhotoRequestObject) (UploadMyPhotoResponseObject, error)
+	// Complete the OIDC authorization-code flow
+	// (GET /auth/oidc/callback)
+	OidcCallback(ctx context.Context, request OidcCallbackRequestObject) (OidcCallbackResponseObject, error)
+	// Begin the OIDC authorization-code flow
+	// (GET /auth/oidc/start)
+	StartOidcLogin(ctx context.Context, request StartOidcLoginRequestObject) (StartOidcLoginResponseObject, error)
 	// List available login providers
 	// (GET /auth/providers)
 	ListProviders(ctx context.Context, request ListProvidersRequestObject) (ListProvidersResponseObject, error)
@@ -9875,6 +10102,58 @@ func (sh *strictHandler) UploadMyPhoto(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UploadMyPhotoResponseObject); ok {
 		if err := validResponse.VisitUploadMyPhotoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// OidcCallback operation middleware
+func (sh *strictHandler) OidcCallback(w http.ResponseWriter, r *http.Request, params OidcCallbackParams) {
+	var request OidcCallbackRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OidcCallback(ctx, request.(OidcCallbackRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OidcCallback")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OidcCallbackResponseObject); ok {
+		if err := validResponse.VisitOidcCallbackResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartOidcLogin operation middleware
+func (sh *strictHandler) StartOidcLogin(w http.ResponseWriter, r *http.Request, params StartOidcLoginParams) {
+	var request StartOidcLoginRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartOidcLogin(ctx, request.(StartOidcLoginRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartOidcLogin")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartOidcLoginResponseObject); ok {
+		if err := validResponse.VisitStartOidcLoginResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

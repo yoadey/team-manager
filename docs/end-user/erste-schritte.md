@@ -23,6 +23,34 @@ danach automatisch für euch bei.
 
 ## Erster Login
 
+Je nachdem, wie euer Verein die App betreibt, stehen euch auf dem
+Login-Bildschirm eine oder zwei Möglichkeiten zur Verfügung.
+
+### Anmeldung über einen externen Anbieter (z. B. Google)
+
+Ist das eingerichtet, seht ihr ganz oben eine Schaltfläche wie „Google". Ein
+Klick darauf bringt euch direkt zur Anmeldeseite des Anbieters; nach der
+Bestätigung dort landet ihr wieder in der App und seid angemeldet. Ein
+Passwort müsst ihr euch dafür nicht merken.
+
+Beim ersten Mal passiert eines von beidem, ganz automatisch:
+
+- Gibt es bereits ein Konto mit **derselben E-Mail-Adresse**, wird eure
+  Anmeldung mit diesem Konto verknüpft — ihr behaltet alle eure Teams und
+  Daten, und euer bisheriges Passwort funktioniert weiterhin.
+- Gibt es noch keines, wird ein neues Konto für euch angelegt. Es hat dann
+  zunächst kein Team, bis euch jemand einlädt (siehe „Noch kein Team").
+
+Wichtig: Der Anbieter muss uns eine **bestätigte** E-Mail-Adresse übermitteln.
+Tut er das nicht, wird die Anmeldung abgelehnt — bestätigt die Adresse in
+diesem Fall zuerst beim Anbieter selbst.
+
+### Anmeldung mit E-Mail und Passwort
+
+Diese Möglichkeit gibt es immer, auch wenn ein externer Anbieter eingerichtet
+ist — und sie ist euer Rückweg, falls dieser einmal nicht erreichbar sein
+sollte.
+
 Angemeldet wird sich mit **E-Mail-Adresse und Passwort**. Habt ihr noch kein
 Konto, könnt ihr euch auf dem Login-Bildschirm über „Registrieren" selbst
 eines anlegen: E-Mail-Adresse und Passwort wählen, danach einen

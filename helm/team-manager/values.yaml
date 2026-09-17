@@ -368,6 +368,47 @@ push:
     keys:
       privateKey: "private-key"
 
+# External identity provider (OpenID Connect). Disabled by default: password
+# login works on its own, and enabling this advertises a login button that
+# would fail at the first click without a reachable provider.
+#
+# `scopes` are the base scopes; the provider-specific extra scopes come from
+# the Secret's `extraScopes` key instead, because they are typically produced
+# by whatever provisions the OIDC client (e.g. Terraform registering the app
+# and looking up an upstream IdP's id) rather than known when these values are
+# written. That key is optional and holds no secret -- it simply travels with
+# the credentials it belongs to.
+#
+# `redirectUrl` may be left empty, in which case the backend derives
+# `<PUBLIC_BASE_URL>/api/v1/auth/oidc/callback`. Whatever it resolves to must
+# match the redirect URI registered at the provider exactly. That default
+# assumes this chart's single-ingress layout, where /api/v1 on the frontend's
+# own host routes to the backend -- split the two across separate hosts and
+# this has to be set explicitly, since `PUBLIC_BASE_URL` names the frontend.
+#
+# `icon` is a URL rendered in the login button. This chart's frontend serves
+# icons for the common providers at /provider-icons/{google,apple,microsoft,
+# github,facebook,openid}.svg. Pointing it at another host additionally
+# requires frontend.extraImgSrc, or the app's img-src CSP silently blocks it.
+oidc:
+  enabled: false
+  issuer: "" # e.g. "https://sso.example.com"
+  redirectUrl: ""
+  providerId: "oidc" # stored in oidc_accounts.provider -- changing it orphans existing links
+  displayName: "" # e.g. "Google"
+  displaySubtitle: "" # e.g. "Sign in with your Google account"
+  icon: "" # e.g. "/provider-icons/google.svg"
+  scopes:
+    - openid
+    - profile
+    - email
+  secret:
+    existingSecret: "" # required when enabled -- no inline-value alternative
+    keys:
+      clientId: "client-id"
+      clientSecret: "client-secret"
+      extraScopes: "extra-scopes"
+
 selfRegistration:
   enabled: true
   emailVerificationTtlHours: 48
@@ -639,6 +680,12 @@ frontend:
   # deliberately point this frontend release at a different backend/VAPID
   # keypair than push.* above describes.
   vapidPublicKey: ""
+  # Extra sources appended to the app's img-src content security policy, as a
+  # space-separated CSP source list (e.g. "https://cdn.example.com"). Only
+  # needed when oidc.icon points at a host other than this frontend's own --
+  # the bundled /provider-icons/ assets are same-origin and already allowed.
+  # Without it such an icon is blocked by the browser with no visible cause.
+  extraImgSrc: ""
 
   # Operator legal-notice/privacy-policy identity, shown on the
   # legal-notice page and in the privacy policy -- see docs/operations.md's

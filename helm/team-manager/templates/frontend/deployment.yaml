@@ -79,6 +79,10 @@ spec:
             - name: VAPID_PUBLIC_KEY
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.frontend.extraImgSrc }}
+            - name: EXTRA_IMG_SRC
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.frontend.operator.name }}
             - name: OPERATOR_NAME
               value: {{ . | quote }}

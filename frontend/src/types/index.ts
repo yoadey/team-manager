@@ -147,6 +147,9 @@ export interface Provider {
   bg: string;
   fg: string;
   border?: boolean;
+  /** URL of an icon to render instead of `glyph`. Served by this app itself
+   *  (/provider-icons/...) unless the deployment points it elsewhere. */
+  icon?: string;
 }
 
 export interface Invite {

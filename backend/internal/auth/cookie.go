@@ -17,6 +17,22 @@ import (
 // DefaultSessionCookieName is the cookie name used when none is configured.
 const DefaultSessionCookieName = "tv_session"
 
+// OIDCStateCookieName is the name of the short-lived cookie that carries the
+// OIDC state/nonce/PKCE verifier between the start endpoint and the callback.
+const OIDCStateCookieName = "tv_oidc"
+
+// OIDCStateCookiePath scopes the state cookie to the two OIDC endpoints, so it
+// isn't sent along with every other request for the ten minutes it lives.
+// It mirrors the base path cmd/server/main.go mounts the generated routes
+// under ("/api/v1") plus the OIDC route prefix.
+const OIDCStateCookiePath = "/api/v1/auth/oidc"
+
+// OIDCStateTTL bounds how long a started login may take to come back. Long
+// enough for a user to actually authenticate at the provider (including a
+// password manager detour), short enough that an abandoned attempt doesn't
+// linger.
+const OIDCStateTTL = 10 * time.Minute
+
 // ErrInvalidCookie is returned when a session cookie cannot be decoded or
 // authenticated (tampered, truncated, or encrypted with a different key).
 var ErrInvalidCookie = errors.New("auth: invalid session cookie")
@@ -37,6 +53,7 @@ type SessionCookieCodec struct {
 	secure bool
 	ttl    time.Duration
 	name   string
+	path   string
 }
 
 // NewSessionCookieCodec builds a codec from one or more 32-byte keys. keys[0]
@@ -46,6 +63,22 @@ type SessionCookieCodec struct {
 // secure controls the cookie's Secure attribute; ttl its Max-Age. An empty
 // name falls back to DefaultSessionCookieName.
 func NewSessionCookieCodec(keys [][]byte, secure bool, ttl time.Duration, name string) (*SessionCookieCodec, error) {
+	if name == "" {
+		name = DefaultSessionCookieName
+	}
+	return newCookieCodec(keys, secure, ttl, name, "/")
+}
+
+// NewOIDCStateCodec builds the codec for the short-lived OIDC state cookie. It
+// deliberately reuses the session cookie's keys (COOKIE_ENCRYPTION_KEYS): the
+// state cookie protects a login that is in flight, so it needs exactly the same
+// confidentiality and rotation story, and giving it a second key to configure
+// would be one more thing to get wrong for no gain.
+func NewOIDCStateCodec(keys [][]byte, secure bool) (*SessionCookieCodec, error) {
+	return newCookieCodec(keys, secure, OIDCStateTTL, OIDCStateCookieName, OIDCStateCookiePath)
+}
+
+func newCookieCodec(keys [][]byte, secure bool, ttl time.Duration, name, path string) (*SessionCookieCodec, error) {
 	if len(keys) == 0 {
 		return nil, ErrNoKeys
 	}
@@ -53,18 +86,15 @@ func NewSessionCookieCodec(keys [][]byte, secure bool, ttl time.Duration, name s
 	for i, key := range keys {
 		block, err := aes.NewCipher(key)
 		if err != nil {
-			return nil, fmt.Errorf("auth.NewSessionCookieCodec: key[%d]: %w", i, err)
+			return nil, fmt.Errorf("auth.newCookieCodec: key[%d]: %w", i, err)
 		}
 		gcm, err := cipher.NewGCM(block)
 		if err != nil {
-			return nil, fmt.Errorf("auth.NewSessionCookieCodec: key[%d]: %w", i, err)
+			return nil, fmt.Errorf("auth.newCookieCodec: key[%d]: %w", i, err)
 		}
 		gcms[i] = gcm
 	}
-	if name == "" {
-		name = DefaultSessionCookieName
-	}
-	return &SessionCookieCodec{gcms: gcms, secure: secure, ttl: ttl, name: name}, nil
+	return &SessionCookieCodec{gcms: gcms, secure: secure, ttl: ttl, name: name, path: path}, nil
 }
 
 // Name returns the cookie name.
@@ -104,7 +134,7 @@ func (c *SessionCookieCodec) Decrypt(value string) (string, error) {
 	return "", ErrInvalidCookie
 }
 
-// Set writes the encrypted session cookie onto the response.
+// Set writes the encrypted cookie onto the response.
 func (c *SessionCookieCodec) Set(w http.ResponseWriter, jwt string) error {
 	value, err := c.Encrypt(jwt)
 	if err != nil {
@@ -113,7 +143,7 @@ func (c *SessionCookieCodec) Set(w http.ResponseWriter, jwt string) error {
 	http.SetCookie(w, &http.Cookie{
 		Name:     c.name,
 		Value:    value,
-		Path:     "/",
+		Path:     c.path,
 		MaxAge:   int(c.ttl.Seconds()),
 		HttpOnly: true,
 		Secure:   c.secure,
@@ -122,12 +152,12 @@ func (c *SessionCookieCodec) Set(w http.ResponseWriter, jwt string) error {
 	return nil
 }
 
-// Clear overwrites the session cookie with an expired, empty value.
+// Clear overwrites the cookie with an expired, empty value.
 func (c *SessionCookieCodec) Clear(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     c.name,
 		Value:    "",
-		Path:     "/",
+		Path:     c.path,
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   c.secure,
@@ -154,19 +184,87 @@ func SetSessionToken(ctx context.Context, token string) {
 	}
 }
 
+// extraCookiesContextKey is the context key under which StrictMiddleware
+// installs a *[]*http.Cookie that handlers append to via AddResponseCookie.
+// Same motivation as sessionTokenContextKey: a strict handler receives no
+// http.ResponseWriter, so anything it wants in a header has to travel out
+// through the context.
+type extraCookiesContextKey struct{}
+
+// AddResponseCookie records a cookie StrictMiddleware should emit alongside
+// the response, whatever that response turns out to be. Used by the OIDC
+// handlers for the short-lived state cookie, which -- unlike the session
+// cookie -- is set and cleared on redirects rather than on a specific JSON
+// result, so applyCookie's operation/response switch is the wrong place for
+// it. A no-op outside a request wrapped by StrictMiddleware.
+func AddResponseCookie(ctx context.Context, cookie *http.Cookie) {
+	if holder, ok := ctx.Value(extraCookiesContextKey{}).(*[]*http.Cookie); ok {
+		*holder = append(*holder, cookie)
+	}
+}
+
+// StateCookie builds the Set-Cookie carrying an encrypted OIDC state payload.
+func (c *SessionCookieCodec) StateCookie(payload string) (*http.Cookie, error) {
+	value, err := c.Encrypt(payload)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Cookie{
+		Name:     c.name,
+		Value:    value,
+		Path:     c.path,
+		MaxAge:   int(c.ttl.Seconds()),
+		HttpOnly: true,
+		Secure:   c.secure,
+		// Lax, not Strict: the browser arrives back from the identity
+		// provider through a top-level cross-site GET navigation. Strict
+		// would withhold the cookie on exactly that request and break every
+		// login.
+		SameSite: http.SameSiteLaxMode,
+	}, nil
+}
+
+// ClearedStateCookie builds the Set-Cookie that expires the state cookie once
+// a login attempt has been consumed (successfully or not), so a replayed
+// callback finds nothing to validate against.
+func (c *SessionCookieCodec) ClearedStateCookie() *http.Cookie {
+	return &http.Cookie{
+		Name:     c.name,
+		Value:    "",
+		Path:     c.path,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   c.secure,
+		SameSite: http.SameSiteLaxMode,
+	}
+}
+
 // StrictMiddleware returns a generated-strict-handler middleware that sets the
-// session cookie on a successful Login/VerifyEmail/ResetPassword (via the
-// token the handler passes to SetSessionToken) and clears it on Logout /
-// account erasure. It runs before the response is visited, so the Set-Cookie
-// header is emitted with the body.
+// session cookie on a successful Login/VerifyEmail/ResetPassword/OidcCallback
+// (via the token the handler passes to SetSessionToken) and clears it on
+// Logout / account erasure. It also emits any cookie a handler registered via
+// AddResponseCookie. It runs before the response is visited, so the Set-Cookie
+// headers are emitted with the body.
 func (c *SessionCookieCodec) StrictMiddleware() gen.StrictMiddlewareFunc {
 	return func(f gen.StrictHandlerFunc, operationID string) gen.StrictHandlerFunc {
 		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
 			var token string
+			var extra []*http.Cookie
 			ctx = context.WithValue(ctx, sessionTokenContextKey{}, &token)
+			ctx = context.WithValue(ctx, extraCookiesContextKey{}, &extra)
 			resp, err := f(ctx, w, r, request)
 			if err != nil {
 				return resp, err
+			}
+			for _, cookie := range extra {
+				// The codec is the single choke point every extra cookie
+				// passes through, so it stamps the transport-security
+				// attributes here rather than trusting each handler to have
+				// got them right. Secure tracks COOKIE_SECURE, exactly like
+				// the session cookie (Set/Clear above).
+				cookie.Secure = c.secure
+				cookie.HttpOnly = true
+				http.SetCookie(w, cookie)
 			}
 			if cookieErr := c.applyCookie(w, operationID, resp, token); cookieErr != nil {
 				return resp, cookieErr
@@ -176,8 +274,8 @@ func (c *SessionCookieCodec) StrictMiddleware() gen.StrictMiddlewareFunc {
 	}
 }
 
-// applyCookie sets the session cookie after a successful Login, VerifyEmail
-// or ResetPassword (using the token the handler recorded via
+// applyCookie sets the session cookie after a successful Login, VerifyEmail,
+// ResetPassword or OidcCallback (using the token the handler recorded via
 // SetSessionToken) and clears it after a successful Logout or account
 // erasure, based on the operation result.
 func (c *SessionCookieCodec) applyCookie(w http.ResponseWriter, operationID string, resp any, token string) error {
@@ -192,6 +290,13 @@ func (c *SessionCookieCodec) applyCookie(w http.ResponseWriter, operationID stri
 		}
 	case "ResetPassword":
 		if _, ok := resp.(gen.ResetPassword200JSONResponse); ok {
+			return c.Set(w, token)
+		}
+	case "OidcCallback":
+		// The callback redirects on both success and failure, so unlike the
+		// cases above the response type alone doesn't say whether a session
+		// was established -- a token recorded via SetSessionToken does.
+		if _, ok := resp.(gen.OidcCallback302Response); ok && token != "" {
 			return c.Set(w, token)
 		}
 	case "Logout":

@@ -8,7 +8,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -35,6 +37,7 @@ type authService interface {
 	ResendVerification(ctx context.Context, email string) error
 	ForgotPassword(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, rawToken, newPassword string) (token string, user *UserRow, err error)
+	LoginWithOIDC(ctx context.Context, provider string, claims OIDCClaims) (token string, user *UserRow, outcome OIDCLoginOutcome, err error)
 }
 
 // Handler implements the auth-related methods of gen.StrictServerInterface.
@@ -48,6 +51,11 @@ type Handler struct {
 	// Defaults to false: GetMyPhoto redirects (302) to a presigned
 	// object-store URL, unchanged from before this flag existed.
 	imageDeliveryProxyEnabled bool
+	// oidc and oidcStateCodec are nil unless cmd/server/main.go calls SetOIDC.
+	// Both nil means this deployment is password-only and the OIDC endpoints
+	// answer 404.
+	oidc           *OIDCClient
+	oidcStateCodec *SessionCookieCodec
 }
 
 // NewHandler creates a new Handler. The codec is used by AuthMiddleware to read
@@ -68,20 +76,58 @@ func (h *Handler) SetImageDeliveryProxyEnabled(enabled bool) {
 	h.imageDeliveryProxyEnabled = enabled
 }
 
-// ListProviders returns the list of supported login providers (hardcoded to password).
+// ListProviders returns the login options this deployment offers: always
+// password, plus the configured OIDC provider when there is one.
+//
+// The OIDC entry is listed first: where it exists it is the intended way in,
+// and the password form stays available below it as the fallback for accounts
+// without an external identity (and for when the provider is down).
 func (h *Handler) ListProviders(ctx context.Context, _ gen.ListProvidersRequestObject) (gen.ListProvidersResponseObject, error) {
 	border := "#e2e8f0"
-	return gen.ListProviders200JSONResponse([]gen.Provider{
-		{
-			Id:     "password",
-			Name:   "Email & Password",
-			Sub:    "Sign in with your email address",
-			Glyph:  "lock",
+	providers := make([]gen.Provider, 0, 2)
+
+	if h.oidcEnabled() {
+		cfg := h.oidc.Config()
+		oidcProvider := gen.Provider{
+			Id:     cfg.ProviderID,
+			Name:   cfg.ProviderName,
+			Sub:    cfg.ProviderSubtitle,
+			Glyph:  providerGlyph(cfg.ProviderName),
 			Bg:     "#ffffff",
 			Fg:     "#1e293b",
 			Border: &border,
-		},
-	}), nil
+		}
+		if cfg.ProviderIcon != "" {
+			icon := cfg.ProviderIcon
+			oidcProvider.Icon = &icon
+		}
+		providers = append(providers, oidcProvider)
+	}
+
+	providers = append(providers, gen.Provider{
+		Id:     "password",
+		Name:   "Email & Password",
+		Sub:    "Sign in with your email address",
+		Glyph:  providerGlyph("Email & Password"),
+		Bg:     "#ffffff",
+		Fg:     "#1e293b",
+		Border: &border,
+	})
+	return gen.ListProviders200JSONResponse(providers), nil
+}
+
+// providerGlyph reduces a provider name to the single character the login
+// screen draws when no icon URL is configured.
+//
+// The frontend renders Glyph as literal text in a 34x34 badge, so it has to be
+// one character -- an icon *name* like "lock" or "login" renders as the word
+// itself, clipped. Matching the demo backend's convention (P for Passwort, G
+// for Google) keeps the two consistent.
+func providerGlyph(name string) string {
+	for _, r := range strings.TrimSpace(name) {
+		return string(unicode.ToUpper(r))
+	}
+	return "?"
 }
 
 // Login authenticates a user with email + password and returns a JWT token.
@@ -537,6 +583,18 @@ func toGenUser(u *UserRow) gen.User {
 		gu.Birthday = &d
 	}
 	return gu
+}
+
+// notFound builds a NotFoundApplicationProblemPlusJSONResponse, mirroring
+// unauthorized below so the Type URI honors ERROR_TYPE_BASE_URI.
+func notFound(detail string) gen.NotFoundApplicationProblemPlusJSONResponse {
+	e := apierror.New(http.StatusNotFound, "Not Found", detail)
+	return gen.NotFoundApplicationProblemPlusJSONResponse{
+		Title:  &e.Title,
+		Status: &e.Status,
+		Detail: &detail,
+		Type:   &e.Type,
+	}
 }
 
 // unauthorized builds an UnauthorizedApplicationProblemPlusJSONResponse, with
