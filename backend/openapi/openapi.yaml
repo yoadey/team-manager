@@ -83,6 +83,20 @@ paths:
         follow the redirect off-origin for the flow to work. Returns 404 when
         no OIDC provider is configured.
       security: []
+      parameters:
+        - name: return_to
+          in: query
+          required: false
+          description: >-
+            Where to send the browser after a successful login, as a path
+            within this application (for example an invite link's
+            `/join/{teamId}/{code}`, which would otherwise be lost across the
+            round trip to the provider). Must be a root-relative path; anything
+            else -- an absolute URL, a protocol-relative `//host` -- is ignored
+            and the user lands on the application root.
+          schema:
+            type: string
+            maxLength: 512
       responses:
         "302":
           $ref: "#/components/responses/OidcRedirect"

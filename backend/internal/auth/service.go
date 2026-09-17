@@ -74,6 +74,7 @@ type authRepo interface {
 	DeleteSessionsForUser(ctx context.Context, userID string) error
 	FindUserByOIDCSubject(ctx context.Context, provider, subject string) (*UserRow, error)
 	LinkOIDCAccount(ctx context.Context, userID, provider, subject string) error
+	ClearPassword(ctx context.Context, userID string) error
 }
 
 // RegistrationConfig configures self-service registration. Grouped into its
@@ -430,7 +431,7 @@ func (s *Service) resolveOIDCUser(ctx context.Context, provider string, claims O
 		return s.linkExisting(ctx, existing, provider, claims.Subject)
 	}
 
-	created, err := s.repo.CreateUnverifiedUser(ctx, claims.Name, claims.Email, "")
+	created, err := s.repo.CreateUnverifiedUser(ctx, sanitizeOIDCName(claims.Name), claims.Email, "")
 	if err != nil {
 		if errors.Is(err, ErrEmailTaken) {
 			return s.resolveEmailConflict(ctx, provider, claims)
@@ -491,6 +492,24 @@ func (s *Service) resolveEmailConflict(ctx context.Context, provider string, cla
 // unverified in the very response that just verified it.
 func (s *Service) verifyAndLink(ctx context.Context, user *UserRow, provider, subject string) (*UserRow, error) {
 	if user.EmailVerifiedAt == nil {
+		// Adopting a never-verified row has to drop whatever password it
+		// carries. Self-registration creates such a row from an unauthenticated
+		// request, so anyone can park one on someone else's address with a
+		// password of their choosing; it stays inert only because Login refuses
+		// an unverified account. Marking it verified here -- which is correct,
+		// the provider just proved control of the address -- would otherwise arm
+		// that parked password and hand the squatter a working password login on
+		// the real owner's account.
+		//
+		// The account becomes provider-only as a result: ForgotPassword
+		// deliberately refuses passwordless accounts (see the password-reset
+		// capability's enumeration-safety matrix), so no password can be set
+		// back on it. That is the right trade -- the address owner reaches the
+		// account through the provider they just authenticated with, and the
+		// discarded password was never shown to belong to them.
+		if err := s.repo.ClearPassword(ctx, user.Id.String()); err != nil {
+			return nil, fmt.Errorf("auth.Service.LoginWithOIDC: clear unverified password: %w", err)
+		}
 		if err := s.repo.MarkEmailVerified(ctx, user.Id.String()); err != nil {
 			return nil, fmt.Errorf("auth.Service.LoginWithOIDC: mark verified: %w", err)
 		}

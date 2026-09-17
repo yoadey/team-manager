@@ -944,6 +944,16 @@ type OIDCSettings struct {
 const oidcCallbackPath = "/api/v1/auth/oidc/callback"
 
 // withDefaults fills in the values that can be derived rather than configured.
+//
+// The derived RedirectURL assumes the browser reaches this API under the same
+// origin as the frontend -- the single-ingress deployment the Helm chart
+// produces, where /api/v1 is routed to the backend. That assumption is the
+// only one available: PUBLIC_BASE_URL names the frontend, and nothing tells
+// this process the public origin of its own API. A deployment that serves the
+// API on a separate host (say api.example.com next to app.example.com) must
+// therefore set OIDC_REDIRECT_URL explicitly, or the provider will send the
+// browser to a frontend path that never reaches the callback. cmd/server logs
+// the effective value at startup so the mistake is visible without guessing.
 func (o OIDCSettings) withDefaults(publicBaseURL string) OIDCSettings {
 	if o.Enabled && o.RedirectURL == "" {
 		o.RedirectURL = publicBaseURL + oidcCallbackPath
@@ -985,13 +995,25 @@ func loadOIDCConfig() (OIDCSettings, error) {
 	return o, nil
 }
 
+// oidcScopeOpenID is the scope that makes an authorization request an OpenID
+// Connect request -- without it the provider returns no ID token.
+const oidcScopeOpenID = "openid"
+
 // mergeOIDCScopes combines the base and extra scope lists, de-duplicating
 // while preserving order. Extra scopes are how a deployment passes a
 // provider-specific hint (for example a ZITADEL IdP selection scope) without
 // this application knowing anything about that provider.
+//
+// "openid" is prepended unconditionally rather than merely defaulted: it is
+// what makes the request an OpenID Connect request at all. An operator who
+// overrides OIDC_SCOPES and leaves it out gets a plain OAuth2 authorization
+// with no ID token in the response, which would surface as every login
+// failing at "no id_token in token response" rather than as a configuration
+// error -- and the scope is not optional to this application in any case.
 func mergeOIDCScopes(base, extra string) []string {
 	seen := make(map[string]struct{})
-	var out []string
+	out := []string{oidcScopeOpenID}
+	seen[oidcScopeOpenID] = struct{}{}
 	for _, scope := range append(strings.Fields(base), strings.Fields(extra)...) {
 		if _, dup := seen[scope]; dup {
 			continue
@@ -1008,6 +1030,18 @@ func mergeOIDCScopes(base, extra string) []string {
 func validateOIDCIcon(icon string) error {
 	if icon == "" {
 		return nil
+	}
+	// Reject backslashes and everything below printable ASCII before looking
+	// at the prefix. A browser treats a backslash in a URL as a path
+	// separator and strips tab/CR/LF outright before resolving it, so both
+	// `/\evil.example` and "/<TAB>/evil.example" resolve to the protocol-relative
+	// `//evil.example` -- which is exactly what the "//" check below is there
+	// to refuse. Dropping them first makes the prefix checks mean what they
+	// read as.
+	if strings.ContainsFunc(icon, func(r rune) bool {
+		return r <= ' ' || r == '\\' || r == 0x7f
+	}) {
+		return ErrOIDCIconInvalid
 	}
 	if strings.HasPrefix(icon, "/") && !strings.HasPrefix(icon, "//") {
 		return nil

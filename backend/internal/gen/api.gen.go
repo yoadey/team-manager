@@ -1383,6 +1383,12 @@ type OidcCallbackParams struct {
 	ErrorDescription *string `form:"error_description,omitempty" json:"error_description,omitempty"`
 }
 
+// StartOidcLoginParams defines parameters for StartOidcLogin.
+type StartOidcLoginParams struct {
+	// ReturnTo Where to send the browser after a successful login, as a path within this application (for example an invite link's `/join/{teamId}/{code}`, which would otherwise be lost across the round trip to the provider). Must be a root-relative path; anything else -- an absolute URL, a protocol-relative `//host` -- is ignored and the user lands on the application root.
+	ReturnTo *string `form:"return_to,omitempty" json:"return_to,omitempty"`
+}
+
 // ListAbsencesParams defines parameters for ListAbsences.
 type ListAbsencesParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -1677,7 +1683,7 @@ type ServerInterface interface {
 	OidcCallback(w http.ResponseWriter, r *http.Request, params OidcCallbackParams)
 	// Begin the OIDC authorization-code flow
 	// (GET /auth/oidc/start)
-	StartOidcLogin(w http.ResponseWriter, r *http.Request)
+	StartOidcLogin(w http.ResponseWriter, r *http.Request, params StartOidcLoginParams)
 	// List available login providers
 	// (GET /auth/providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
@@ -2013,7 +2019,7 @@ func (_ Unimplemented) OidcCallback(w http.ResponseWriter, r *http.Request, para
 
 // Begin the OIDC authorization-code flow
 // (GET /auth/oidc/start)
-func (_ Unimplemented) StartOidcLogin(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) StartOidcLogin(w http.ResponseWriter, r *http.Request, params StartOidcLoginParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2795,8 +2801,27 @@ func (siw *ServerInterfaceWrapper) OidcCallback(w http.ResponseWriter, r *http.R
 // StartOidcLogin operation middleware
 func (siw *ServerInterfaceWrapper) StartOidcLogin(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StartOidcLoginParams
+
+	// ------------- Optional query parameter "return_to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "return_to", r.URL.Query(), &params.ReturnTo, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "return_to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "return_to", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.StartOidcLogin(w, r)
+		siw.Handler.StartOidcLogin(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7134,6 +7159,7 @@ func (response OidcCallback302Response) VisitOidcCallbackResponse(w http.Respons
 }
 
 type StartOidcLoginRequestObject struct {
+	Params StartOidcLoginParams
 }
 
 type StartOidcLoginResponseObject interface {
@@ -10110,8 +10136,10 @@ func (sh *strictHandler) OidcCallback(w http.ResponseWriter, r *http.Request, pa
 }
 
 // StartOidcLogin operation middleware
-func (sh *strictHandler) StartOidcLogin(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) StartOidcLogin(w http.ResponseWriter, r *http.Request, params StartOidcLoginParams) {
 	var request StartOidcLoginRequestObject
+
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.StartOidcLogin(ctx, request.(StartOidcLoginRequestObject))

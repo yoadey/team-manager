@@ -79,19 +79,72 @@ func TestLoginWithOIDC_LinksExistingPasswordAccount(t *testing.T) {
 	t.Parallel()
 	repo := newRegTestRepo()
 	svc := newRegTestService(t, repo, time.Hour, true)
+	ctx := context.Background()
 
-	require.NoError(t, svc.Register(context.Background(), "existing@example.com", "longenoughpassword"))
-	existing, err := repo.FindUserByEmail(context.Background(), "existing@example.com")
+	require.NoError(t, svc.Register(ctx, "existing@example.com", "longenoughpassword"))
+	existing, err := repo.FindUserByEmail(ctx, "existing@example.com")
 	require.NoError(t, err)
+	require.NoError(t, repo.MarkEmailVerified(ctx, existing.Id.String()))
 	require.NotEmpty(t, existing.PasswordHash)
 
-	_, user, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+	_, user, _, err := svc.LoginWithOIDC(ctx, testOIDCProvider,
 		oidcClaims("sub-1", "existing@example.com", "Existing"))
 	require.NoError(t, err)
 
 	assert.Equal(t, existing.Id, user.Id, "linked, not duplicated")
-	assert.NotEmpty(t, user.PasswordHash, "linking must not remove the existing password")
-	assert.NotNil(t, user.EmailVerifiedAt, "an unverified account becomes verified by the link")
+	assert.NotEmpty(t, user.PasswordHash,
+		"linking must not disturb a password its owner already proved they control")
+	assert.NotNil(t, user.EmailVerifiedAt)
+}
+
+// Account squatting: self-registration accepts any address from an
+// unauthenticated request, so anyone can park a row on somebody else's
+// address carrying a password of their choosing. It stays inert only because
+// Login refuses an unverified account. The OIDC link path then marks that row
+// verified -- correctly, the provider just proved control of the address --
+// which would arm the parked password and hand the squatter a working
+// password login on the real owner's account. Adopting a never-verified row
+// therefore has to drop whatever password it was carrying.
+func TestLoginWithOIDC_DropsPasswordParkedOnAnUnverifiedAccount(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	svc := newRegTestService(t, repo, time.Hour, true)
+	ctx := context.Background()
+
+	// The squatter registers the victim's address and never verifies it.
+	require.NoError(t, svc.Register(ctx, "victim@example.com", "squatterpassword"))
+	parked, err := repo.FindUserByEmail(ctx, "victim@example.com")
+	require.NoError(t, err)
+	require.NotEmpty(t, parked.PasswordHash)
+	require.Nil(t, parked.EmailVerifiedAt)
+
+	// The real owner signs in through the provider, which adopts that row.
+	_, user, outcome, err := svc.LoginWithOIDC(ctx, testOIDCProvider,
+		oidcClaims("sub-1", "victim@example.com", "Victim"))
+	require.NoError(t, err)
+	assert.Equal(t, auth.OIDCLoginLinked, outcome)
+	assert.Equal(t, parked.Id, user.Id)
+	assert.NotNil(t, user.EmailVerifiedAt)
+	assert.Empty(t, user.PasswordHash, "the parked password must not survive the link")
+
+	// And the squatter's password must not work now that the row is verified.
+	_, _, err = svc.Login(ctx, "victim@example.com", "squatterpassword")
+	require.Error(t, err, "the parked password must not become a usable login")
+}
+
+// A provider-supplied name is free text: it never passes through a request
+// handler, so nothing else bounds it before it reaches users.name. A null
+// byte alone would fail the INSERT as an unhandled 500 mid-login.
+func TestLoginWithOIDC_SanitizesTheProvidedName(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	svc := newRegTestService(t, repo, time.Hour, true)
+
+	_, user, _, err := svc.LoginWithOIDC(context.Background(), testOIDCProvider,
+		oidcClaims("sub-1", "user@example.com", "Erika\x00\tMustermann"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "ErikaMustermann", user.Name)
 }
 
 func TestLoginWithOIDC_RejectsUnverifiedEmail(t *testing.T) {

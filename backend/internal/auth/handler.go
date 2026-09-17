@@ -8,7 +8,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -90,7 +92,7 @@ func (h *Handler) ListProviders(ctx context.Context, _ gen.ListProvidersRequestO
 			Id:     cfg.ProviderID,
 			Name:   cfg.ProviderName,
 			Sub:    cfg.ProviderSubtitle,
-			Glyph:  "login",
+			Glyph:  providerGlyph(cfg.ProviderName),
 			Bg:     "#ffffff",
 			Fg:     "#1e293b",
 			Border: &border,
@@ -106,12 +108,26 @@ func (h *Handler) ListProviders(ctx context.Context, _ gen.ListProvidersRequestO
 		Id:     "password",
 		Name:   "Email & Password",
 		Sub:    "Sign in with your email address",
-		Glyph:  "lock",
+		Glyph:  providerGlyph("Email & Password"),
 		Bg:     "#ffffff",
 		Fg:     "#1e293b",
 		Border: &border,
 	})
 	return gen.ListProviders200JSONResponse(providers), nil
+}
+
+// providerGlyph reduces a provider name to the single character the login
+// screen draws when no icon URL is configured.
+//
+// The frontend renders Glyph as literal text in a 34x34 badge, so it has to be
+// one character -- an icon *name* like "lock" or "login" renders as the word
+// itself, clipped. Matching the demo backend's convention (P for Passwort, G
+// for Google) keeps the two consistent.
+func providerGlyph(name string) string {
+	for _, r := range strings.TrimSpace(name) {
+		return string(unicode.ToUpper(r))
+	}
+	return "?"
 }
 
 // Login authenticates a user with email + password and returns a JWT token.

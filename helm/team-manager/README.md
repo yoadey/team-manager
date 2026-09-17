@@ -170,7 +170,7 @@ default key name(s) and which fields are required when
 | `smtp.host` / `port` / `fromAddress` | string | see `values.yaml` | `SMTP_HOST`/`SMTP_PORT`/`SMTP_FROM_ADDRESS`. |
 | `smtp.secret.*` | — | — | `SMTP_USERNAME`/`SMTP_PASSWORD`. See "Secrets" above. |
 | `oidc.enabled` | bool | `false` | `OIDC_ENABLED`. Adds an external identity provider alongside password login. |
-| `oidc.issuer` / `redirectUrl` / `providerId` / `scopes` | string/list | see `values.yaml` | `OIDC_ISSUER`/`OIDC_REDIRECT_URL`/`OIDC_PROVIDER_ID`/`OIDC_SCOPES`. An empty `redirectUrl` derives `<PUBLIC_BASE_URL>/api/v1/auth/oidc/callback`. |
+| `oidc.issuer` / `redirectUrl` / `providerId` / `scopes` | string/list | see `values.yaml` | `OIDC_ISSUER`/`OIDC_REDIRECT_URL`/`OIDC_PROVIDER_ID`/`OIDC_SCOPES`. An empty `redirectUrl` derives `<PUBLIC_BASE_URL>/api/v1/auth/oidc/callback`, which is correct for this chart's single-ingress layout; set it explicitly if the API is served on a separate host. `openid` is always in the requested scopes whether or not `scopes` lists it. |
 | `oidc.displayName` / `displaySubtitle` / `icon` | string | `""` | `OIDC_PROVIDER_NAME`/`OIDC_PROVIDER_SUBTITLE`/`OIDC_PROVIDER_ICON` — the login button's label and icon URL. Icons for the common providers ship at `/provider-icons/*.svg`. |
 | `oidc.secret.*` | — | — | `OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`/`OIDC_EXTRA_SCOPES`. See "Secrets" above. |
 | `push.publicKey` / `subject` | string | `""` | `VAPID_PUBLIC_KEY`/`VAPID_SUBJECT`. |

@@ -2,8 +2,10 @@ package auth
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -106,4 +108,41 @@ func TestDisplayName(t *testing.T) {
 			assert.Equal(t, tc.want, displayName(tc.name, tc.given, tc.family, tc.email))
 		})
 	}
+}
+
+// A provider-supplied name reaches users.name without ever passing through a
+// request handler, so it is the one name in the system that no validate.Name
+// call has seen.
+func TestSanitizeOIDCName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"keeps an ordinary name", "Erika Mustermann", "Erika Mustermann"},
+		{"trims surrounding whitespace", "  Erika  ", "Erika"},
+		{"strips a null byte Postgres would reject", "Eri\x00ka", "Erika"},
+		{"strips newlines and other control characters", "Erika\r\n\tMustermann", "ErikaMustermann"},
+		{"falls back when nothing usable is left", "\x00\x01\x02", oidcFallbackName},
+		{"falls back on an empty claim", "   ", oidcFallbackName},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, sanitizeOIDCName(tc.in))
+		})
+	}
+}
+
+// Length is counted in runes, not bytes: a multi-byte name must not be cut
+// mid-character, and the result must stay inside validate.Name's bound.
+func TestSanitizeOIDCName_ClampsLength(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("ä", maxOIDCNameLen+50)
+
+	got := sanitizeOIDCName(long)
+
+	assert.Equal(t, maxOIDCNameLen, utf8.RuneCountInString(got))
+	assert.True(t, utf8.ValidString(got), "truncation must not split a rune")
 }

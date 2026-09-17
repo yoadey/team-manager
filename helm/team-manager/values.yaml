@@ -381,7 +381,10 @@ push:
 #
 # `redirectUrl` may be left empty, in which case the backend derives
 # `<PUBLIC_BASE_URL>/api/v1/auth/oidc/callback`. Whatever it resolves to must
-# match the redirect URI registered at the provider exactly.
+# match the redirect URI registered at the provider exactly. That default
+# assumes this chart's single-ingress layout, where /api/v1 on the frontend's
+# own host routes to the backend -- split the two across separate hosts and
+# this has to be set explicitly, since `PUBLIC_BASE_URL` names the frontend.
 #
 # `icon` is a URL rendered in the login button. This chart's frontend serves
 # icons for the common providers at /provider-icons/{google,apple,microsoft,

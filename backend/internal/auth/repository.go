@@ -593,6 +593,13 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 		{`UPDATE attendance SET reason = NULL WHERE user_id = $1`, []any{userID}},
 		{`UPDATE absences SET reason = NULL WHERE user_id = $1`, []any{userID}},
 		{`DELETE FROM sessions WHERE user_id = $1`, []any{userID}},
+		// The provider subject is personal data, so erasure has to take it
+		// with everything else. It also frees the (provider, subject) pair:
+		// left behind, it stays bound to the soft-deleted row, and a later
+		// sign-in by the same person provisions a fresh account whose
+		// LinkOIDCAccount then silently no-ops on the unique constraint --
+		// leaving that account with no link at all.
+		{`DELETE FROM oidc_accounts WHERE user_id = $1`, []any{userID}},
 	}
 	for _, s := range steps {
 		if _, err := tx.Exec(ctx, s.sql, s.args...); err != nil {
@@ -602,6 +609,21 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("auth.Repository.EraseUser: commit: %w", err)
+	}
+	return nil
+}
+
+// ClearPassword removes an account's password, leaving it reachable only
+// through its external identity. Used when an OIDC login adopts an account
+// that never completed email verification -- see Service.verifyAndLink.
+func (r *Repository) ClearPassword(ctx context.Context, userID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if _, err := r.pool.Exec(ctx,
+		`UPDATE users SET password_hash = NULL WHERE id = $1 AND deleted_at IS NULL`,
+		userID,
+	); err != nil {
+		return fmt.Errorf("auth.Repository.ClearPassword: %w", err)
 	}
 	return nil
 }

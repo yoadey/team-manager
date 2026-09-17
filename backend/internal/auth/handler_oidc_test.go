@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -183,14 +184,18 @@ func newOIDCHarness(t *testing.T) *oidcHarness {
 
 // start drives StartOidcLogin through the strict middleware so the state
 // cookie is actually emitted, and returns the redirect target plus that cookie.
-func (h *oidcHarness) start(t *testing.T, codec *auth.SessionCookieCodec) (location string, stateCookie *http.Cookie) {
+func (h *oidcHarness) start(t *testing.T, codec *auth.SessionCookieCodec, returnTo ...string) (location string, stateCookie *http.Cookie) {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/oidc/start", http.NoBody)
 
+	var params gen.StartOidcLoginParams
+	if len(returnTo) > 0 {
+		params.ReturnTo = &returnTo[0]
+	}
 	mw := codec.StrictMiddleware()
 	wrapped := mw(func(ctx context.Context, _ http.ResponseWriter, _ *http.Request, _ any) (any, error) {
-		return h.handler.StartOidcLogin(ctx, gen.StartOidcLoginRequestObject{})
+		return h.handler.StartOidcLogin(ctx, gen.StartOidcLoginRequestObject{Params: params})
 	}, "StartOidcLogin")
 
 	resp, err := wrapped(req.Context(), rec, req, nil)
@@ -269,10 +274,10 @@ func sessionCodecForTest(t *testing.T) *auth.SessionCookieCodec {
 
 // runFlow performs a full start → callback round trip and returns the final
 // redirect plus the callback's recorder.
-func (h *oidcHarness) runFlow(t *testing.T) (string, *httptest.ResponseRecorder) {
+func (h *oidcHarness) runFlow(t *testing.T, returnTo ...string) (string, *httptest.ResponseRecorder) {
 	t.Helper()
 	codec := sessionCodecForTest(t)
-	location, stateCookie := h.start(t, codec)
+	location, stateCookie := h.start(t, codec, returnTo...)
 	require.NotNil(t, stateCookie)
 
 	parsed, err := url.Parse(location)
@@ -491,6 +496,25 @@ func TestListProviders_IncludesConfiguredOIDCProvider(t *testing.T) {
 	assert.Nil(t, providers[1].Icon)
 }
 
+// The login screen draws Glyph as literal text inside a 34x34 badge, so an
+// icon *name* like "login" renders as that word, clipped, rather than as a
+// symbol. Every provider's fallback glyph has to be a single character.
+func TestListProviders_GlyphIsASingleCharacter(t *testing.T) {
+	h := newOIDCHarness(t)
+
+	resp, err := h.handler.ListProviders(context.Background(), gen.ListProvidersRequestObject{})
+	require.NoError(t, err)
+	providers, ok := resp.(gen.ListProviders200JSONResponse)
+	require.True(t, ok)
+
+	for _, p := range providers {
+		assert.Equal(t, 1, utf8.RuneCountInString(p.Glyph),
+			"provider %q: glyph %q is not a single character", p.Id, p.Glyph)
+	}
+	assert.Equal(t, "G", providers[0].Glyph, "derived from the provider name")
+	assert.Equal(t, "E", providers[1].Glyph)
+}
+
 func TestListProviders_PasswordOnlyWithoutOIDC(t *testing.T) {
 	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil, nil)
 
@@ -510,4 +534,39 @@ func sessionCookie(rec *httptest.ResponseRecorder) *http.Cookie {
 		}
 	}
 	return nil
+}
+
+// An invite link is redeemed by the frontend from the URL it loads on, so a
+// login that starts at /join/... has to come back there -- otherwise "sign in
+// with Google to join this team" logs the user in and joins nothing.
+func TestOidcCallback_ReturnsToTheStartingPath(t *testing.T) {
+	h := newOIDCHarness(t)
+
+	location, _ := h.runFlow(t, "/join/team-1/abc123")
+
+	assert.Equal(t, "https://app.example.com/join/team-1/abc123", location)
+}
+
+// The return path arrives as a query parameter on an unauthenticated endpoint,
+// so it is an open-redirect vector until proven otherwise. Each of these
+// resolves to an off-site destination in a browser.
+func TestOidcCallback_RejectsAnOffSiteReturnPath(t *testing.T) {
+	hostile := []string{
+		"https://evil.example.com/",
+		"//evil.example.com/",
+		"/\\evil.example.com/",
+		"/\t/evil.example.com/",
+		"evil.example.com",
+		"",
+	}
+	for _, returnTo := range hostile {
+		t.Run(returnTo, func(t *testing.T) {
+			h := newOIDCHarness(t)
+
+			location, _ := h.runFlow(t, returnTo)
+
+			assert.Equal(t, "https://app.example.com/", location,
+				"a return path that is not root-relative must fall back to the app root")
+		})
+	}
 }

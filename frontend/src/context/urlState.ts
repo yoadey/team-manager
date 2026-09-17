@@ -186,6 +186,7 @@ export const LOGIN_ERROR_CODES = [
   'oidc_denied',
   'oidc_email_unverified',
   'oidc_account_deleted',
+  'oidc_rate_limited',
 ] as const;
 
 export type LoginErrorCode = (typeof LOGIN_ERROR_CODES)[number];

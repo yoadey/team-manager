@@ -2466,7 +2466,10 @@ export interface operations {
     };
     startOidcLogin: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Where to send the browser after a successful login, as a path within this application (for example an invite link's `/join/{teamId}/{code}`, which would otherwise be lost across the round trip to the provider). Must be a root-relative path; anything else -- an absolute URL, a protocol-relative `//host` -- is ignored and the user lands on the application root. */
+                return_to?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;

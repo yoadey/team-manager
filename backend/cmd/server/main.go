@@ -236,20 +236,29 @@ func initAuthComponents(
 // four are optional in the spec, so an absent one stays nil and the handler
 // treats it as a failed login rather than a malformed request.
 func oidcCallbackParams(req *http.Request) gen.OidcCallbackParams {
-	q := req.URL.Query()
-	optional := func(key string) *string {
-		if !q.Has(key) {
-			return nil
-		}
-		v := q.Get(key)
-		return &v
-	}
 	return gen.OidcCallbackParams{
-		Code:             optional("code"),
-		State:            optional("state"),
-		Error:            optional("error"),
-		ErrorDescription: optional("error_description"),
+		Code:             optionalQuery(req, "code"),
+		State:            optionalQuery(req, "state"),
+		Error:            optionalQuery(req, "error"),
+		ErrorDescription: optionalQuery(req, "error_description"),
 	}
+}
+
+// oidcStartParams does the same for the OIDC start route's single parameter.
+func oidcStartParams(req *http.Request) gen.StartOidcLoginParams {
+	return gen.StartOidcLoginParams{ReturnTo: optionalQuery(req, "return_to")}
+}
+
+// optionalQuery returns a pointer to the named query parameter, or nil when
+// the request does not carry it at all -- the distinction the generated
+// optional-parameter types are built around.
+func optionalQuery(req *http.Request, key string) *string {
+	q := req.URL.Query()
+	if !q.Has(key) {
+		return nil
+	}
+	v := q.Get(key)
+	return &v
 }
 
 // initOIDC wires the optional external identity provider onto the auth
@@ -719,14 +728,23 @@ func main() {
 		// without a limit here that is an unthrottled relay against the
 		// identity provider, authenticated with this app's own client
 		// credentials. The cookie's Max-Age only constrains a browser.
+		//
+		// The limiter answers with a redirect rather than problem+json: these
+		// two routes are reached by navigating, so the user is looking at
+		// whatever comes back. Both handlers already 302 on every outcome for
+		// the same reason.
+		oidcRateLimit := middleware.PerIPRateLimitRedirect(
+			cfg.LoginRateLimitPerMin, time.Minute, trustedProxies,
+			authHandler.RateLimitRedirectURL(),
+		)
 		r.With(
-			middleware.PerIPRateLimit(cfg.LoginRateLimitPerMin, time.Minute, trustedProxies),
+			oidcRateLimit,
 			authHandler.OIDCStateMiddleware,
 		).Get("/auth/oidc/start", func(w http.ResponseWriter, req *http.Request) {
-			strictSrv.StartOidcLogin(w, req)
+			strictSrv.StartOidcLogin(w, req, oidcStartParams(req))
 		})
 		r.With(
-			middleware.PerIPRateLimit(cfg.LoginRateLimitPerMin, time.Minute, trustedProxies),
+			oidcRateLimit,
 			authHandler.OIDCStateMiddleware,
 		).Get("/auth/oidc/callback", func(w http.ResponseWriter, req *http.Request) {
 			// Unlike the other public overrides, this operation declares query

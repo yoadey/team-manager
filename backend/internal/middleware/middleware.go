@@ -312,6 +312,26 @@ func PerIPRateLimit(requestsPerPeriod int, period time.Duration, trustedProxies 
 	).Handler
 }
 
+// PerIPRateLimitRedirect is PerIPRateLimit for endpoints a browser reaches by
+// navigating rather than by fetch: the OIDC start and callback routes, whose
+// handlers already answer every outcome with a 302 for exactly this reason.
+// A problem+json body is the right answer to an API client and the wrong one
+// here -- it strands the user on a page of raw JSON with no way back, instead
+// of on the login screen that can explain what happened.
+func PerIPRateLimitRedirect(requestsPerPeriod int, period time.Duration, trustedProxies []*net.IPNet, location string) func(http.Handler) http.Handler {
+	retryAfter := strconv.Itoa(max(1, int(period.Seconds())))
+	return httprate.NewRateLimiter(
+		requestsPerPeriod,
+		period,
+		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+			metrics.RateLimitHits.WithLabelValues("login").Inc()
+			w.Header().Set("Retry-After", retryAfter)
+			http.Redirect(w, r, location, http.StatusFound)
+		}),
+		httprate.WithKeyFuncs(trustedProxyKeyFunc(trustedProxies)),
+	).Handler
+}
+
 // ─── Body Size Limiter ───────────────────────────────────────────────────────
 
 // BodyLimit wraps each request body with an io.LimitedReader capped at maxBytes.

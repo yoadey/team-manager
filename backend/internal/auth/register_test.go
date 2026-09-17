@@ -126,6 +126,20 @@ func (r *regTestRepo) FindUserByOIDCSubject(_ context.Context, provider, subject
 	return &cp, nil
 }
 
+// ClearPassword mirrors the real repository: the row keeps existing, it just
+// loses its password hash, so a password login against it can no longer
+// succeed.
+func (r *regTestRepo) ClearPassword(_ context.Context, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.usersByID[userID]
+	if !ok {
+		return errRegTestNotFound
+	}
+	u.PasswordHash = ""
+	return nil
+}
+
 func (r *regTestRepo) LinkOIDCAccount(_ context.Context, userID, provider, subject string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -139,27 +140,50 @@ func (c *OIDCClient) Warm(ctx context.Context) {
 
 // resolve returns the oauth2 config and ID-token verifier, running discovery
 // on first use and caching the result.
+//
+// The lock is deliberately not held across the discovery round trip. Doing so
+// would serialize every concurrent login behind one HTTP request to the
+// provider -- and precisely when that matters, an unreachable provider, each
+// waiter would then queue for the client's full 10s timeout in turn. Racing
+// logins may each discover once instead; discovery is idempotent and the
+// second result is simply discarded, which is a far better trade than a
+// pile-up on the login path.
 func (c *OIDCClient) resolve(ctx context.Context) (*oauth2.Config, *oidc.IDTokenVerifier, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.oauthCfg != nil && c.verifier != nil {
-		return c.oauthCfg, c.verifier, nil
+	if oauthCfg, verifier, ok := c.cached(); ok {
+		return oauthCfg, verifier, nil
 	}
 
 	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, c.httpClient), c.cfg.Issuer)
 	if err != nil {
 		return nil, nil, fmt.Errorf("auth.OIDCClient: discovery for %q: %w", c.cfg.Issuer, err)
 	}
-
-	c.oauthCfg = &oauth2.Config{
+	oauthCfg := &oauth2.Config{
 		ClientID:     c.cfg.ClientID,
 		ClientSecret: c.cfg.ClientSecret,
 		Endpoint:     provider.Endpoint(),
 		RedirectURL:  c.cfg.RedirectURL,
 		Scopes:       c.cfg.Scopes,
 	}
-	c.verifier = provider.Verifier(&oidc.Config{ClientID: c.cfg.ClientID})
+	verifier := provider.Verifier(&oidc.Config{ClientID: c.cfg.ClientID})
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// A racing caller may have published first; keep whichever won so every
+	// caller from here on sees the same pair.
+	if c.oauthCfg == nil || c.verifier == nil {
+		c.oauthCfg, c.verifier = oauthCfg, verifier
+	}
 	return c.oauthCfg, c.verifier, nil
+}
+
+// cached returns the memoized discovery result, if there is one.
+func (c *OIDCClient) cached() (*oauth2.Config, *oidc.IDTokenVerifier, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.oauthCfg == nil || c.verifier == nil {
+		return nil, nil, false
+	}
+	return c.oauthCfg, c.verifier, true
 }
 
 // AuthCodeURL builds the authorization request for a fresh login attempt.
@@ -225,6 +249,17 @@ func (c *OIDCClient) Exchange(ctx context.Context, code, verifier, nonce string)
 	}, nil
 }
 
+const (
+	// maxOIDCNameLen mirrors the 255-rune bound validate.Name enforces on
+	// every name the application itself accepts. A provider-supplied name
+	// never passes through a request handler, so nothing else would bound it.
+	maxOIDCNameLen = 255
+
+	// oidcFallbackName is what a provisioned account is called when the
+	// provider supplied nothing usable. users.name is NOT NULL.
+	oidcFallbackName = "Unbenannt"
+)
+
 // displayName picks the best available name for a newly provisioned account,
 // falling back to the local part of the email address so an account is never
 // created nameless (users.name is NOT NULL).
@@ -238,7 +273,33 @@ func displayName(name, given, family, email string) string {
 	if local, _, found := strings.Cut(email, "@"); found && local != "" {
 		return local
 	}
-	return "Unbenannt"
+	return oidcFallbackName
+}
+
+// sanitizeOIDCName makes a provider-supplied display name safe to persist.
+//
+// Unlike every other name in the system, this one arrives without passing
+// through a request handler, so none of the validate.Name checks have run on
+// it: it is free text chosen by the identity provider or, at most providers,
+// by the account holder themselves. Two concrete problems follow. A NUL byte
+// is valid UTF-8 but Postgres text columns reject it outright, so the INSERT
+// would fail as an unhandled 500 mid-login; and an unbounded string would be
+// stored and then echoed back on every member list and detail read, which is
+// exactly the exposure validate.MaxLen exists to prevent.
+func sanitizeOIDCName(name string) string {
+	cleaned := strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, name))
+	if runes := []rune(cleaned); len(runes) > maxOIDCNameLen {
+		cleaned = strings.TrimSpace(string(runes[:maxOIDCNameLen]))
+	}
+	if cleaned == "" {
+		return oidcFallbackName
+	}
+	return cleaned
 }
 
 // flexBool decodes a JSON boolean that some providers send as a string

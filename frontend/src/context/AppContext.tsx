@@ -75,6 +75,7 @@ const LOGIN_ERROR_MESSAGES: Record<LoginErrorCode, string> = {
   oidc_denied: 'auth.oidcDenied',
   oidc_email_unverified: 'auth.oidcEmailUnverified',
   oidc_account_deleted: 'auth.oidcAccountDeleted',
+  oidc_rate_limited: 'auth.oidcRateLimited',
 };
 
 /**
@@ -1032,8 +1033,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // buttons live invites a second click that starts a competing login.
   const doLogin = useCallback(
     async (pid: string) => {
-      setState({ busy: 'login:' + pid, error: null });
-      api.auth.startProviderLogin();
+      const owner = 'login:' + pid;
+      setState({ busy: owner, error: null });
+      try {
+        // Hand the round trip the path we are standing on, so an invite link
+        // still redeems once the provider sends the browser back.
+        api.auth.startProviderLogin(currentPath());
+      } catch (err) {
+        // On the success path the navigation tears this document down, so
+        // busy is deliberately never cleared -- there is nothing left to
+        // render it. Only a navigation that fails outright lands here, and
+        // that one has to give the button back rather than leave the login
+        // screen spinning at a user who can still use the password form.
+        const msg = err instanceof Error ? err.message : t('error.login');
+        // The functional form, not S(): setState above has not been committed
+        // by React yet when a synchronous throw lands here, so a snapshot read
+        // would still show the previous owner and skip the reset. The guard
+        // itself stays -- busy is one shared field, and clearing an owner that
+        // is no longer ours is the bug it exists to prevent.
+        setState((s) => (s.busy === owner ? { busy: null, error: msg } : { error: msg }));
+      }
     },
     [api, setState],
   );

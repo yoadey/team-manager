@@ -38,6 +38,10 @@ send a `prompt` parameter.
 - **THEN** the authorization request's `scope` parameter contains the base scopes
   followed by the extra scopes
 
+#### Scenario: The openid scope cannot be configured away
+- **WHEN** an operator overrides the base scopes without including `openid`
+- **THEN** the authorization request still requests `openid`, exactly once
+
 ### Requirement: Callback verifies the provider's response before any token exchange
 The callback MUST reject a request whose `state` does not match the state cookie,
 and MUST do so before exchanging the authorization code. It MUST verify the ID
@@ -91,7 +95,15 @@ that account's address was not yet verified, it MUST become verified.
 
 #### Scenario: Existing account was not yet verified
 - **WHEN** the matched account had never completed email verification
-- **THEN** the account is marked verified as part of the link
+- **THEN** the account is marked verified as part of the link, and any password
+  it was carrying is discarded
+
+#### Scenario: A password parked on an unverified account cannot be armed
+- **WHEN** someone self-registers another person's address with a password of
+  their choosing and never verifies it, and that address's real owner later
+  signs in through the provider
+- **THEN** the account is adopted and marked verified, but the parked password
+  no longer grants a password login
 
 ### Requirement: An unknown address creates a passwordless account
 When no link and no account exist for the verified address, the callback MUST
@@ -152,8 +164,37 @@ password reset, or existing sessions.
 - **THEN** they are logged in exactly as before
 
 #### Scenario: Linked account keeps its password
-- **WHEN** an account that has a password is linked to an OIDC subject
+- **WHEN** an account whose address was already verified, and which has a
+  password, is linked to an OIDC subject
 - **THEN** that account can still be used to log in with the password
+
+### Requirement: A login keeps the page it started from
+The start endpoint MUST accept the path the login began on and return the
+browser there after a successful callback, so an invite link still redeems. The
+value MUST travel in the encrypted state cookie rather than through the
+provider, and MUST be restricted to a root-relative path within this
+application.
+
+#### Scenario: Invite link survives the round trip
+- **WHEN** a user opens an invite link and signs in through the provider
+- **THEN** the callback returns them to that invite path, which the application
+  redeems as it would after a password login
+
+#### Scenario: An off-site return path is refused
+- **WHEN** the start endpoint is given a return path that is an absolute URL, a
+  protocol-relative `//host`, or any value that a browser would resolve off this
+  origin
+- **THEN** it is discarded and a successful login lands on the application root
+
+### Requirement: Browser-facing endpoints answer navigations with redirects
+The OIDC start and callback endpoints are reached by navigating, so every
+outcome -- including exceeding the rate limit -- MUST be a redirect back to the
+login screen rather than a problem+json document.
+
+#### Scenario: Rate limit exceeded
+- **WHEN** a client exceeds the login rate limit on either OIDC endpoint
+- **THEN** it receives a 302 back to the login screen carrying a login-error
+  code, not an error document
 
 ### Requirement: Provider buttons can show an icon
 `Provider` MUST carry an optional icon URL, and the login screen MUST render it
@@ -167,7 +208,8 @@ from a third-party host.
 
 #### Scenario: Provider without an icon
 - **WHEN** a provider has no icon URL
-- **THEN** the login screen renders the provider's text glyph as before
+- **THEN** the login screen renders the provider's text glyph, which is a single
+  character so that it fits the button's badge
 
 #### Scenario: Bundled icons are same-origin
 - **WHEN** an operator selects one of the bundled provider icons

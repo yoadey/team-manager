@@ -221,6 +221,7 @@ export const en: Messages = {
     oidcDenied: 'Sign-in was cancelled.',
     oidcEmailUnverified: 'Your provider did not supply a verified email address. Verify it there and try again.',
     oidcAccountDeleted: 'This email address belongs to a deleted account. Please contact your club administrator.',
+    oidcRateLimited: 'Too many sign-in attempts. Please wait a minute and try again.',
   },
   noTeam: {
     title: 'No team yet',

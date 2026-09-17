@@ -111,6 +111,14 @@ func TestLoad_OIDCIconValidation(t *testing.T) {
 		{"data:image/svg+xml;base64,PHN2Zy8+", true},
 		{"//evil.example.com/x.svg", true},
 		{"http://cdn.example.com/google.svg", true},
+		// A browser reads a backslash in a URL as a path separator and drops
+		// tab/CR/LF before resolving it, so each of these reaches the network
+		// as the protocol-relative "//evil.example.com" the case above
+		// rejects.
+		{"/\\evil.example.com/x.svg", true},
+		{"/\t/evil.example.com/x.svg", true},
+		{"/\n/evil.example.com/x.svg", true},
+		{"https://cdn.example.com\\@evil.example.com/x.svg", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.icon, func(t *testing.T) {
@@ -130,4 +138,37 @@ func TestLoad_OIDCIconValidation(t *testing.T) {
 			assert.Equal(t, tc.icon, cfg.OIDC.ProviderIcon)
 		})
 	}
+}
+
+// openid is what makes the request an OpenID Connect request; without it the
+// provider returns no ID token and every login fails deep inside the token
+// exchange. An operator who overrides OIDC_SCOPES must not be able to drop it.
+func TestLoad_OIDCAlwaysRequestsTheOpenIDScope(t *testing.T) {
+	baseEnv(t)
+	t.Setenv("OIDC_ENABLED", "true")
+	t.Setenv("OIDC_ISSUER", "https://sso.example.com")
+	t.Setenv("OIDC_CLIENT_ID", "client")
+	t.Setenv("OIDC_CLIENT_SECRET", "secret")
+	t.Setenv("OIDC_SCOPES", "profile email")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"openid", "profile", "email"}, cfg.OIDC.Scopes)
+}
+
+// ...and it must not be requested twice when the operator does include it.
+func TestLoad_OIDCOpenIDScopeIsNotDuplicated(t *testing.T) {
+	baseEnv(t)
+	t.Setenv("OIDC_ENABLED", "true")
+	t.Setenv("OIDC_ISSUER", "https://sso.example.com")
+	t.Setenv("OIDC_CLIENT_ID", "client")
+	t.Setenv("OIDC_CLIENT_SECRET", "secret")
+	t.Setenv("OIDC_SCOPES", "email openid profile")
+	t.Setenv("OIDC_EXTRA_SCOPES", "openid urn:zitadel:iam:org:idp:id:42")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"openid", "email", "profile", "urn:zitadel:iam:org:idp:id:42"}, cfg.OIDC.Scopes)
 }

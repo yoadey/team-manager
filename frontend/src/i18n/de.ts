@@ -222,6 +222,7 @@ export const de = {
     oidcDenied: 'Die Anmeldung wurde abgebrochen.',
     oidcEmailUnverified: 'Dein Anbieter hat keine bestätigte E-Mail-Adresse übermittelt. Bestätige die Adresse dort und versuche es erneut.',
     oidcAccountDeleted: 'Zu dieser E-Mail-Adresse gehört ein gelöschtes Konto. Bitte wende dich an die Vereinsverwaltung.',
+    oidcRateLimited: 'Zu viele Anmeldeversuche. Bitte warte eine Minute und versuche es erneut.',
   },
   noTeam: {
     title: 'Noch kein Team',

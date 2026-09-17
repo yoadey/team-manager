@@ -50,6 +50,7 @@ type mockRepo struct {
 	deleteSessionsForUser  func(ctx context.Context, userID string) error
 	userByOIDCSubject      func(ctx context.Context, provider, subject string) (*auth.UserRow, error)
 	linkOIDCAccount        func(ctx context.Context, userID, provider, subject string) error
+	clearPassword          func(ctx context.Context, userID string) error
 }
 
 func (m *mockRepo) FindUserByEmail(ctx context.Context, email string) (*auth.UserRow, error) {
@@ -69,6 +70,13 @@ func (m *mockRepo) FindUserByOIDCSubject(ctx context.Context, provider, subject 
 		return nil, pgx.ErrNoRows
 	}
 	return m.userByOIDCSubject(ctx, provider, subject)
+}
+
+func (m *mockRepo) ClearPassword(ctx context.Context, userID string) error {
+	if m.clearPassword == nil {
+		return nil
+	}
+	return m.clearPassword(ctx, userID)
 }
 
 func (m *mockRepo) LinkOIDCAccount(ctx context.Context, userID, provider, subject string) error {
