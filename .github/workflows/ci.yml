@@ -429,48 +429,27 @@ jobs:
         working-directory: .
         # postgres:17's digest is duplicated in docker-compose.yml (kept
         # current automatically by Dependabot's docker ecosystem entry for
-        # directory /), helm/team-manager/values.yaml's
-        # backup.postgresImageDigest (explicitly NOT covered by Dependabot,
-        # per that key's own comment), and ci.yml's security-container-backup
-        # Trivy scan step, backend-migration-rollback's and dast's postgres
-        # service containers, plus scheduled-security-scan.yml's own copy of
-        # the same Trivy scan (duplicated there so its weekly re-scan doesn't
-        # depend on ci.yml's push/pull_request-only triggers) -- with nothing
-        # tying them together, Dependabot bumping the first copy on its own
-        # schedule would silently desync it from the rest, and the CI scan/
-        # service containers or the actual backup CronJob could end up
-        # validating/running a stale digest. Same risk, weaker (no Dependabot
-        # coverage on either side) for aws-cli's pin.
+        # directory /) and in backend-migration-rollback's and dast's
+        # postgres service containers in this file -- with nothing tying
+        # them together, Dependabot bumping the first copy on its own
+        # schedule would silently leave the service containers on a stale
+        # digest, so CI would stop testing against the database version
+        # developers actually run.
         #
         # node:22-alpine's digest is separately duplicated in docker-compose.yml
         # (Dependabot docker ecosystem entry for directory /) and
         # frontend/Dockerfile (separate entry for directory /frontend) -- the
-        # same split-directory drift risk as postgres/aws-cli above, since each
-        # entry can open and merge its own digest-bump PR independently.
+        # same split-directory drift risk, since each entry can open and
+        # merge its own digest-bump PR independently.
         run: |
           set -euo pipefail
           pg_compose=$(grep -oP 'postgres:17@\Ksha256:\S+' docker-compose.yml)
-          pg_values=$(grep -oP 'postgresImageDigest:\s*"\K[^"]+' helm/team-manager/values.yaml)
-          pg_ci=$(grep -oP 'image-ref:\s*postgres:17@\Ksha256:\S+' .github/workflows/ci.yml)
-          pg_scheduled=$(grep -oP 'image-ref:\s*postgres:17@\Ksha256:\S+' .github/workflows/scheduled-security-scan.yml)
-          if [ "$pg_compose" != "$pg_values" ] || [ "$pg_compose" != "$pg_ci" ] || [ "$pg_compose" != "$pg_scheduled" ]; then
-            echo "::error::postgres:17 digest mismatch: docker-compose.yml=$pg_compose values.yaml=$pg_values ci.yml=$pg_ci scheduled-security-scan.yml=$pg_scheduled"
-            exit 1
-          fi
           pg_services=$(grep -oP '^\s*image:\s*postgres:17@\Ksha256:\S+' .github/workflows/ci.yml | sort -u)
           if [ "$(echo "$pg_services" | wc -l)" != "1" ] || [ "$pg_services" != "$pg_compose" ]; then
             echo "::error::postgres:17 service-container digest(s) out of sync: expected $pg_compose, found: $pg_services"
             exit 1
           fi
-
-          aws_values=$(grep -oP 'awsCliImage:\s*"amazon/aws-cli:\K\S+(?=")' helm/team-manager/values.yaml)
-          aws_ci=$(grep -oP 'image-ref:\s*amazon/aws-cli:\K\S+' .github/workflows/ci.yml)
-          aws_scheduled=$(grep -oP 'image-ref:\s*amazon/aws-cli:\K\S+' .github/workflows/scheduled-security-scan.yml)
-          if [ "$aws_values" != "$aws_ci" ] || [ "$aws_values" != "$aws_scheduled" ]; then
-            echo "::error::amazon/aws-cli digest mismatch: values.yaml=$aws_values ci.yml=$aws_ci scheduled-security-scan.yml=$aws_scheduled"
-            exit 1
-          fi
-          echo "Backup image digests are in sync (postgres:17@$pg_compose, aws-cli:$aws_values)."
+          echo "postgres:17 digest is in sync ($pg_compose)."
 
           node_compose=$(grep -oP 'node:22-alpine@\Ksha256:\S+' docker-compose.yml)
           node_dockerfile=$(grep -oP 'FROM node:22-alpine@\Ksha256:\S+' frontend/Dockerfile)
@@ -1043,58 +1022,6 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-  security-container-backup:
-    name: Security · Container scan (Trivy, backup CronJob images)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      # The backup CronJob (helm/team-manager/templates/backup-cronjob.yaml)
-      # pulls postgres and amazon/aws-cli directly from Docker Hub at runtime
-      # -- unlike the app's own two images, these were never scanned anywhere
-      # in CI. Scan the exact digest-pinned references shipped in
-      # values.yaml's backup.postgresImageDigest/backup.s3.awsCliImage so a
-      # CVE published against either is caught the same way as the app's own
-      # images, instead of silently reaching a CronJob that holds DB
-      # credentials and, when backup.s3.enabled, S3 write access.
-      #
-      # scanners: vuln only (unlike the app's own two Trivy jobs, which use
-      # the default vuln+secret scan) -- Trivy's secret scanner otherwise
-      # flags postgres's bundled /etc/ssl/private/ssl-cert-snakeoil.key as an
-      # "AsymmetricPrivateKey": a well-known Debian ssl-cert package
-      # convention (a placeholder self-signed cert generated at image build
-      # time), not an actual leaked secret. That check is only meaningful for
-      # scanning images this project actually builds, where a real secret
-      # could get baked in by mistake -- not a third-party vendor base image.
-      - name: Scan postgres (backup pg_dump initContainer)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: postgres:17@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675
-          format: table
-          exit-code: '1'
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          scanners: vuln
-          # 15 CVEs, all in the bundled gosu privilege-drop helper (never
-          # processes network input, exits immediately after exec at
-          # container startup) with no fixed upstream image build available
-          # yet across any current postgres:17.x tag as of 2026-07-11 --
-          # see the file for full justification and a re-check reminder.
-          trivyignores: .github/trivyignore-postgres-backup.txt
-      - name: Scan aws-cli (backup s3-upload container)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: amazon/aws-cli:2.36.48@sha256:45056897f7c47a84e3ef5a4f9095f748bd9f5a24c5d54e7d5cfc3d4da52c9331
-          format: table
-          exit-code: '1'
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          scanners: vuln
-          # 19 CVEs (glib2, libacl, python3/python3-libs), none reachable
-          # from this container's sole command (`aws s3 cp`) -- see the
-          # file for full per-package justification and a re-check reminder.
-          trivyignores: .github/trivyignore-awscli-backup.txt
-
   security-container-frontend:
     name: Security · Container scan (Trivy, frontend)
     runs-on: ubuntu-latest
@@ -1255,9 +1182,7 @@ jobs:
           # pipefail: render() below pipes `helm template | kubeconform` --
           # without this, a failing `helm template` (the first command in
           # the pipe) would be masked by kubeconform's own exit code (the
-          # last command), the same class of bug this repo's
-          # backup-cronjob.yaml pg_dump comment already documents for a
-          # `pg_dump | gzip` pipe under dash's non-pipefail default.
+          # last command).
           set -o pipefail
           # kubeconform validates every render below against the real
           # Kubernetes OpenAPI schema for the cluster version this chart
@@ -1307,26 +1232,13 @@ jobs:
           render \
             --set monitoring.enabled=true --set monitoring.grafanaDashboard.enabled=true \
             --set monitoring.scrapeToken.secret.existingSecret=dummy-scrape-secret
-          # backup.enabled is only true in values-prod.yaml, which also sets
-          # backup.s3.enabled=true -- so backup-cronjob.yaml's `{{- else }}`
-          # branch (the no-op-warning container, taken when S3 upload is
-          # disabled) is never rendered by any of the invocations above.
+          # s3.endpoint (the S3-compatible-storage/MinIO override -- see
+          # values.yaml and networkpolicy.yaml's egress.s3.port comment) is
+          # empty in every shipped values file, so networkpolicy.yaml's
+          # s3-egress branch has no template-syntax coverage otherwise.
           render \
-            --set backup.enabled=true --set backup.s3.enabled=false
-          # backup.s3.secret.existingSecret (static AWS credentials, the one
-          # alternative to IRSA) is empty in every shipped values file,
-          # including values-prod.yaml's IRSA-based backup.enabled=true
-          # render above -- so backup-cronjob.yaml's AWS_ACCESS_KEY_ID/
-          # AWS_SECRET_ACCESS_KEY secretKeyRefs have no template-syntax
-          # coverage at all. backup.s3.endpoint (the S3-compatible-storage/
-          # MinIO override -- see values.yaml and networkpolicy.yaml's
-          # egress.s3.port comment) is likewise empty everywhere, so
-          # backup-cronjob.yaml's --endpoint-url branch is covered here too
-          # rather than needing its own separate render.
-          render \
-            --set backup.enabled=true --set backup.s3.enabled=true \
-            --set backup.s3.bucket=x --set backup.s3.secret.existingSecret=dummy-creds \
-            --set backup.s3.endpoint=https://minio.example.com:9000
+            --set networkPolicy.enabled=true \
+            --set s3.endpoint=https://minio.example.com:9000
           # deploymentStrategy is `{}` (empty map, so Deployment.spec.strategy
           # is omitted entirely) in every shipped values file, so the
           # `{{- with .Values.deploymentStrategy }}` branch in deployment.yaml
@@ -1344,12 +1256,6 @@ jobs:
           render \
             --set monitoring.enabled=true --set monitoring.namespace=monitoring \
             --set monitoring.scrapeToken.secret.existingSecret=dummy-scrape-secret
-          # backup.serviceAccount.create (a dedicated ServiceAccount for the
-          # backup CronJob, so an IRSA annotation for S3 access doesn't also
-          # get injected into the main app Deployment's pods) has no
-          # coverage in any render above.
-          render \
-            --set backup.enabled=true --set backup.serviceAccount.create=true
           # serviceAccount.create is `true` in every shipped values file, so
           # team-manager.serviceAccountName's `{{- else }}` branch (used when
           # pointing the chart at an externally-managed ServiceAccount

@@ -103,38 +103,6 @@ jobs:
           ignore-unfixed: true
           trivyignores: .github/trivyignore-frontend.txt
 
-  # Mirrors ci.yml's security-container-backup job. Keep the two scanned
-  # image-refs in sync with helm/team-manager/values.yaml's
-  # backup.postgresImageDigest/backup.s3.awsCliImage by hand -- same
-  # constraint noted on ci.yml's "Verify pinned base image digests stay in
-  # sync" step (Dependabot's docker ecosystem updater doesn't cover either key).
-  container-backup:
-    name: Security · Container scan (Trivy, backup CronJob images)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - name: Scan postgres (backup pg_dump initContainer)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: postgres:17@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675
-          format: table
-          exit-code: "1"
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          scanners: vuln
-          trivyignores: .github/trivyignore-postgres-backup.txt
-      - name: Scan aws-cli (backup s3-upload container)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: amazon/aws-cli:2.36.48@sha256:45056897f7c47a84e3ef5a4f9095f748bd9f5a24c5d54e7d5cfc3d4da52c9331
-          format: table
-          exit-code: "1"
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          scanners: vuln
-          trivyignores: .github/trivyignore-awscli-backup.txt
-
   # A scheduled run has no PR/push to surface a red X on, and the only
   # built-in signal is GitHub's per-actor failure email -- sent to whoever
   # last edited this workflow file's cron, easily filtered/muted, and no
@@ -147,7 +115,7 @@ jobs:
     name: File an issue if any scan failed
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [govulncheck, frontend-security, container-backend, container-frontend, container-backup]
+    needs: [govulncheck, frontend-security, container-backend, container-frontend]
     if: failure()
     permissions:
       contents: read
