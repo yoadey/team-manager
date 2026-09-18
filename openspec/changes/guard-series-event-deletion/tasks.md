@@ -22,6 +22,8 @@
       `seriesDeleteDesc` in `frontend/src/i18n/de.ts` and `en.ts`) no
       longer claims *all* events of the series are removed — it states
       that occurrences from today on go and past ones are kept
+- [x] 2.2 `docs/end-user/termine.md` explains what "die ganze Serie"
+      covers, since the chapter documents series delete/cancel/edit
 
 ## 3. Demo backend (MSW)
 
