@@ -6,7 +6,7 @@ context: |
   Frontend: React 19 + TypeScript (strict), Vite 8, Vitest 4, MUI v9, Emotion,
     in-house i18n (de/en), state-based routing (no router lib), openapi-fetch client
     generated from the OpenAPI spec. State in src/context/AppContext.tsx.
-  Backend: Go 1.25+, Chi v5, PostgreSQL 17 via pgx/v5, goose migrations, River job queue,
+  Backend: Go 1.26+, Chi v5, PostgreSQL 17 via pgx/v5, goose migrations, River job queue,
     JWT RS256 sessions, RBAC (none|read|write per module). Spec-first:
     backend/openapi/openapi.yaml -> oapi-codegen (internal/gen) and openapi-typescript
     (frontend/src/api). Layered per feature: handler.go -> service.go -> repository.go.

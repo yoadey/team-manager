@@ -190,6 +190,13 @@ jobs:
 
   helm-chart:
     name: Package & push Helm chart (OCI)
+    # Gated on the image build: the chart's appVersion (and the image tags a
+    # deployment resolves from it) names images this same run publishes, so
+    # publishing a chart for a version whose images never made it -- the
+    # images job's Trivy gate fails the build on a CRITICAL/HIGH CVE, which
+    # is exactly when a release should not go out -- would ship an
+    # immutable, signed chart pointing at tags that do not exist in GHCR.
+    needs: images
     runs-on: ubuntu-latest
     permissions:
       contents: read

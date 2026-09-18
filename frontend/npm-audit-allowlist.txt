@@ -35,6 +35,18 @@ GHSA-ph9p-34f9-6g65
 # current major.
 GHSA-jmr9-qjv8-65gv
 
+# GHSA-7pqw-9j4j-h8q3: a second advisory against the same `extract-zip`
+# <=2.0.1 symlink handling as GHSA-jmr9-qjv8-65gv above (arbitrary file
+# writes through symlink archive entries rather than path traversal on
+# extraction). Same dependency path, same reachability analysis, same
+# absence of a fix on @lhci/cli's current major: it is only ever reached
+# when @puppeteer/browsers unpacks the Chrome-for-Testing archive it
+# downloads from Google's own CDN inside the frontend-lighthouse CI job,
+# never on a user upload or any other untrusted input this repo handles.
+# Remove together with GHSA-jmr9-qjv8-65gv once @lhci/cli ships a fixed
+# puppeteer-core/extract-zip chain.
+GHSA-7pqw-9j4j-h8q3
+
 # GHSA-mh99-v99m-4gvg: `brace-expansion` <=5.0.7 (DoS via unbounded expansion
 # length). The vulnerable range covers every published version, so no
 # non-breaking fix exists yet -- `npm audit`'s only `fixAvailable` is a

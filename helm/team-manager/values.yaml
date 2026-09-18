@@ -577,7 +577,7 @@ backup:
   # values.yaml). Any point-in-time digest pin will eventually accrue newly-
   # published CVEs against its frozen package versions (caught once already by
   # CI's security-container-backup Trivy scan) -- re-resolve periodically.
-  postgresImageDigest: "sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449"
+  postgresImageDigest: "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675"
   # Caps on the CronJob's two emptyDir volumes (dump output, scratch space
   # for pg_dump/aws-cli temp files) -- otherwise unbounded, so a runaway
   # dump or temp-file leak is limited only by the node's actual free disk,
@@ -597,18 +597,18 @@ backup:
   retentionDays: 30        # Informational; enforce via S3 bucket lifecycle rules
   s3:
     enabled: false          # When false, the dump is discarded (job fails loudly instead of silently losing data)
-    # Digest-pinned (resolved 2026-07-08 from registry-1.docker.io for
-    # amazon/aws-cli:2.35.18, the latest release at pin time -- CI's
-    # security-container-backup Trivy scan caught fresh HIGH CVEs (expat,
-    # libblkid, python3, sqlite-libs) disclosed against the previously-pinned
-    # 2.35.17's Amazon Linux 2023 base layer since it was pinned) so a
+    # Digest-pinned (resolved 2026-09-18 from registry-1.docker.io for
+    # amazon/aws-cli:2.36.48, the latest release at pin time -- CI's
+    # security-container-backup Trivy scan repeatedly catches fresh HIGH CVEs
+    # disclosed against a previous pin's Amazon Linux 2023 base layer, most
+    # recently the Go stdlib findings that failed the 2.35.18 pin) so a
     # tag-hijack of a mutable upstream tag can't silently reach a CronJob
     # holding S3 write credentials; unlike docker-compose.yml's equivalent
     # pin, Dependabot cannot keep this current automatically (its docker
     # ecosystem updater only scans Dockerfiles and docker-compose.y*ml, not
     # arbitrary keys in a Helm values.yaml) -- bump both the tag and digest
     # together by hand on a schedule.
-    awsCliImage: "amazon/aws-cli:2.35.18@sha256:5d6ba5056f48726a1f2d3447d0ad1ae2506f966f431d69649dc7da5cae8e4667"
+    awsCliImage: "amazon/aws-cli:2.36.48@sha256:45056897f7c47a84e3ef5a4f9095f748bd9f5a24c5d54e7d5cfc3d4da52c9331"
     bucket: ""
     prefix: "team-manager"
     region: "eu-central-1"
