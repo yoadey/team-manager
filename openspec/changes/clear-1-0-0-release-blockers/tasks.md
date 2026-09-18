@@ -49,17 +49,29 @@
 - [x] 5.2 The file and release.yml's matrix comment now say when adding an
       entry back is warranted, and that re-pinning the base is preferred
 
-## 6. Verification
+## 6. Release metadata
 
-- [x] 6.1 `cd backend && go build ./... && golangci-lint run ./...`
-- [x] 6.2 Full backend test suite (unit + integration) against a real
+- [x] 6.1 `helm/team-manager/Chart.yaml`'s `version`/`appVersion` and
+      `frontend/package.json` (plus the lockfile's copy of it) moved from
+      `0.1.0` to `1.0.0`. Cosmetic for the published artifacts —
+      release.yml overrides the chart version at package time with the tag,
+      and the frontend's package version is never shipped — but a checkout
+      that still says 0.1.0 at the 1.0.0 tag is misleading to read, and
+      `helm install` straight from the repo would report the wrong version
+- [x] 6.2 The root `package.json` stays at `0.0.0`: it is a private
+      monorepo wrapper that is never published
+
+## 7. Verification
+
+- [x] 7.1 `cd backend && go build ./... && golangci-lint run ./...`
+- [x] 7.2 Full backend test suite (unit + integration) against a real
       PostgreSQL — Docker is unavailable in this environment, so
       testcontainers was pointed at a local server for the run
-- [x] 6.3 `cd frontend && npm run typecheck && npm run lint && npm test
+- [x] 7.3 `cd frontend && npm run typecheck && npm run lint && npm test
       && npm run build && npm run check:bundle`
-- [x] 6.4 `cd frontend && npm ci` resolves the updated lockfile cleanly
-- [x] 6.5 `openspec validate --all --strict`
-- [x] 6.6 CI green on the PR — `govulncheck` and the Trivy container
+- [x] 7.4 `cd frontend && npm ci` resolves the updated lockfile cleanly
+- [x] 7.5 `openspec validate --all --strict`
+- [x] 7.6 CI green on the PR — `govulncheck` and the Trivy container
       scans cannot run in this environment (`vuln.go.dev`, the registry
       blob CDN and Alpine's package index are all blocked by its network
       policy), so they were confirmed on the PR: both release gates (the
