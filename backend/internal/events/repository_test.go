@@ -864,11 +864,13 @@ func TestEventRepository_UpdateEvent_Series_OnlyDateSet_DoesNotCorruptSQL(t *tes
 	}
 }
 
-// Deleting a series must remove every occurrence (past and future), not just
+// Deleting a series must remove its remaining occurrences outright, not just
 // the event_series definition row — events.series_id is ON DELETE SET NULL,
 // so leaving DeleteEvent to rely on FK cascade alone would silently detach
-// the events instead of removing them, contradicting the UI's "all events in
-// this series ... will be permanently removed" confirmation copy.
+// the events instead of removing them. Every occurrence here is dated today
+// or later, so the CURRENT_DATE guard (see
+// TestEventRepository_DeleteEvent_Series_PreservesPastOccurrences) doesn't
+// spare any of them and the whole series goes.
 func TestEventRepository_DeleteEvent_Series_RemovesAllOccurrences(t *testing.T) {
 	t.Parallel()
 
@@ -908,6 +910,140 @@ func TestEventRepository_DeleteEvent_Series_RemovesAllOccurrences(t *testing.T) 
 	var seriesCount int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM event_series WHERE id = $1`, *eventRows[0].SeriesId).Scan(&seriesCount))
 	assert.Equal(t, 0, seriesCount)
+}
+
+// A series-scoped delete must never destroy already-held occurrences. Their
+// attendance and event_comments rows cascade away with the event
+// (ON DELETE CASCADE, migration 00001), so without the CURRENT_DATE guard,
+// deleting a long-running weekly training wipes every RSVP the team's
+// statistics are computed from — irreversibly, and with no UI distinction
+// between "the rest of the series" and "everything that ever happened".
+// Mirrors TestEventRepository_SetStatus_Series_DoesNotCancelPastInstances,
+// whose identical guard this brings DeleteEvent in line with.
+func TestEventRepository_DeleteEvent_Series_PreservesPastOccurrences(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a"
+	teamID := "2b2b2b2b-2b2b-2b2b-2b2b-2b2b2b2b2b2b"
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color)
+		VALUES ($1, 'Series Past User', 'series-past@example.com', '#654321')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Series Past Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 3,
+	}
+	rows, err := repo.CreateSeries(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+
+	// Backdate the first occurrence into the past, keeping its series_id, and
+	// give it the recorded history a real completed training would carry.
+	pastID := rows[0].Id
+	_, err = pool.Exec(ctx, `UPDATE events SET date = $1 WHERE id = $2`, startDate.AddDate(0, 0, -7), pastID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO attendance (event_id, user_id, status, at) VALUES ($1, $2, 'yes', now())`, pastID, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO event_comments (event_id, user_id, text) VALUES ($1, $2, 'Gutes Training')`, pastID, userID)
+	require.NoError(t, err)
+
+	// Delete "the series", invoked on a future occurrence.
+	err = repo.DeleteEvent(ctx, rows[2].Id.String(), teamID, "series")
+	require.NoError(t, err)
+
+	all, err := repo.ListEvents(ctx, teamID, gen.All, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 1, "only the past occurrence may survive a series delete")
+	assert.Equal(t, pastID, all[0].Id)
+
+	// The past occurrence keeps its recorded history and its series link --
+	// event_series must not be deleted out from under it (ON DELETE SET NULL
+	// would silently detach it instead).
+	var attendanceCount, commentCount, seriesCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM attendance WHERE event_id = $1`, pastID).Scan(&attendanceCount))
+	assert.Equal(t, 1, attendanceCount, "a past occurrence's attendance must survive a series delete")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM event_comments WHERE event_id = $1`, pastID).Scan(&commentCount))
+	assert.Equal(t, 1, commentCount, "a past occurrence's comments must survive a series delete")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM event_series WHERE id = $1`, *rows[0].SeriesId).Scan(&seriesCount))
+	assert.Equal(t, 1, seriesCount, "the series row must stay while an occurrence still references it")
+	var stillLinked bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT series_id IS NOT NULL FROM events WHERE id = $1`, pastID).Scan(&stillLinked))
+	assert.True(t, stillLinked, "the surviving past occurrence must keep its series link, not be detached")
+
+	// Deleting the past occurrence itself is still allowed explicitly -- and
+	// once nothing references the series any more, the series row goes too.
+	err = repo.DeleteEvent(ctx, pastID.String(), teamID, "series")
+	require.NoError(t, err)
+	all, err = repo.ListEvents(ctx, teamID, gen.All, 50, nil)
+	require.NoError(t, err)
+	assert.Empty(t, all, "the addressed occurrence is deleted regardless of its own date")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM event_series WHERE id = $1`, *rows[0].SeriesId).Scan(&seriesCount))
+	assert.Equal(t, 0, seriesCount, "the series row must go once no occurrence references it")
+}
+
+// A series-scoped edit must likewise leave already-held occurrences alone:
+// retroactively renaming or re-timing a training that already took place
+// misrepresents what the team actually did, the same way a series-wide
+// cancel would.
+func TestEventRepository_UpdateEvent_Series_DoesNotRewritePastOccurrences(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "3c3c3c3c-3c3c-3c3c-3c3c-3c3c3c3c3c3c"
+	teamID := "4d4d4d4d-4d4d-4d4d-4d4d-4d4d4d4d4d4d"
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color)
+		VALUES ($1, 'Series Edit User', 'series-edit@example.com', '#fedcba')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Series Edit Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 3,
+	}
+	rows, err := repo.CreateSeries(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+
+	pastID := rows[0].Id
+	_, err = pool.Exec(ctx, `UPDATE events SET date = $1 WHERE id = $2`, startDate.AddDate(0, 0, -7), pastID)
+	require.NoError(t, err)
+
+	newTitle := "Renamed Training"
+	_, err = repo.UpdateEvent(ctx, rows[2].Id.String(), teamID, &events.UpdateEventParams{Title: &newTitle}, "series")
+	require.NoError(t, err)
+
+	all, err := repo.ListEvents(ctx, teamID, gen.All, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	for _, e := range all {
+		if e.Id == pastID {
+			assert.Equal(t, "Weekly Training", e.Title, "a past occurrence must keep its title when the series is edited")
+		} else {
+			assert.Equal(t, newTitle, e.Title, "today's and future occurrences must take the series-wide edit")
+		}
+	}
 }
 
 func TestEventRepository_SetAttendance(t *testing.T) {

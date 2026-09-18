@@ -289,7 +289,8 @@ export const en: Messages = {
     cancelledLabel: 'Cancelled',
     seriesCancelDesc:
       'Cancel this event or the whole series? Cancelled events stay visible in the list, responses are no longer needed.',
-    seriesDeleteDesc: 'Delete this event or the whole series? Deleted events are removed completely and irreversibly.',
+    seriesDeleteDesc:
+      'Delete this event or the whole series? Deleted events are removed completely and irreversibly. Events in the series that already took place are kept.',
     seriesReactivateDesc: 'Reactivate this event or the whole series?',
     seriesScopeSingle: 'Only this event',
     seriesScopeSingleSub: 'Affects only this single event',
@@ -444,7 +445,8 @@ export const en: Messages = {
     deleteEventTitle: 'Delete event?',
     deleteSeriesTitle: 'Delete entire series?',
     deleteEventMsg: '"{title}" and all responses will be permanently removed.',
-    deleteSeriesMsg: 'All events in this series and all responses will be permanently removed.',
+    deleteSeriesMsg:
+      'All events in this series from today onwards, and their responses, will be permanently removed. Events that already took place are kept, along with their responses.',
     toastEventDeleted: 'Event deleted',
     toastSeriesDeleted: 'Series deleted',
     toastEventCancelled: 'Event cancelled',

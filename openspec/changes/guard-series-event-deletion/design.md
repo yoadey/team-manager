@@ -36,6 +36,28 @@ occurrences too.
 - **No new API parameter.** `scope=series` keeps its existing meaning;
   only its effective date range narrows to match `SetStatus`. Clients
   don't need to change how they call the endpoint.
+- **The `event_series` definition row is kept while past occurrences
+  survive.** `events.series_id` is `ON DELETE SET NULL`, so deleting the
+  series row alongside the future occurrences would leave the preserved
+  past ones detached — still present, but no longer recognizable as part
+  of a series. The row is therefore dropped only once nothing references
+  it, which for the all-future case (the common one) is still the same
+  single statement's worth of behavior as before.
+- **`replaceEventTeamsForSeries` is deliberately left past-inclusive.**
+  Re-targeting which teams a series is shared with is not destructive
+  and not a rewrite of what happened — un-sharing in particular should
+  plausibly withdraw access to past occurrences too, not just future
+  ones. Narrowing it would also silently strip a removed team's access
+  to future occurrences while leaving it on past ones, which is harder
+  to reason about than the current all-or-nothing behavior. If this
+  should change, it belongs in its own proposal alongside the wider
+  question of historical cross-team visibility.
+- **The demo backend (MSW) is brought in line in the same change.**
+  `serviceContract.test.ts` pins the demo backend as what `realApi` is
+  expected to match, so leaving the mock past-inclusive would both keep
+  the data loss reachable in demo mode and re-introduce the exact class
+  of drift this repo has repeatedly had to fix. Its status handler had
+  in fact already drifted from `SetStatus`'s long-standing guard.
 
 ## Risks
 

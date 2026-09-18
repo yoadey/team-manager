@@ -291,7 +291,7 @@ export const de = {
     seriesCancelDesc:
       'Diesen Termin oder die ganze Serie absagen? Abgesagte Termine bleiben in der Liste sichtbar, Rückmeldungen sind nicht mehr nötig.',
     seriesDeleteDesc:
-      'Diesen Termin oder die ganze Serie löschen? Gelöschte Termine werden vollständig und unwiderruflich entfernt.',
+      'Diesen Termin oder die ganze Serie löschen? Gelöschte Termine werden vollständig und unwiderruflich entfernt. Bereits stattgefundene Termine der Serie bleiben erhalten.',
     seriesReactivateDesc: 'Diesen Termin oder die ganze Serie wieder aktivieren?',
     seriesScopeSingle: 'Nur diesen Termin',
     seriesScopeSingleSub: 'Betrifft ausschließlich diesen einen Termin',
@@ -448,7 +448,8 @@ export const de = {
     deleteEventTitle: 'Termin löschen?',
     deleteSeriesTitle: 'Ganze Serie löschen?',
     deleteEventMsg: '„{title}" und alle Rückmeldungen werden dauerhaft entfernt.',
-    deleteSeriesMsg: 'Alle Termine dieser Serie und alle Rückmeldungen werden dauerhaft entfernt.',
+    deleteSeriesMsg:
+      'Alle Termine dieser Serie ab heute und deren Rückmeldungen werden dauerhaft entfernt. Bereits stattgefundene Termine bleiben mit ihren Rückmeldungen erhalten.',
     toastEventDeleted: 'Termin gelöscht',
     toastSeriesDeleted: 'Serie gelöscht',
     toastEventCancelled: 'Termin abgesagt',

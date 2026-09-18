@@ -950,3 +950,53 @@ describe("pagination: members.list walks every page via fetchAllPages", () => {
     expect(names).toEqual(sorted);
   });
 });
+
+// The real backend guards every series-wide mutation with `date >=
+// CURRENT_DATE` (SetStatus, updateSeriesEvents, DeleteEvent -- see
+// backend/internal/events/repository.go). The demo backend used to apply
+// series mutations to *every* occurrence, so a "delete the series" in demo
+// mode wiped completed trainings and their RSVPs -- both a drift from the
+// real backend and, for delete, the same irreversible history loss the
+// backend guard exists to prevent.
+describe('series-wide mutations leave already-held occurrences alone', () => {
+  const SERIES_ID = 'series_tue_thu';
+
+  function split() {
+    const today = todayLocalDate();
+    const all = db.events.filter((e) => e.seriesId === SERIES_ID);
+    return {
+      past: all.filter((e) => e.date < today),
+      upcoming: all.filter((e) => e.date >= today),
+    };
+  }
+
+  it('a series delete removes today-and-later occurrences and keeps past ones with their attendance', async () => {
+    const { past, upcoming } = split();
+    expect(past.length).toBeGreaterThan(0);
+    expect(upcoming.length).toBeGreaterThan(0);
+
+    const target = upcoming[0]!;
+    const pastIds = past.map((e) => e.id);
+    const attendanceBefore = db.attendance.filter((a) => pastIds.includes(a.eventId)).length;
+
+    await api.events.remove(target.id, 'series', target.teamId);
+
+    const left = db.events.filter((e) => e.seriesId === SERIES_ID).map((e) => e.id);
+    expect(left.sort()).toEqual([...pastIds].sort());
+    expect(db.attendance.filter((a) => pastIds.includes(a.eventId))).toHaveLength(attendanceBefore);
+  });
+
+  it('a series cancel and a series edit apply from today onwards only', async () => {
+    const { past, upcoming } = split();
+    const target = upcoming[0]!;
+    const pastTitles = past.map((e) => e.title);
+
+    await api.events.setStatus(target.id, 'cancelled', 'series', target.teamId);
+    for (const e of past) expect(e.status).toBe('active');
+    for (const e of upcoming) expect(e.status).toBe('cancelled');
+
+    await api.events.update(target.id, { title: 'Umbenannt' }, 'series', target.teamId);
+    expect(past.map((e) => e.title)).toEqual(pastTitles);
+    for (const e of upcoming) expect(e.title).toBe('Umbenannt');
+  });
+});
