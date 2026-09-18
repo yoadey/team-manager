@@ -31,11 +31,13 @@ RUN npm run build && find dist -name '*.map' -delete
 # Pinned to the alpine3.23 variant (rather than the 1.27-alpine tag previously
 # here) for current, patched OS packages — 1.27-alpine's Alpine base carried
 # several HIGH/CRITICAL CVEs (openssl, libpng, libxml2, musl) that the newly
-# added Trivy frontend scan caught. Re-resolved 2026-09-18 (from
-# registry-1.docker.io) after the previous digest's frozen libssl3 3.5.7-r0
-# and util-linux 2.41.4-r0 picked up fresh HIGH CVEs disclosed since it was
-# pinned (CVE-2026-14456, CVE-2026-53612/53613/53614/76642/78408/78410).
-FROM nginxinc/nginx-unprivileged:1-alpine3.23@sha256:6320020c7da8714feab524e02c08c5a1958675c4e68700e93a2fd8970b065786 AS runtime
+# added Trivy frontend scan caught. Moved to the alpine3.24 line and
+# re-resolved 2026-09-18 (from registry-1.docker.io): the alpine3.23 line's
+# most recent rebuild still froze libssl3 3.5.7-r0, libcurl 8.19.0-r0,
+# libexpat 2.8.2-r0 and util-linux 2.41.4-r0, all of which had accumulated
+# HIGH CVEs with fixes already published in Alpine. Staying on 3.23 would
+# have meant suppressing those rather than taking the fix.
+FROM nginxinc/nginx-unprivileged:1-alpine3.24@sha256:b54ac358b83fc6c965793fd271839b4ea4cdb6e99895bb19618cbc2ca152d972 AS runtime
 
 # envsubst (gettext) ships in the base image for its own built-in
 # entrypoint.d templating feature; fail the build loudly here rather than
