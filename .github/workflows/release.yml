@@ -53,11 +53,10 @@ jobs:
           - component: frontend
             context: frontend
             # Mirrors ci.yml's security-container-frontend job and
-            # scheduled-security-scan.yml's container-frontend job: without
-            # this, CVE-2026-33630 (c-ares use-after-free in the pinned
-            # nginx-unprivileged base, not yet fixed upstream as of
-            # 2026-07-10 -- see the file itself) fails this scan on every
-            # release cut, since ignore-unfixed alone does not filter it out.
+            # scheduled-security-scan.yml's container-frontend job, so a
+            # justified suppression added for those applies to the release
+            # scan too rather than only failing at tag time. The file
+            # currently holds no entries -- see it for when to add one.
             trivyignores: .github/trivyignore-frontend.txt
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

@@ -37,17 +37,31 @@
 
 - [x] 4.1 `release.yml`'s `helm-chart` job gains `needs: images`
 
-## 5. Verification
+## 5. Suppression hygiene
 
-- [x] 5.1 `cd backend && go build ./... && golangci-lint run ./...`
-- [x] 5.2 Full backend test suite (unit + integration) against a real
+- [x] 5.1 `.github/trivyignore-frontend.txt` emptied: its three entries
+      were written against the alpine3.23 base this change replaces. The
+      two curl ones are demonstrably obsolete (the eight unsuppressed curl
+      CVEs that were failing need 8.22.0-r0, past the 8.20.0-r0 that fixed
+      them), and a suppression cannot report whether it still applies, so
+      c-ares went too rather than being carried forward against a base
+      nobody re-checked it against
+- [x] 5.2 The file and release.yml's matrix comment now say when adding an
+      entry back is warranted, and that re-pinning the base is preferred
+
+## 6. Verification
+
+- [x] 6.1 `cd backend && go build ./... && golangci-lint run ./...`
+- [x] 6.2 Full backend test suite (unit + integration) against a real
       PostgreSQL — Docker is unavailable in this environment, so
       testcontainers was pointed at a local server for the run
-- [x] 5.3 `cd frontend && npm run typecheck && npm run lint && npm test
+- [x] 6.3 `cd frontend && npm run typecheck && npm run lint && npm test
       && npm run build && npm run check:bundle`
-- [x] 5.4 `cd frontend && npm ci` resolves the updated lockfile cleanly
-- [x] 5.5 `openspec validate --all --strict`
-- [ ] 5.6 CI green on the PR — `govulncheck` and the three Trivy
-      container scans cannot run in this environment (`vuln.go.dev` and
-      the registry blob CDN are both blocked by its network policy), so
-      they are confirmed only on the PR
+- [x] 6.4 `cd frontend && npm ci` resolves the updated lockfile cleanly
+- [x] 6.5 `openspec validate --all --strict`
+- [x] 6.6 CI green on the PR — `govulncheck` and the Trivy container
+      scans cannot run in this environment (`vuln.go.dev`, the registry
+      blob CDN and Alpine's package index are all blocked by its network
+      policy), so they were confirmed on the PR: both release gates (the
+      backend and frontend published-image scans) pass, the frontend one
+      only after moving that image to the alpine3.24 base
