@@ -21,8 +21,10 @@ date.
 - **THEN** the `event_series` definition row is kept, so the surviving
   instances stay linked to their series rather than being detached
   (`events.series_id` is `ON DELETE SET NULL`)
-- **AND** once no instance references the series any more, the
-  `event_series` row is removed
+- **AND** once a series-scoped delete leaves no instance referencing the
+  series, the `event_series` row is removed (a `scope=single` delete never
+  performs this cleanup, so a series whose last instance is removed
+  individually keeps an unreferenced definition row)
 
 ### Requirement: Series-wide update affects only future instances
 Bulk-updating a recurring series MUST NOT change instances dated before
@@ -36,6 +38,22 @@ its own date.
 - **AND** instances dated before today keep their previous values
 - **AND** the specific event the update was invoked on is updated
   regardless of its own date
+
+### Requirement: Statistics relevance is exempt from the series date guard
+A series-wide change to an occurrence's *statistics relevance*
+(`excludeFromStats`) MUST apply to every occurrence in the series,
+including those dated before today. Unlike the fields the guard protects,
+this flag does not describe what took place — it decides whether the
+occurrence counts — and the occurrences already held are the only ones
+statistics have counted so far.
+
+#### Scenario: Excluding a mis-counted recurring event from statistics
+- **WHEN** a series with past and future instances is updated with
+  `scope=series` and `excludeFromStats` set
+- **THEN** every instance of the series, past ones included, is excluded
+  from statistics
+- **AND** fields that describe the occurrence (title, times, nominations)
+  still leave instances dated before today unchanged
 
 ### Requirement: The demo backend applies the same series guards
 The MSW demo backend MUST apply the same "today onwards" scoping to

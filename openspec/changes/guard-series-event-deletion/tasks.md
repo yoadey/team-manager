@@ -36,10 +36,34 @@
       backend's series delete/cancel/edit behavior against past
       occurrences
 
-## 4. Verification
+## 4. Independent review follow-ups
 
-- [x] 4.1 `cd backend && make test-unit`
-- [x] 4.2 `cd backend && make test-integration`
-- [x] 4.3 `cd backend && make lint`
-- [x] 4.4 `cd frontend && npm test`
-- [x] 4.5 `cd frontend && npm run typecheck && npm run lint`
+- [x] 4.1 Confirmation and scope-picker copy corrected: it named "all
+      events in this series" while the delete text promised past ones were
+      kept, and neither said the addressed occurrence goes regardless of
+      its date. `seriesScopeSeriesSub`, `deleteSeriesMsg`,
+      `seriesDeleteDesc` and `seriesAll` now all say "from today onwards"
+- [x] 4.2 `updateSeriesEvents` exempts `excludeFromStats` from the guard
+      and applies it series-wide (see design.md) — narrowing it had
+      silently broken correcting a mis-counted recurring event
+- [x] 4.3 MSW's PATCH handler no longer narrows `crossTeamIds` retargeting
+      to the remainder of the series; it stays past-inclusive, matching
+      `replaceEventTeamsForSeries`
+- [x] 4.4 `serviceContract.test.ts`'s attendance assertion was vacuous
+      (the fixture seeds no attendance on past occurrences, so it compared
+      0 to 0) — it now seeds an attendance row and a comment on a past
+      occurrence and asserts both survive
+- [x] 4.5 Added coverage for the addressed-past-occurrence case, the
+      past-inclusive `crossTeamIds` retarget, and `excludeFromStats` on
+      both backends
+- [x] 4.6 `seriesTargets`' doc comment no longer claims to mirror the
+      backend's guard wholesale — it names what it deliberately does not
+      cover (team scoping, cross-team retargeting)
+
+## 5. Verification
+
+- [x] 5.1 `cd backend && make test-unit`
+- [x] 5.2 `cd backend && make test-integration`
+- [x] 5.3 `cd backend && make lint`
+- [x] 5.4 `cd frontend && npm test`
+- [x] 5.5 `cd frontend && npm run typecheck && npm run lint`

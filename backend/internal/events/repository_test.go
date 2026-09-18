@@ -993,6 +993,62 @@ func TestEventRepository_DeleteEvent_Series_PreservesPastOccurrences(t *testing.
 	assert.Equal(t, 0, seriesCount, "the series row must go once no occurrence references it")
 }
 
+// exclude_from_stats is the deliberate exception to the series-wide date
+// guard: it decides whether an occurrence counts towards statistics rather
+// than describing what took place, so a trainer correcting a mis-counted
+// recurring event means the occurrences already held -- those are the only
+// ones in the statistics so far.
+func TestEventRepository_UpdateEvent_Series_ExcludeFromStatsReachesPastOccurrences(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "5e5e5e5e-5e5e-5e5e-5e5e-5e5e5e5e5e5e"
+	teamID := "6f6f6f6f-6f6f-6f6f-6f6f-6f6f6f6f6f6f"
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color)
+		VALUES ($1, 'Series Stats User', 'series-stats@example.com', '#0f0f0f')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Series Stats Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 3,
+	}
+	rows, err := repo.CreateSeries(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+
+	pastID := rows[0].Id
+	_, err = pool.Exec(ctx, `UPDATE events SET date = $1 WHERE id = $2`, startDate.AddDate(0, 0, -7), pastID)
+	require.NoError(t, err)
+
+	exclude := true
+	newTitle := "Renamed Training"
+	_, err = repo.UpdateEvent(ctx, rows[2].Id.String(), teamID,
+		&events.UpdateEventParams{Title: &newTitle, ExcludeFromStats: &exclude}, "series")
+	require.NoError(t, err)
+
+	all, err := repo.ListEvents(ctx, teamID, gen.All, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	for _, e := range all {
+		assert.Truef(t, e.ExcludeFromStats, "occurrence %s (%s) must be excluded from stats series-wide", e.Id, e.Date)
+		if e.Id == pastID {
+			// The guard still holds for everything that *describes* the occurrence.
+			assert.Equal(t, "Weekly Training", e.Title, "a past occurrence must keep its title")
+		}
+	}
+}
+
 // A series-scoped edit must likewise leave already-held occurrences alone:
 // retroactively renaming or re-timing a training that already took place
 // misrepresents what the team actually did, the same way a series-wide

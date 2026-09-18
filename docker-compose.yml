@@ -8,7 +8,7 @@ services:
     # Pin to an immutable digest for reproducible local dev. Dependabot's
     # docker ecosystem entry for directory / (.github/dependabot.yml) keeps
     # this digest current automatically.
-    # Digest below resolved 2026-08-20 from registry-1.docker.io for postgres:17
+    # Digest below resolved 2026-09-18 from registry-1.docker.io for postgres:17
     # (docker-library/postgres 17.11). Re-resolved from the prior pin, which
     # CI's security-container-backup Trivy scan (ci.yml) caught shipping a
     # stale bundled gosu binary with real, fixed-upstream Go stdlib CVEs --

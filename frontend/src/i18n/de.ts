@@ -291,12 +291,12 @@ export const de = {
     seriesCancelDesc:
       'Diesen Termin oder die ganze Serie absagen? Abgesagte Termine bleiben in der Liste sichtbar, Rückmeldungen sind nicht mehr nötig.',
     seriesDeleteDesc:
-      'Diesen Termin oder die ganze Serie löschen? Gelöschte Termine werden vollständig und unwiderruflich entfernt. Bereits stattgefundene Termine der Serie bleiben erhalten.',
+      'Diesen Termin oder die ganze Serie löschen? Gelöschte Termine werden vollständig und unwiderruflich entfernt. Termine der Serie vor dem heutigen Tag bleiben erhalten.',
     seriesReactivateDesc: 'Diesen Termin oder die ganze Serie wieder aktivieren?',
     seriesScopeSingle: 'Nur diesen Termin',
     seriesScopeSingleSub: 'Betrifft ausschließlich diesen einen Termin',
     seriesScopeSeries: 'Ganze Serie',
-    seriesScopeSeriesSub: 'Betrifft alle Termine dieser Serie',
+    seriesScopeSeriesSub: 'Betrifft diesen Termin und alle weiteren ab heute',
     summaryAriaYes: '{n} zugesagt',
     summaryAriaNo: '{n} abgesagt',
     summaryAriaMaybe: '{n} unsicher',
@@ -386,7 +386,7 @@ export const de = {
     rsvpCountdownMinutes: '{minutes} Min.',
     seriesHint: 'Teil einer Serie – was soll gespeichert werden?',
     seriesSingle: 'Nur dieser Termin',
-    seriesAll: 'Ganze Serie',
+    seriesAll: 'Ganze Serie (ab heute)',
     saveChanges: 'Änderungen speichern',
     createEvent: 'Termin anlegen',
     absenceHint:
@@ -449,7 +449,7 @@ export const de = {
     deleteSeriesTitle: 'Ganze Serie löschen?',
     deleteEventMsg: '„{title}" und alle Rückmeldungen werden dauerhaft entfernt.',
     deleteSeriesMsg:
-      'Alle Termine dieser Serie ab heute und deren Rückmeldungen werden dauerhaft entfernt. Bereits stattgefundene Termine bleiben mit ihren Rückmeldungen erhalten.',
+      'Dieser Termin und alle weiteren Termine der Serie ab heute werden mit ihren Rückmeldungen dauerhaft entfernt. Termine vor dem heutigen Tag bleiben erhalten.',
     toastEventDeleted: 'Termin gelöscht',
     toastSeriesDeleted: 'Serie gelöscht',
     toastEventCancelled: 'Termin abgesagt',

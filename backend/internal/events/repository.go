@@ -1008,6 +1008,25 @@ func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params 
 		}
 		return fmt.Errorf("events.Repository.updateSeriesEvents: %w", err)
 	}
+
+	// exclude_from_stats is deliberately exempt from the CURRENT_DATE guard
+	// and applied to the whole series, past occurrences included. The guard
+	// exists so a series-wide edit cannot misrepresent what took place --
+	// but this flag does not describe the occurrence, it decides whether the
+	// occurrence counts towards statistics, and correcting that for a
+	// training that already happened is the entire point of the setting. A
+	// trainer marking a mis-counted recurring event "exclude from
+	// statistics" means the ones already held, which are the only ones in
+	// the statistics so far. It is also non-destructive and reversible, and
+	// a single occurrence can still override it afterwards.
+	if params.ExcludeFromStats != nil {
+		if _, err := tx.Exec(ctx,
+			`UPDATE events SET exclude_from_stats = $1 WHERE series_id = $2 AND date < CURRENT_DATE`,
+			*params.ExcludeFromStats, seriesID,
+		); err != nil {
+			return fmt.Errorf("events.Repository.updateSeriesEvents: exclude_from_stats on past occurrences: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -1138,8 +1157,10 @@ func (r *Repository) SetStatus(ctx context.Context, eventID, teamID, status, sco
 
 // DeleteEvent deletes a single event, or a series' remaining occurrences
 // (today's and later, plus their attendance and comments) scoped to teamID.
-// Already-held (past) occurrences are deliberately preserved — see the
-// CURRENT_DATE guard below. events.series_id is ON DELETE SET NULL, not
+// Occurrences dated before today are deliberately preserved — see the
+// CURRENT_DATE guard below. Note the cutoff is the date, not the clock: an
+// occurrence held earlier *today* still counts as remaining and is deleted,
+// and the specifically addressed event always is, whatever its date. events.series_id is ON DELETE SET NULL, not
 // CASCADE, so the individual event rows must be deleted explicitly —
 // deleting only the event_series row would detach the events instead of
 // removing them.

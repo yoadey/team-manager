@@ -310,6 +310,14 @@ function applyEventScalarPatch(ev: EventDto, body: S['UpdateEventRequest']): voi
 // irreversibly -- attendance and comments cascade away with the event). The
 // specifically addressed event is always included regardless of its own
 // date, matching the backend's same precedent for the single-event case.
+//
+// Deliberately NOT covered here: the backend additionally scopes its
+// series-wide status update to occurrences targeting the caller's team
+// (eventScopedByAnyTargetTeam), and applies crossTeamIds retargeting to the
+// whole series past-inclusive (replaceEventTeamsForSeries has no date
+// filter -- see guard-series-event-deletion/design.md for why). Callers
+// that need either must handle it themselves; the PATCH handler below does
+// for crossTeamIds.
 function seriesTargets(e: EventDto, scope: 'single' | 'series'): EventDto[] {
   if (scope !== 'series' || !e.seriesId) return [e];
   const today = todayLocalDate();
@@ -1359,13 +1367,29 @@ export const handlers = [
     const crossTeamTargets = validateCrossTeamIds(auth, e.teamId, body.crossTeamIds);
     if (!Array.isArray(crossTeamTargets)) return crossTeamTargets;
     const targets = seriesTargets(e, scope);
-    targets.forEach((ev) => {
-      applyEventPatch(ev, body, scope);
-      if (body.crossTeamIds !== undefined) {
+    targets.forEach((ev) => applyEventPatch(ev, body, scope));
+    // excludeFromStats is exempt from the date guard and reaches the whole
+    // series, matching the real backend's updateSeriesEvents: the flag does
+    // not describe the occurrence, it decides whether it counts towards
+    // statistics, and the occurrences already held are exactly the ones a
+    // trainer is correcting when they set it.
+    if (scope === 'series' && e.seriesId && body.excludeFromStats !== undefined) {
+      const excl = body.excludeFromStats;
+      db.events.filter((x) => x.seriesId === e.seriesId).forEach((ev) => { ev.excludeFromStats = excl; });
+    }
+    // Cross-team retargeting deliberately stays past-inclusive, unlike the
+    // scalar field patch above: the real backend's replaceEventTeamsForSeries
+    // carries no date filter, because re-targeting who a series is shared
+    // with is not a rewrite of what took place -- un-sharing in particular
+    // should withdraw access to past occurrences too (see
+    // guard-series-event-deletion/design.md's decision on this).
+    if (body.crossTeamIds !== undefined) {
+      const retarget = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
+      retarget.forEach((ev) => {
         if (crossTeamTargets.length) ev.crossTeamIds = crossTeamTargets;
         else delete ev.crossTeamIds;
-      }
-    });
+      });
+    }
     pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWireEvent(e, params.teamId as string));
   }),

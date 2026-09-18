@@ -290,12 +290,12 @@ export const en: Messages = {
     seriesCancelDesc:
       'Cancel this event or the whole series? Cancelled events stay visible in the list, responses are no longer needed.',
     seriesDeleteDesc:
-      'Delete this event or the whole series? Deleted events are removed completely and irreversibly. Events in the series that already took place are kept.',
+      'Delete this event or the whole series? Deleted events are removed completely and irreversibly. Events in the series dated before today are kept.',
     seriesReactivateDesc: 'Reactivate this event or the whole series?',
     seriesScopeSingle: 'Only this event',
     seriesScopeSingleSub: 'Affects only this single event',
     seriesScopeSeries: 'Whole series',
-    seriesScopeSeriesSub: 'Affects all events in this series',
+    seriesScopeSeriesSub: 'Affects this event and all others from today onwards',
     summaryAriaYes: '{n} accepted',
     summaryAriaNo: '{n} declined',
     summaryAriaMaybe: '{n} maybe',
@@ -385,7 +385,7 @@ export const en: Messages = {
     rsvpCountdownMinutes: '{minutes}m',
     seriesHint: 'Part of a series – what should be saved?',
     seriesSingle: 'Only this event',
-    seriesAll: 'Entire series',
+    seriesAll: 'Entire series (from today)',
     saveChanges: 'Save changes',
     createEvent: 'Create event',
     absenceHint:
@@ -446,7 +446,7 @@ export const en: Messages = {
     deleteSeriesTitle: 'Delete entire series?',
     deleteEventMsg: '"{title}" and all responses will be permanently removed.',
     deleteSeriesMsg:
-      'All events in this series from today onwards, and their responses, will be permanently removed. Events that already took place are kept, along with their responses.',
+      'This event and every further event in the series from today onwards will be permanently removed, along with their responses. Events dated before today are kept.',
     toastEventDeleted: 'Event deleted',
     toastSeriesDeleted: 'Series deleted',
     toastEventCancelled: 'Event cancelled',
