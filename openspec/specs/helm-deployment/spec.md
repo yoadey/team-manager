@@ -8,7 +8,9 @@ chart-managed) with overridable, kebab-case key names; a composed
 `DATABASE_URL` from structural `database.*` fields; distinct pod identity
 for backend vs. frontend resources; and the chart's OCI packaging/release
 process.
+
 ## Requirements
+
 ### Requirement: Schema-validated structured configuration
 The Helm chart MUST expose backend configuration through typed, nested
 `values.yaml` sections (not a flat string map), and MUST ship a
@@ -41,7 +43,7 @@ applies against the archived requirement of the same name.)
 
 Each area with credentials (`database`, `jwt`, `cookieEncryption`, `s3`,
 `smtp`, `push`, `pagination`, `observability.sentry`, `metrics`,
-`monitoring.scrapeToken`, `backup.s3`) MUST source its secret values
+`monitoring.scrapeToken`) MUST source its secret values
 exclusively from an externally-managed Secret named by
 `<area>.secret.existingSecret` — the chart MUST NOT render or manage a
 Secret object itself for any of these areas. The key name(s) used within
@@ -134,28 +136,6 @@ container images.
 - **THEN** the chart is packaged and pushed using that input as the version,
   mirroring how the `images` job resolves `workflow_dispatch` versions
 
-### Requirement: Database connection composed from structural fields
-`database.host`, `database.port`, `database.name`, and
-`database.username` MUST be plain (non-secret) values; only
-`database.secret.keys.password` is Secret-backed. The chart MUST compose
-the backend's required `DATABASE_URL` connection string from these pieces
-at container start, without requiring a shell in the container image.
-
-#### Scenario: DATABASE_URL composed for the main container and migrate initContainer
-- **WHEN** `database.host`/`port`/`name`/`username` and
-  `database.secret.existingSecret` are all set
-- **THEN** both the migrate initContainer's and the main container's
-  `DATABASE_URL` env var resolves to
-  `postgres://<username>:<password>@<host>:<port>/<name>` (optionally with
-  `?sslmode=<database.sslmode>`), with `<password>` sourced from the
-  Secret via Kubernetes' native `$(VAR_NAME)` env-var expansion — not a
-  shell script
-
-#### Scenario: DATABASE_URL composed for the backup CronJob
-- **WHEN** `backup.enabled` is `true`
-- **THEN** the backup CronJob's pg-dump container's `DATABASE_URL` env var
-  is composed the same way, via the same shared template
-
 ### Requirement: Forward-compatibility escape hatches
 The chart MUST expose `extraEnv`, `extraVolumes`, `extraVolumeMounts`, and
 `podLabels` values that are additively applied to the main container/pod
@@ -184,15 +164,13 @@ The chart directory MUST contain a `README.md` documenting every
 - **THEN** the resulting archive contains `README.md` and `LICENSE`
 
 ### Requirement: Production-readiness scheduling values
-The chart MUST expose `priorityClassName` (wired into the main Deployment
-and backup CronJob pod specs) and `topologySpreadConstraints` (wired into
-the main Deployment pod spec), both omitted from the rendered pod spec
-when left at their empty defaults.
+The chart MUST expose `priorityClassName` and `topologySpreadConstraints`,
+both wired into the main Deployment's pod spec, and both omitted from the
+rendered pod spec when left at their empty defaults.
 
 #### Scenario: Priority class set
 - **WHEN** `priorityClassName` is set to a non-empty string
-- **THEN** both the Deployment's and (when `backup.enabled`) the backup
-  CronJob's pod specs render that `priorityClassName`
+- **THEN** the Deployment's pod spec renders that `priorityClassName`
 
 #### Scenario: Topology spread constraints set
 - **WHEN** `topologySpreadConstraints` is a non-empty list
@@ -297,3 +275,37 @@ frontend container never originates outbound application traffic itself.
 - **THEN** the rendered NetworkPolicy's only egress rule is DNS
   (port 53, TCP and UDP)
 
+### Requirement: Database connection composed for the application
+`database.host`, `database.port`, `database.name`, and
+`database.username` MUST be plain (non-secret) values; only
+`database.secret.keys.password` is Secret-backed. The chart MUST compose
+the backend's required `DATABASE_URL` connection string from these pieces
+at container start, without requiring a shell in the container image.
+
+#### Scenario: DATABASE_URL composed for the main container and migrate initContainer
+- **WHEN** `database.host`/`port`/`name`/`username` and
+  `database.secret.existingSecret` are all set
+- **THEN** both the migrate initContainer's and the main container's
+  `DATABASE_URL` env var resolves to
+  `postgres://<username>:<password>@<host>:<port>/<name>` (optionally with
+  `?sslmode=<database.sslmode>`), with `<password>` sourced from the
+  Secret via Kubernetes' native `$(VAR_NAME)` env-var expansion — not a
+  shell script
+
+### Requirement: The chart ships no database backup workload
+The chart MUST NOT render a backup CronJob, its ServiceAccount, or any
+`backup.*` configuration surface. It does not deploy the database
+(`database.host` names an externally-operated PostgreSQL), so backing that
+database up is the operator's responsibility, and `docs/operations.md`
+MUST say so alongside the dump/restore guidance it keeps.
+
+#### Scenario: Rendering the chart with default values
+- **WHEN** the chart is rendered with any shipped values file
+- **THEN** no CronJob and no backup ServiceAccount appear in the output
+
+#### Scenario: An upgrade still setting backup values
+- **WHEN** an operator upgrades with a values file that still sets any
+  `backup.*` key
+- **THEN** `helm template`/`upgrade` fails with a schema validation error
+  naming the unknown key, rather than silently dropping the workload and
+  leaving the operator believing backups still run

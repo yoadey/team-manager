@@ -55,7 +55,9 @@
       balance after the edits
 - [x] 4.5 The narrowed drift check re-run by hand — postgres, node and the
       Go version pins all in sync
-- [ ] 4.6 `helm lint --strict` + `helm template` + kubeconform, and the
+- [x] 4.6 `helm lint --strict` + `helm template` + kubeconform, and the
       chart's own `helm template rejects unknown values keys` step —
-      Helm's download host is blocked by this environment's network
-      policy, so these run for the first time on the PR
+      Helm's download host is blocked by the environment this was prepared
+      in, so these could not run locally. Confirmed instead by CI's
+      `Helm · Lint & template` job, green on the PR's final head
+      (f847993) and on every head after the removal landed
