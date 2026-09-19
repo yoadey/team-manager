@@ -40,6 +40,13 @@ betroffen sein soll — ein gelöschter Termin ist unwiderruflich weg, ein
 **abgesagter** Termin bleibt dagegen sichtbar (Rückmeldungen sind dann
 nicht mehr nötig) und kann später wieder aktiviert werden.
 
+„Die ganze Serie" meint dabei immer nur die Termine **ab heute**. Bereits
+stattgefundene Termine bleiben mit ihren Rückmeldungen und Kommentaren
+erhalten — weder ein Löschen noch ein Absagen oder Bearbeiten der Serie
+verändert sie nachträglich, damit die Statistik weiterhin abbildet, was
+tatsächlich passiert ist. Nur der Termin, von dem aus ihr die Aktion
+auslöst, ist immer betroffen, auch wenn er in der Vergangenheit liegt.
+
 ## Mehrtägige Termine
 
 Beim Anlegen oder Bearbeiten eines nicht-wiederkehrenden Termins könnt ihr

@@ -76,8 +76,8 @@ the release's `/healthz` endpoint.
 
 Every functional area with credentials (`database`, `jwt`,
 `cookieEncryption`, `s3`, `smtp`, `push`, `pagination`,
-`observability.sentry`, `metrics`, `monitoring.scrapeToken`,
-`backup.s3`) has its own `secret` block, independent of every other
+`observability.sentry`, `metrics`, `monitoring.scrapeToken`) has its own
+`secret` block, independent of every other
 area's — rotating one area's credentials never touches another's Secret.
 This chart never creates or holds secret material itself — every area's
 `secret.existingSecret` names a Secret you manage yourself (via
@@ -194,15 +194,6 @@ default key name(s) and which fields are required when
 | `monitoring.additionalLabels` | object | `{}` | Extra labels on monitoring resources (for Prometheus Operator discovery). |
 | `monitoring.grafanaDashboard.enabled` | bool | `false` | Render a ConfigMap with the bundled Grafana dashboard. |
 | `migrations.runAsInitContainer` | bool | `true` | Run DB migrations as an initContainer before the app starts. |
-| `backup.enabled` | bool | `false` | Enable the daily PostgreSQL backup CronJob. |
-| `backup.schedule` | string | `0 2 * * *` | CronJob schedule. |
-| `backup.startingDeadlineSeconds` / `activeDeadlineSeconds` | int | `900` / `3600` | How late a missed run may start / how long a running backup may take. |
-| `backup.postgresVersion` / `postgresImageDigest` | string | `"17"` / pinned digest | Backup job's `postgres` image. |
-| `backup.dumpSizeLimit` / `tmpSizeLimit` | string | `2Gi` / `256Mi` | `emptyDir` size caps. |
-| `backup.minDumpEntries` | int | `10` | Minimum `pg_restore --list` TOC entries for a dump to be considered valid. |
-| `backup.retentionDays` | int | `30` | Informational only — enforce via bucket lifecycle rules. |
-| `backup.s3.*` | — | see `values.yaml` | S3 upload target/credentials for the backup dump. |
-| `backup.serviceAccount.*` | — | see `values.yaml` | Dedicated ServiceAccount for the backup CronJob (default: shares the main one). |
 | `frontend.enabled` | bool | `false` | Deploy the frontend SPA alongside the backend. |
 | `frontend.replicaCount` | int | `2` | Frontend pod replica count (ignored when `frontend.autoscaling.enabled`). |
 | `frontend.image.repository` | string | `ghcr.io/yoadey/team-manager-frontend` | Frontend container image repository. |

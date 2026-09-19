@@ -302,6 +302,29 @@ function applyEventScalarPatch(ev: EventDto, body: S['UpdateEventRequest']): voi
   if (body.excludeFromStats !== undefined) ev.excludeFromStats = body.excludeFromStats;
 }
 
+// Series-wide mutations (edit, cancel/reactivate, delete) only ever reach a
+// series' remaining occurrences -- those dated today or later. Mirrors the
+// real backend's identical `date >= CURRENT_DATE` guard in SetStatus,
+// updateSeriesEvents and DeleteEvent: retroactively rewriting or deleting an
+// already-held occurrence would destroy team history (for delete,
+// irreversibly -- attendance and comments cascade away with the event). The
+// specifically addressed event is always included regardless of its own
+// date, matching the backend's same precedent for the single-event case.
+//
+// Deliberately NOT covered here: the backend additionally scopes its
+// series-wide status update to occurrences targeting the caller's team
+// (eventScopedByAnyTargetTeam), and applies crossTeamIds retargeting to the
+// whole series past-inclusive (replaceEventTeamsForSeries has no date
+// filter -- see guard-series-event-deletion/design.md for why). Callers
+// that need either must handle it themselves; the PATCH handler below does
+// for crossTeamIds.
+function seriesTargets(e: EventDto, scope: 'single' | 'series'): EventDto[] {
+  if (scope !== 'series' || !e.seriesId) return [e];
+  const today = todayLocalDate();
+  const rest = db.events.filter((x) => x.seriesId === e.seriesId && x.date >= today && x.id !== e.id);
+  return [e, ...rest];
+}
+
 // Applies an UpdateEventRequest patch to a single event row, mirroring
 // backend/internal/events/repository.go's buildEventUpdateSets: date and
 // multiDayEndDate/clearMultiDayEndDate are excluded for scope=series (they
@@ -1343,14 +1366,30 @@ export const handlers = [
     // doc comment.
     const crossTeamTargets = validateCrossTeamIds(auth, e.teamId, body.crossTeamIds);
     if (!Array.isArray(crossTeamTargets)) return crossTeamTargets;
-    const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
-    targets.forEach((ev) => {
-      applyEventPatch(ev, body, scope);
-      if (body.crossTeamIds !== undefined) {
+    const targets = seriesTargets(e, scope);
+    targets.forEach((ev) => applyEventPatch(ev, body, scope));
+    // excludeFromStats is exempt from the date guard and reaches the whole
+    // series, matching the real backend's updateSeriesEvents: the flag does
+    // not describe the occurrence, it decides whether it counts towards
+    // statistics, and the occurrences already held are exactly the ones a
+    // trainer is correcting when they set it.
+    if (scope === 'series' && e.seriesId && body.excludeFromStats !== undefined) {
+      const excl = body.excludeFromStats;
+      db.events.filter((x) => x.seriesId === e.seriesId).forEach((ev) => { ev.excludeFromStats = excl; });
+    }
+    // Cross-team retargeting deliberately stays past-inclusive, unlike the
+    // scalar field patch above: the real backend's replaceEventTeamsForSeries
+    // carries no date filter, because re-targeting who a series is shared
+    // with is not a rewrite of what took place -- un-sharing in particular
+    // should withdraw access to past occurrences too (see
+    // guard-series-event-deletion/design.md's decision on this).
+    if (body.crossTeamIds !== undefined) {
+      const retarget = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
+      retarget.forEach((ev) => {
         if (crossTeamTargets.length) ev.crossTeamIds = crossTeamTargets;
         else delete ev.crossTeamIds;
-      }
-    });
+      });
+    }
     pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWireEvent(e, params.teamId as string));
   }),
@@ -1366,7 +1405,7 @@ export const handlers = [
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
     const body = (await request.json()) as S['SetEventStatusRequest'];
-    const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
+    const targets = seriesTargets(e, scope);
     targets.forEach((ev) => { ev.status = body.status; });
     // Cancelling fans out to every targeted team (owning plus crossTeamIds,
     // deduped) -- mirrors the real backend's SetStatus, which does the same
@@ -1399,7 +1438,7 @@ export const handlers = [
     if (e && e.teamId !== params.teamId) return problem(404, 'Event not found');
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
-    const ids = e && scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId).map((x) => x.id) : [params.eventId as string];
+    const ids = e ? seriesTargets(e, scope).map((x) => x.id) : [params.eventId as string];
     if (e) pushNotif({ teamId: e.teamId, type: 'event_deleted', title: e.title, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     db.events = db.events.filter((x) => !ids.includes(x.id));
     db.attendance = db.attendance.filter((a) => !ids.includes(a.eventId));

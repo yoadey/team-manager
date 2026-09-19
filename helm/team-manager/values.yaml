@@ -67,12 +67,11 @@ image:
   # real deployment. templates/NOTES.txt warns about this at deploy time.
   tag: ""
   # Pins the image by digest instead of tag when set (takes precedence over
-  # tag/appVersion above) -- same rationale as backup.postgresImageDigest/
-  # backup.s3.awsCliImage below: a tag-hijack of a mutable upstream tag
-  # can't silently change what's running. Left empty by default since,
-  # unlike the backup job's images, this repo's own release process is the
-  # source of the tag, and a chart-shipped default digest would go stale
-  # the same way a default image.tag would.
+  # tag/appVersion above): a tag-hijack of a mutable upstream tag
+  # can't silently change what's running. Left empty by default since this
+  # repo's own release process is the source of the tag, and a
+  # chart-shipped default digest would go stale the same way a default
+  # image.tag would.
   digest: ""
 
 imagePullSecrets: []
@@ -492,16 +491,12 @@ networkPolicy:
       #       cidr: 10.0.1.0/24
     https:
       to: []
-    # Only rendered when backup.enabled and backup.s3.enabled are both true,
-    # or s3.endpoint is set.
+    # Only rendered when s3.endpoint is set.
     # The https rule above hardcodes port 443, which is fine for real AWS S3
-    # but not for a self-hosted S3-compatible endpoint (backup.s3.endpoint,
-    # e.g. MinIO) that conventionally listens on a different port such as
-    # 9000 — without this, the backup CronJob's s3-upload container (which
-    # carries the same pod selector labels as the main Deployment and is
-    # therefore subject to this NetworkPolicy too) has its egress silently
-    # dropped, and `aws s3 cp` hangs until backup.activeDeadlineSeconds kills
-    # the Job. Override the port to match backup.s3.endpoint's actual port.
+    # but not for a self-hosted S3-compatible endpoint (s3.endpoint, e.g.
+    # MinIO) that conventionally listens on a different port such as 9000 —
+    # without this, the app's image-storage client has its egress silently
+    # dropped. Override the port to match s3.endpoint's actual port.
     s3:
       port: 443
       to: []
@@ -550,88 +545,6 @@ monitoring:
 
 migrations:
   runAsInitContainer: true   # Run DB migrations as an initContainer before the app starts
-
-backup:
-  enabled: false           # Enable daily PostgreSQL backup CronJob
-  schedule: "0 2 * * *"   # Daily at 02:00 UTC
-  startingDeadlineSeconds: 900  # How late a missed run may still start before Kubernetes gives up on it
-  # Bounds how long a RUNNING backup may take before Kubernetes kills it.
-  # Without this, a hung pg_dump (lock contention) or aws s3 cp (network
-  # partition) never self-terminates, and concurrencyPolicy: Forbid means
-  # every subsequent scheduled run is silently skipped until it does --
-  # only the RPO/staleness alert (32h) would eventually catch this, a full
-  # day after the fact. 1h is comfortably above expected dump/upload
-  # duration for this app's data volume; raise it if your database is large
-  # enough that backups routinely take longer.
-  activeDeadlineSeconds: 3600
-  postgresVersion: "17"
-  # Digest for postgresVersion "17", matching docker-compose.yml's local-dev
-  # pin (resolved 2026-08-20 from registry-1.docker.io, docker-library/postgres
-  # 17.11) so a tag-hijack of the mutable `postgres:17` tag can't silently
-  # reach this CronJob's initContainer, which holds the app's DATABASE_URL
-  # credential. Appended to the image reference when set. If you override
-  # postgresVersion to a different major version, set the matching digest
-  # yourself or clear this to fall back to the mutable tag -- Dependabot
-  # cannot keep this current automatically (its docker ecosystem updater only
-  # scans Dockerfiles and docker-compose.y*ml, not arbitrary keys in a Helm
-  # values.yaml). Any point-in-time digest pin will eventually accrue newly-
-  # published CVEs against its frozen package versions (caught once already by
-  # CI's security-container-backup Trivy scan) -- re-resolve periodically.
-  postgresImageDigest: "sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449"
-  # Caps on the CronJob's two emptyDir volumes (dump output, scratch space
-  # for pg_dump/aws-cli temp files) -- otherwise unbounded, so a runaway
-  # dump or temp-file leak is limited only by the node's actual free disk,
-  # triggering node-level DiskPressure and evicting arbitrary unrelated
-  # pods on that node instead of being contained within this Job.
-  dumpSizeLimit: 2Gi
-  tmpSizeLimit: 256Mi
-  # Sanity floor on the dump's pg_restore --list table-of-contents entry
-  # count -- pg_dump exiting 0 doesn't guarantee a *usable* dump (e.g.
-  # DATABASE_URL pointing at an unexpectedly empty database still "succeeds"
-  # with a tiny but well-formed file). This app's schema has 20+ tables,
-  # each contributing multiple TOC entries (data + definition + indexes/
-  # constraints), so a real dump is comfortably in the hundreds; 10 is a
-  # generous floor that only trips on a near-empty/corrupt dump, not on
-  # legitimate schema variation.
-  minDumpEntries: 10
-  retentionDays: 30        # Informational; enforce via S3 bucket lifecycle rules
-  s3:
-    enabled: false          # When false, the dump is discarded (job fails loudly instead of silently losing data)
-    # Digest-pinned (resolved 2026-07-08 from registry-1.docker.io for
-    # amazon/aws-cli:2.35.18, the latest release at pin time -- CI's
-    # security-container-backup Trivy scan caught fresh HIGH CVEs (expat,
-    # libblkid, python3, sqlite-libs) disclosed against the previously-pinned
-    # 2.35.17's Amazon Linux 2023 base layer since it was pinned) so a
-    # tag-hijack of a mutable upstream tag can't silently reach a CronJob
-    # holding S3 write credentials; unlike docker-compose.yml's equivalent
-    # pin, Dependabot cannot keep this current automatically (its docker
-    # ecosystem updater only scans Dockerfiles and docker-compose.y*ml, not
-    # arbitrary keys in a Helm values.yaml) -- bump both the tag and digest
-    # together by hand on a schedule.
-    awsCliImage: "amazon/aws-cli:2.35.18@sha256:5d6ba5056f48726a1f2d3447d0ad1ae2506f966f431d69649dc7da5cae8e4667"
-    bucket: ""
-    prefix: "team-manager"
-    region: "eu-central-1"
-    endpoint: ""            # Override for S3-compatible storage (MinIO, etc.)
-    # Leave secret.existingSecret unset to use the pod's IAM role instead
-    # (e.g. IRSA via backup.serviceAccount.annotations below).
-    secret:
-      existingSecret: ""
-      keys:
-        accessKeyId: "access-key-id"
-        secretAccessKey: "secret-access-key"
-  # The backup CronJob shares the main serviceAccount (above) by default, so
-  # by default this section has no effect. Set create: true to give the
-  # backup Job its own ServiceAccount instead -- otherwise an IRSA role ARN
-  # annotation added for S3 backup access would also be injected into every
-  # replica of the main app Deployment via the shared account, widening the
-  # app's own blast radius (e.g. for RCE/SSRF) to include S3 write access it
-  # has no other reason to hold.
-  serviceAccount:
-    create: false
-    annotations: {}
-    # Defaults to "<fullname>-backup" when create is true and this is empty.
-    name: ""
 
 # Frontend (ghcr.io/yoadey/team-manager-frontend) -- the static SPA, served
 # by nginx-unprivileged. Off by default, matching this chart's convention

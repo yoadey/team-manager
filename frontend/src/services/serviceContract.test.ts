@@ -950,3 +950,136 @@ describe("pagination: members.list walks every page via fetchAllPages", () => {
     expect(names).toEqual(sorted);
   });
 });
+
+// The real backend guards every series-wide mutation with `date >=
+// CURRENT_DATE` (SetStatus, updateSeriesEvents, DeleteEvent -- see
+// backend/internal/events/repository.go). The demo backend used to apply
+// series mutations to *every* occurrence, so a "delete the series" in demo
+// mode wiped completed trainings and their RSVPs -- both a drift from the
+// real backend and, for delete, the same irreversible history loss the
+// backend guard exists to prevent.
+describe('series-wide mutations leave already-held occurrences alone', () => {
+  const SERIES_ID = 'series_tue_thu';
+
+  function split() {
+    const today = todayLocalDate();
+    const all = db.events.filter((e) => e.seriesId === SERIES_ID);
+    return {
+      past: all.filter((e) => e.date < today),
+      upcoming: all.filter((e) => e.date >= today),
+    };
+  }
+
+  it('a series delete removes today-and-later occurrences and keeps past ones with their attendance', async () => {
+    const { past, upcoming } = split();
+    expect(past.length).toBeGreaterThan(0);
+    expect(upcoming.length).toBeGreaterThan(0);
+
+    const target = upcoming[0]!;
+    const pastIds = past.map((e) => e.id);
+
+    // The seed data records no attendance against past occurrences of this
+    // series, so asserting "the count is unchanged" would hold trivially at
+    // zero and pass even if the handler wiped everything. Give one past
+    // occurrence the recorded history a completed training would carry.
+    const archived = past[0]!;
+    db.attendance.push({
+      id: rid('att'),
+      eventId: archived.id,
+      userId: 'u1',
+      status: 'yes',
+      reason: '',
+      reasonId: null,
+      reasonVisibility: 'team',
+      at: new Date().toISOString(),
+    });
+    db.eventComments.push({
+      id: rid('cm'),
+      eventId: archived.id,
+      userId: 'u1',
+      text: 'Gutes Training',
+      createdAt: new Date().toISOString(),
+    });
+
+    await api.events.remove(target.id, 'series', target.teamId);
+
+    const left = db.events.filter((e) => e.seriesId === SERIES_ID).map((e) => e.id);
+    expect(left.sort()).toEqual([...pastIds].sort());
+    expect(db.attendance.filter((a) => a.eventId === archived.id)).toHaveLength(1);
+    expect(db.eventComments.filter((c) => c.eventId === archived.id)).toHaveLength(1);
+  });
+
+  it('the addressed occurrence is deleted even when it is in the past, and takes its attendance with it', async () => {
+    const { past } = split();
+    const archived = past[0]!;
+    db.attendance.push({
+      id: rid('att'),
+      eventId: archived.id,
+      userId: 'u1',
+      status: 'yes',
+      reason: '',
+      reasonId: null,
+      reasonVisibility: 'team',
+      at: new Date().toISOString(),
+    });
+
+    // Deleting "the whole series" from a past occurrence still removes that
+    // occurrence -- the confirmation copy says so explicitly, because this
+    // is the one case where a series delete does destroy recorded history.
+    await api.events.remove(archived.id, 'series', archived.teamId);
+
+    expect(db.events.some((e) => e.id === archived.id)).toBe(false);
+    expect(db.attendance.filter((a) => a.eventId === archived.id)).toHaveLength(0);
+    // Every other past occurrence is untouched.
+    for (const e of past.slice(1)) expect(db.events.some((x) => x.id === e.id)).toBe(true);
+  });
+
+  // excludeFromStats is the deliberate exception to the date guard on both
+  // sides: it decides whether an occurrence counts towards statistics, and
+  // the already-held ones are the only ones in the statistics so far.
+  it('a series-scoped excludeFromStats change reaches past occurrences too', async () => {
+    const { past, upcoming } = split();
+    const target = upcoming[0]!;
+
+    await api.events.update(target.id, { excludeFromStats: true }, 'series', target.teamId);
+
+    for (const e of [...past, ...upcoming]) {
+      expect(e.excludeFromStats, `occurrence ${e.id} (${e.date}) must be excluded`).toBe(true);
+    }
+    // The guard still holds for fields that describe the occurrence.
+    for (const e of past) expect(e.title).toBe('Lateinformation – Training');
+  });
+
+  // Unlike the scalar field patch, cross-team retargeting deliberately
+  // applies to the whole series including past occurrences -- the real
+  // backend's replaceEventTeamsForSeries has no date filter. The demo
+  // backend narrowed this by accident when the date guard was introduced.
+  it('a series-scoped crossTeamIds change applies to past occurrences too', async () => {
+    const { past, upcoming } = split();
+    const target = upcoming[0]!;
+    const otherTeam = db.teams.find((t) => t.id !== target.teamId)!;
+    // Targeting another team requires events:write there (validateCrossTeamIds);
+    // the demo caller is only a plain member of t_b by default.
+    grantOnly(otherTeam.id, 'u1', { events: 'write' });
+
+    await api.events.update(target.id, { crossTeamIds: [otherTeam.id] }, 'series', target.teamId);
+
+    for (const e of [...past, ...upcoming]) {
+      expect(e.crossTeamIds, `occurrence ${e.id} (${e.date}) must be retargeted`).toEqual([otherTeam.id]);
+    }
+  });
+
+  it('a series cancel and a series edit apply from today onwards only', async () => {
+    const { past, upcoming } = split();
+    const target = upcoming[0]!;
+    const pastTitles = past.map((e) => e.title);
+
+    await api.events.setStatus(target.id, 'cancelled', 'series', target.teamId);
+    for (const e of past) expect(e.status).toBe('active');
+    for (const e of upcoming) expect(e.status).toBe('cancelled');
+
+    await api.events.update(target.id, { title: 'Umbenannt' }, 'series', target.teamId);
+    expect(past.map((e) => e.title)).toEqual(pastTitles);
+    for (const e of upcoming) expect(e.title).toBe('Umbenannt');
+  });
+});

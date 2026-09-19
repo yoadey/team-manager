@@ -972,7 +972,8 @@ func writeOrReadSingleEvent(ctx context.Context, tx pgx.Tx, eventID, teamID stri
 	return scanEventRow(tx.QueryRow(ctx, q, args...))
 }
 
-// updateSeriesEvents updates every event in seriesID within tx. Date is
+// updateSeriesEvents updates seriesID's remaining (today's and later)
+// occurrences within tx; past ones are left untouched. Date is
 // deliberately excluded: it's what makes each occurrence in a series
 // distinct, so applying it series-wide would collapse every occurrence onto
 // the same date instead of updating only the specific event scope=series was
@@ -990,7 +991,14 @@ func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params 
 		// date to the single targeted event.
 		return nil
 	}
-	q := fmt.Sprintf(`UPDATE events SET %s WHERE series_id = $%d`, setSQL, nextIdx)
+	// Only today's and future occurrences are updated, mirroring the
+	// CURRENT_DATE guard SetStatus and DeleteEvent apply to their own
+	// series-wide branches: retroactively rewriting an already-held
+	// occurrence's title, times or nominations would misrepresent what
+	// actually took place. The event addressed by scope=series is still
+	// updated individually afterwards (writeOrReadSingleEvent) regardless of
+	// its own date.
+	q := fmt.Sprintf(`UPDATE events SET %s WHERE series_id = $%d AND date >= CURRENT_DATE`, setSQL, nextIdx)
 	args = append(args, seriesID)
 	_, err := tx.Exec(ctx, q, args...)
 	if err != nil {
@@ -999,6 +1007,25 @@ func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params 
 			return ErrEndTimeBeforeStartTime
 		}
 		return fmt.Errorf("events.Repository.updateSeriesEvents: %w", err)
+	}
+
+	// exclude_from_stats is deliberately exempt from the CURRENT_DATE guard
+	// and applied to the whole series, past occurrences included. The guard
+	// exists so a series-wide edit cannot misrepresent what took place --
+	// but this flag does not describe the occurrence, it decides whether the
+	// occurrence counts towards statistics, and correcting that for a
+	// training that already happened is the entire point of the setting. A
+	// trainer marking a mis-counted recurring event "exclude from
+	// statistics" means the ones already held, which are the only ones in
+	// the statistics so far. It is also non-destructive and reversible, and
+	// a single occurrence can still override it afterwards.
+	if params.ExcludeFromStats != nil {
+		if _, err := tx.Exec(ctx,
+			`UPDATE events SET exclude_from_stats = $1 WHERE series_id = $2 AND date < CURRENT_DATE`,
+			*params.ExcludeFromStats, seriesID,
+		); err != nil {
+			return fmt.Errorf("events.Repository.updateSeriesEvents: exclude_from_stats on past occurrences: %w", err)
+		}
 	}
 	return nil
 }
@@ -1128,11 +1155,15 @@ func (r *Repository) SetStatus(ctx context.Context, eventID, teamID, status, sco
 
 // ─── DeleteEvent ────────────────────────────────────────────────────────────
 
-// DeleteEvent deletes a single event, or the entire series (all occurrences,
-// past and future, plus their attendance and comments) scoped to teamID.
-// events.series_id is ON DELETE SET NULL, not CASCADE, so the individual
-// event rows must be deleted explicitly — deleting only the event_series row
-// would detach the events instead of removing them.
+// DeleteEvent deletes a single event, or a series' remaining occurrences
+// (today's and later, plus their attendance and comments) scoped to teamID.
+// Occurrences dated before today are deliberately preserved — see the
+// CURRENT_DATE guard below. Note the cutoff is the date, not the clock: an
+// occurrence held earlier *today* still counts as remaining and is deleted,
+// and the specifically addressed event always is, whatever its date. events.series_id is ON DELETE SET NULL, not
+// CASCADE, so the individual event rows must be deleted explicitly —
+// deleting only the event_series row would detach the events instead of
+// removing them.
 func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -1143,22 +1174,7 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope str
 			return fmt.Errorf("events.Repository.DeleteEvent: get series_id: %w", err)
 		}
 		if seriesID != nil {
-			tx, err := r.pool.Begin(ctx)
-			if err != nil {
-				return fmt.Errorf("events.Repository.DeleteEvent: begin tx: %w", err)
-			}
-			defer func() { _ = tx.Rollback(ctx) }()
-
-			if _, err = tx.Exec(ctx, `DELETE FROM events WHERE series_id = $1 AND team_id = $2`, seriesID, teamID); err != nil {
-				return fmt.Errorf("events.Repository.DeleteEvent: delete series events: %w", err)
-			}
-			if _, err = tx.Exec(ctx, `DELETE FROM event_series WHERE id = $1`, seriesID); err != nil {
-				return fmt.Errorf("events.Repository.DeleteEvent: delete series: %w", err)
-			}
-			if err := tx.Commit(ctx); err != nil {
-				return fmt.Errorf("events.Repository.DeleteEvent: commit: %w", err)
-			}
-			return nil
+			return r.deleteSeriesRemainder(ctx, eventID, teamID, *seriesID)
 		}
 	}
 
@@ -1168,6 +1184,49 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope str
 	}
 	if tag.RowsAffected() == 0 {
 		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// deleteSeriesRemainder deletes seriesID's occurrences dated today or later
+// plus the specifically addressed eventID, and drops the series definition
+// row once nothing references it -- split out of DeleteEvent purely to keep
+// that function's cognitive complexity under the repo's golangci-lint
+// threshold (same reason as mapUpdateEventWriteError and siblings).
+func (r *Repository) deleteSeriesRemainder(ctx context.Context, eventID, teamID string, seriesID uuid.UUID) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("events.Repository.DeleteEvent: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Only today's and future occurrences are removed. Deleting already-held
+	// (past) occurrences would irreversibly destroy team history: attendance
+	// and event_comments both cascade away with the event row (ON DELETE
+	// CASCADE, migration 00001), taking the recorded RSVPs those past
+	// trainings are counted from out of statistics with them. This mirrors
+	// the identical CURRENT_DATE guard SetStatus already applies to
+	// series-wide status changes, for the same reason — cancelling or
+	// deleting "the rest of the series" must not rewrite what already
+	// happened.
+	if _, err = tx.Exec(ctx, `DELETE FROM events WHERE series_id = $1 AND team_id = $2 AND date >= CURRENT_DATE`, seriesID, teamID); err != nil {
+		return fmt.Errorf("events.Repository.DeleteEvent: delete series events: %w", err)
+	}
+	// The addressed occurrence goes regardless of its own date (SetStatus's
+	// same precedent for the single-event case). Already covered by the
+	// statement above whenever it is itself dated today or later.
+	if _, err = tx.Exec(ctx, `DELETE FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID); err != nil {
+		return fmt.Errorf("events.Repository.DeleteEvent: delete addressed event: %w", err)
+	}
+	// Drop the series row only once nothing references it any more.
+	// events.series_id is ON DELETE SET NULL, so deleting it while past
+	// occurrences survive would silently detach them from their series
+	// rather than preserving them intact.
+	if _, err = tx.Exec(ctx, `DELETE FROM event_series WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM events WHERE series_id = $1)`, seriesID); err != nil {
+		return fmt.Errorf("events.Repository.DeleteEvent: delete series: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("events.Repository.DeleteEvent: commit: %w", err)
 	}
 	return nil
 }

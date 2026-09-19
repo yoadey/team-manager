@@ -1,7 +1,7 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 # Vite inlines import.meta.env.* at build time, so the backend URL and release
 # metadata are passed as build args (not runtime env).
-FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS builder
+FROM node:22-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85 AS builder
 WORKDIR /app
 
 # Install dependencies against the lockfile for reproducible builds. The
@@ -31,10 +31,13 @@ RUN npm run build && find dist -name '*.map' -delete
 # Pinned to the alpine3.23 variant (rather than the 1.27-alpine tag previously
 # here) for current, patched OS packages — 1.27-alpine's Alpine base carried
 # several HIGH/CRITICAL CVEs (openssl, libpng, libxml2, musl) that the newly
-# added Trivy frontend scan caught. Re-resolved 2026-07-08 (from
-# registry-1.docker.io) after the previous digest's frozen libexpat 2.8.1-r0
-# picked up 3 fresh HIGH CVEs disclosed since it was pinned.
-FROM nginxinc/nginx-unprivileged:1-alpine3.23@sha256:592b23aa79a6e6c08ba4b20f1fff700e1328895705966722608e115d62e52d39 AS runtime
+# added Trivy frontend scan caught. Moved to the alpine3.24 line and
+# re-resolved 2026-09-18 (from registry-1.docker.io): the alpine3.23 line's
+# most recent rebuild still froze libssl3 3.5.7-r0, libcurl 8.19.0-r0,
+# libexpat 2.8.2-r0 and util-linux 2.41.4-r0, all of which had accumulated
+# HIGH CVEs with fixes already published in Alpine. Staying on 3.23 would
+# have meant suppressing those rather than taking the fix.
+FROM nginxinc/nginx-unprivileged:1-alpine3.24@sha256:b54ac358b83fc6c965793fd271839b4ea4cdb6e99895bb19618cbc2ca152d972 AS runtime
 
 # envsubst (gettext) ships in the base image for its own built-in
 # entrypoint.d templating feature; fail the build loudly here rather than

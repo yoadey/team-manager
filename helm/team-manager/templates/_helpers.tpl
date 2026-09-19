@@ -62,8 +62,7 @@ ServiceAccount name.
 
 {{/*
 Main application image reference. image.digest, when set, takes precedence
-over image.tag (mirroring how backup.postgresImageDigest/
-backup.s3.awsCliImage's digest suffix already work) -- pins the exact image
+over image.tag -- pins the exact image
 content against a tag-hijack of a mutable tag, at the cost of needing a
 manual re-pin whenever a new version is released (unlike image.tag, nothing
 in this chart's release process resolves/bumps a digest automatically).
@@ -79,10 +78,9 @@ Usage: image: {{ include "team-manager.image" . }}
 
 {{/*
 Renders the env var entries needed to reach Postgres, ending in a composed
-DATABASE_URL -- shared by the main container/migrate initContainer
-(templates/_env.tpl) and the backup CronJob's pg-dump container
-(templates/backup-cronjob.yaml), so the composition logic exists in
-exactly one place.
+DATABASE_URL -- used by the main container and the migrate initContainer
+(templates/_env.tpl), so the composition logic exists in exactly one
+place.
 
 The backend requires a single DATABASE_URL connection string
 (postgres://user:password@host:port/dbname), but database.secret.keys.password
@@ -97,11 +95,9 @@ the same list, so this whole block must be included as a unit, not
 split/reordered by callers.
 
 LIMITATION: no shell is available to percent-encode the password (the
-backend image is distroless, see backend/Dockerfile; the backup CronJob's
-postgres image *does* have a shell, but reusing this same composition
-keeps exactly one code path rather than two divergent ones) -- see
-values.yaml's database.secret comment for the resulting constraint on
-what characters a generated password may safely contain.
+backend image is distroless, see backend/Dockerfile) -- see values.yaml's
+database.secret comment for the resulting constraint on what characters a
+generated password may safely contain.
 
 Usage: {{ include "team-manager.databaseEnv" $ | nindent 12 }}
 */}}
@@ -130,9 +126,8 @@ so every frontend resource's app.kubernetes.io/name differs from the
 backend's. Without this, frontend pods sharing the backend's selectorLabels
 would be silently caught by the backend's NetworkPolicy/PodDisruptionBudget/
 Service selectors too (Kubernetes label selectors match on presence, not
-exclusivity -- the same hazard pdb.yaml's component-exclusion comment
-documents for the backup CronJob's pods) with no way to exclude them from
-a Service selector at all (unlike matchExpressions-based selectors,
+exclusivity) with no way to exclude them from a Service selector at all
+(unlike matchExpressions-based selectors,
 Service.spec.selector only supports flat label equality).
 */}}
 {{- define "team-manager.frontend.name" -}}
@@ -181,22 +176,3 @@ Usage: image: {{ include "team-manager.frontend.image" . }}
 {{- end -}}
 {{- end }}
 
-{{/*
-Backup CronJob ServiceAccount name. Falls back to the main ServiceAccount
-(team-manager.serviceAccountName) when backup.serviceAccount.create is false
-and no name override is given, preserving prior behavior. Set
-backup.serviceAccount.create=true (with its own annotations, e.g. an
-IRSA role ARN scoped to only the backup bucket) to give the backup CronJob
-its own identity instead of sharing the main Deployment's ServiceAccount --
-without this, any IRSA annotation added to the shared account for S3 backup
-access is also injected into every app pod.
-*/}}
-{{- define "team-manager.backupServiceAccountName" -}}
-{{- if .Values.backup.serviceAccount.create }}
-{{- default (printf "%s-backup" (include "team-manager.fullname" .)) .Values.backup.serviceAccount.name }}
-{{- else if .Values.backup.serviceAccount.name }}
-{{- .Values.backup.serviceAccount.name }}
-{{- else }}
-{{- include "team-manager.serviceAccountName" . }}
-{{- end }}
-{{- end }}

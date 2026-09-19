@@ -118,25 +118,30 @@ Run it from a cron job / Kubernetes CronJob against the production DSN. Keep at
 least 7 daily + 4 weekly copies; encrypt at rest and verify restores regularly
 (a backup you have never restored is not a backup).
 
-`helm/team-manager/templates/backup-cronjob.yaml` ships exactly this: a
-`--format=custom` dump on `backup.schedule` (disabled by default — set
-`backup.enabled=true`), uploaded to S3-compatible object storage when
-`backup.s3.enabled=true` (otherwise the job intentionally fails with a
-warning, since an unpersisted dump discarded with the pod isn't a backup).
-Before uploading, the pg-dump container runs `pg_restore --list` against the
-dump and fails the Job if it has fewer than `backup.minDumpEntries` (default
-10) table-of-contents entries — this catches the case where `pg_dump` exits
-0 but produced a near-empty/corrupt dump (e.g. `DATABASE_URL` momentarily
-pointing at the wrong database) *before* it reaches S3 looking legitimate.
-It is not a substitute for an actual restore test, though: wire up a
-periodic *restore* test too (e.g. restore the latest dump into a scratch
-database and run a trivial query) — a backup pipeline that only ever writes
-and never restores can silently produce unusable dumps for months even when
-every individual dump passes the TOC-entry-count check above.
+**The Helm chart deliberately ships no backup CronJob.** It does not deploy
+PostgreSQL either — `database.host` points at a database you run elsewhere,
+and backing that database up belongs with whatever operates it. A managed
+Postgres offering already does this better than a CronJob can (continuous
+archiving, point-in-time recovery, tested restores, retention enforced by
+the provider); if you run Postgres yourself, use the backup tooling that
+comes with your operator or distribution.
 
-`backup.retentionDays` is **informational only** — the chart does not
-enforce it. Configure a matching S3 (or S3-compatible) bucket lifecycle rule
-separately, or backups accumulate in `backup.s3.bucket` indefinitely.
+Whatever you use, two things are worth insisting on, because they are the
+ones most often skipped:
+
+- **Verify the dump, not just the exit code.** `pg_dump` can exit 0 having
+  produced a near-empty file — for instance when `DATABASE_URL` momentarily
+  pointed at the wrong database. `pg_restore --list` on the dump, with a
+  sanity check on the number of table-of-contents entries, catches that
+  before the file is stored as if it were legitimate.
+- **Restore on a schedule.** A pipeline that only ever writes can produce
+  unusable dumps for months while every individual run looks healthy.
+  Restore the latest dump into a scratch database and run a trivial query.
+
+Retention is equally yours to enforce: object storage does not expire
+anything on its own, so configure a bucket lifecycle rule, or dumps
+containing personal data accumulate indefinitely — an unbounded storage
+cost and a data-minimization problem.
 
 ### Restore
 
@@ -516,13 +521,10 @@ be kept in sync by hand.
 `helm/team-manager/files/prometheus-rules.yaml` defines the alert rules for
 this service (availability, error rate/latency, rate-limit spikes, login
 failure/bulk-deletion anomalies, DB pool exhaustion, retention job health,
-notification job health, backup job health, memory/disk pressure). The
-backup CronJob's two rules
-(`BackupCronJobFailed`, `BackupCronJobStale`) rely on kube-state-metrics
-(`>= 2.6.0` for `kube_cronjob_status_last_successful_time`) and match job
-names by suffix (`.+-backup.*`) rather than the chart's templated fullname,
-since this file is embedded verbatim, not Helm-templated — adjust the
-regexes if you set `fullnameOverride`/`nameOverride`. When `monitoring.enabled: true` and Prometheus
+notification job health, memory/disk pressure). Note this file is embedded
+verbatim rather than Helm-templated, so any rule you add that matches on
+resource names must not assume the chart's templated fullname. When
+`monitoring.enabled: true` and Prometheus
 Operator is installed, the chart applies these automatically via a
 `PrometheusRule` (`templates/prometheusrule.yaml`) alongside the
 `ServiceMonitor` that sets up scraping — no extra step needed. If you run a

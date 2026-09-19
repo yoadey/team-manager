@@ -1,36 +1,29 @@
-# Scoped ignore list for the security-container-frontend CI job's scan
-# ONLY (passed explicitly via trivy-action's `trivyignores` input on that
-# one step) -- NOT a repo-root .trivyignore, so it can't accidentally
-# suppress a real finding in the backend/backup image scans.
+# Scoped ignore list for the frontend image scan ONLY (passed explicitly
+# via trivy-action's `trivyignores` input on the security-container-frontend
+# job in ci.yml, its twin in scheduled-security-scan.yml, and release.yml's
+# scan of the published digest) -- NOT a repo-root .trivyignore, so it can't
+# accidentally suppress a real finding in the backend image scan.
 #
-# CVE-2026-33630 is a use-after-free/double-free in c-ares's DNS
-# query-completion handling, present in nginxinc/nginx-unprivileged's
-# pinned 1-alpine3.23 base image (Alpine 3.23.5, c-ares 1.34.6-r0). As of
-# 2026-07-10 the upstream nginx-unprivileged image has not yet published a
-# rebuild with a patched c-ares (the 1-alpine3.23 tag still resolves to the
-# exact digest already pinned in frontend/Dockerfile) -- there is no
-# available fix to re-pin to yet.
+# This file is currently EMPTY of entries, deliberately.
 #
-# It is also unreachable in this deployment: this image only serves static
-# built assets (frontend/nginx.conf has no `resolver` directive and no
-# `proxy_pass`, i.e. no dynamic upstream hostname resolution at runtime),
-# so the DNS-response-parsing code path c-ares's vulnerability requires is
-# never exercised regardless. Re-check when nginxinc publishes a rebuilt
-# 1-alpine3.23 (or 1-alpine) digest and re-pin frontend/Dockerfile then;
-# remove this entry once that happens.
-CVE-2026-33630
-
-# CVE-2026-5773 (wrong file transfer via incorrect SMB connection reuse) and
-# CVE-2026-6276 (cookie leak via connection reuse) are curl/libcurl
-# vulnerabilities in the pinned 1-alpine3.23 base image (Alpine 3.23.5,
-# curl/libcurl 8.19.0-r0; fixed upstream in 8.20.0-r0). Both bugs require
-# curl/libcurl to actually make outbound HTTP(S) requests -- this image never
-# does: it only serves static built assets via nginx (frontend/nginx.conf has
-# no proxy_pass or other upstream call), and the container's own scripts
-# (docker-entrypoint-runtime-config.sh, the HEALTHCHECK) use `wget` and
-# `envsubst`, never `curl`. curl ships here only as a base-image OS package,
-# unreachable in this deployment. Re-pin frontend/Dockerfile to a rebuilt
-# 1-alpine3.23 digest carrying curl 8.20.0-r0+ once nginxinc publishes one,
-# and remove these two entries then.
-CVE-2026-5773
-CVE-2026-6276
+# It previously suppressed three findings against the
+# nginx-unprivileged:1-alpine3.23 base: CVE-2026-33630 (c-ares
+# use-after-free) and CVE-2026-5773 / CVE-2026-6276 (curl), each with a
+# note to remove it "once nginxinc publishes a rebuilt digest". The base
+# has since moved to the 1-alpine3.24 line (frontend/Dockerfile), which
+# carries newer Alpine packages across the board -- the two curl entries
+# were demonstrably obsolete (the eight *unsuppressed* curl CVEs that had
+# been failing the scan need 8.22.0-r0, well past the 8.20.0-r0 that fixed
+# these two), and a suppression cannot tell you whether it is still doing
+# anything, so all three were dropped rather than carried forward against
+# an unexamined base. The scan is green without them.
+#
+# Adding an entry back: one CVE ID per line, each with a written
+# justification above it covering (a) why no fixed base image is available
+# to re-pin to instead, and (b) why the vulnerable code path is unreachable
+# in this deployment -- this image only serves static built assets via
+# nginx (frontend/nginx.conf has no `resolver` and no `proxy_pass`, so no
+# runtime DNS resolution and no upstream calls), runs unprivileged, and its
+# own scripts (docker-entrypoint-runtime-config.sh, the HEALTHCHECK) use
+# `wget` and `envsubst`, never `curl`. Prefer re-pinning the base over
+# adding an entry: a suppression outlives the release that needed it.
