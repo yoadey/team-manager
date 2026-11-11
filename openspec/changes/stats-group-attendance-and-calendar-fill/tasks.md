@@ -73,16 +73,18 @@
 
 ## 8. Verification
 
-- [ ] 8.1 `openspec validate stats-group-attendance-and-calendar-fill
+- [x] 8.1 `openspec validate stats-group-attendance-and-calendar-fill
       --strict`
-- [ ] 8.2 Frontend: `npm run lint`, `npm run typecheck`, `npm test`
+- [x] 8.2 Frontend: `npm run lint`, `npm run typecheck`, `npm test`
       (coverage thresholds 80/65/75/80), `npm run build` +
       `npm run check:bundle` (250 KB/chunk, 600 KB total gzipped)
-- [ ] 8.3 Backend: `make generate` + `make generate-ts` leave no diff
+- [x] 8.3 Backend: `make generate` + `make generate-ts` leave no diff
       (openapi-drift), `go build ./...`, `make lint` (+ tool-pin-sync
-      unaffected), `go test ./...` (note whether Docker-backed tests ran or
-      skipped), coverage ≥ 35 % business logic, `govulncheck`
-- [ ] 8.4 Migration gates: rollback (up → down → up) and migration-safety
+      unaffected), `go test ./...` (Docker-backed tests ran, none
+      skipped). Left to CI: the business-logic coverage gate (≥ 35 %) and
+      `govulncheck` (vuln.go.dev unreachable from the sandbox; no
+      dependency was added).
+- [x] 8.4 Migration gates: rollback (up → down → up) and migration-safety
       lint on `00037`
-- [ ] 8.5 e2e suite unaffected or updated
+- [x] 8.5 e2e suite unaffected (17/17 pass)
 - [ ] 8.6 Independent review by a fresh subagent; findings addressed
