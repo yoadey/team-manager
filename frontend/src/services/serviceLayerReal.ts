@@ -30,6 +30,7 @@ import {
   mapAttendanceMatrix,
   mapStatsPreferences,
   mapStatsPreset,
+  mapStatsGroupThreshold,
   mapCalendarShare,
   mapSharedCalendarSource,
   mapSharedCalendarEvent,
@@ -47,6 +48,7 @@ import type {
   AttendanceMatrix,
   StatsPreferences,
   StatsPreset,
+  StatsGroupThreshold,
   CalendarFeedSettings,
   CalendarShare,
   SharedCalendarSource,
@@ -1216,6 +1218,24 @@ export const realApi = {
       });
       const m = await check(res);
       return mapAttendanceMatrix(m);
+    },
+
+    /** Every role's attendance threshold (default applied). Needs settings:read. */
+    async groupThresholds(teamId: string): Promise<StatsGroupThreshold[]> {
+      const res = await apiClient.GET('/teams/{teamId}/stats/group-thresholds', { params: { path: { teamId } } });
+      const l = await check(res);
+      return l.items.map(mapStatsGroupThreshold);
+    },
+
+    /** Saves the listed roles' thresholds (others stay untouched) and returns
+     * the team's full list afterwards. Needs settings:write. */
+    async setGroupThresholds(teamId: string, items: StatsGroupThreshold[]): Promise<StatsGroupThreshold[]> {
+      const res = await apiClient.PUT('/teams/{teamId}/stats/group-thresholds', {
+        params: { path: { teamId } },
+        body: { items: items.map((i) => ({ roleId: i.roleId, mode: i.mode, value: i.value })) },
+      });
+      const l = await check(res);
+      return l.items.map(mapStatsGroupThreshold);
     },
   },
 

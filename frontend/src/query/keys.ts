@@ -34,6 +34,12 @@ export const queryKeys = {
   // tab caches independently of the overview for the same team+range.
   statsMatrix: (teamId: string, range: DateRange | null) =>
     ['teams', teamId, 'stats', 'matrix', range?.from ?? null, range?.to ?? null] as const,
+  // Prefix of every range-scoped stats/statsMatrix key of a team, for
+  // invalidating all of them at once (e.g. after a threshold change, which
+  // alters the resolved thresholds embedded in every cached overview).
+  statsAll: (teamId: string) => ['teams', teamId, 'stats'] as const,
+  // Per-role attendance thresholds, edited in the team settings sheet.
+  statsGroupThresholds: (teamId: string) => ['teams', teamId, 'statsGroupThresholds'] as const,
   // The caller's last-selected stats date range for the team -- not
   // range-scoped itself (there is only ever one "current" selection per
   // team+user).

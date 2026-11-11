@@ -19,6 +19,8 @@ type statsRepo interface {
 	SingleMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*MemberStatRow, error)
 	WithReadTx(ctx context.Context, fn func(OverviewReader) error) error
 	AttendanceMatrix(ctx context.Context, teamID uuid.UUID, from, to string) ([]MatrixColumnRow, []MatrixCellRow, error)
+	ListGroupThresholds(ctx context.Context, teamID uuid.UUID) ([]GroupThresholdRow, error)
+	SetGroupThresholds(ctx context.Context, teamID uuid.UUID, items []GroupThresholdRow) ([]GroupThresholdRow, error)
 }
 
 // Service implements stats business logic.
@@ -68,10 +70,12 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 	var (
 		members []MemberStatRow
 		events  []EventStatRow
+		groups  []EventGroupStatRow
 	)
-	// Run both reads inside one read-only transaction so Members[].Quote/Avg
-	// (from MemberStats) and Events/PastCount (from EventStats) reflect the
-	// same underlying event/attendance snapshot, instead of possibly
+	// Run all reads inside one read-only transaction so Members[].Quote/Avg
+	// (from MemberStats), Events/PastCount (from EventStats) and each
+	// event's Groups (from EventGroupStats) reflect the same underlying
+	// event/attendance/role snapshot, instead of possibly
 	// drifting if an event is created/cancelled or attendance is recorded
 	// between the two queries -- mirrors finances.GetOverview's identical
 	// WithReadTx guard.
@@ -84,6 +88,10 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 		events, err = repo.EventStats(ctx, teamID, fromStr, toStr)
 		if err != nil {
 			return fmt.Errorf("events: %w", err)
+		}
+		groups, err = repo.EventGroupStats(ctx, teamID, fromStr, toStr)
+		if err != nil {
+			return fmt.Errorf("event groups: %w", err)
 		}
 		return nil
 	})
@@ -131,9 +139,31 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 		avg = totalQuote / float32(membersWithData)
 	}
 
+	// Bucket the group rows by event, preserving the query's own order
+	// (system roles first, then by name) within each event.
+	groupsByEvent := make(map[uuid.UUID][]gen.EventGroupStat)
+	for _, g := range groups {
+		groupsByEvent[g.EventID] = append(groupsByEvent[g.EventID], gen.EventGroupStat{
+			RoleId:         g.RoleID,
+			Name:           g.Name,
+			Color:          g.Color,
+			Yes:            g.Yes,
+			Counted:        g.Counted,
+			ThresholdMode:  gen.StatsThresholdMode(g.ThresholdMode),
+			ThresholdValue: g.ThresholdValue,
+		})
+	}
+
 	genEvents := make([]gen.EventStat, 0, len(events))
 	for _, e := range events {
 		pct := quote(e.Yes, e.Counted)
+		// Always a non-nil slice: `groups` is a required array in the
+		// schema, so an event whose team has no role-holding member must
+		// serialize as [] rather than null.
+		evGroups := groupsByEvent[e.EventID]
+		if evGroups == nil {
+			evGroups = []gen.EventGroupStat{}
+		}
 		genEvents = append(genEvents, gen.EventStat{
 			Id:        e.EventID,
 			Title:     e.Title,
@@ -143,6 +173,7 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 			Nominated: e.Counted,
 			Pct:       pct,
 			Enough:    pct >= 0.5,
+			Groups:    evGroups,
 		})
 	}
 
@@ -251,6 +282,52 @@ func (s *Service) GetAttendanceMatrix(ctx context.Context, teamID uuid.UUID, fro
 		Events:  genCols,
 		Members: genRows,
 	}, nil
+}
+
+// ListGroupThresholds returns the attendance threshold of every role of the
+// team, with the default applied for roles that were never configured.
+func (s *Service) ListGroupThresholds(ctx context.Context, teamID uuid.UUID) ([]GroupThresholdRow, error) {
+	rows, err := s.repo.ListGroupThresholds(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("stats.Service.ListGroupThresholds: %w", err)
+	}
+	return rows, nil
+}
+
+// SetGroupThresholds validates and stores the given roles' thresholds and
+// returns the team's full threshold list afterwards. Every item is validated
+// before anything is written, so one bad item rejects the whole request.
+func (s *Service) SetGroupThresholds(ctx context.Context, teamID uuid.UUID, items []GroupThresholdRow) ([]GroupThresholdRow, error) {
+	for _, it := range items {
+		if err := validateThreshold(it.Mode, it.Value); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := s.repo.SetGroupThresholds(ctx, teamID, items)
+	if err != nil {
+		return nil, fmt.Errorf("stats.Service.SetGroupThresholds: %w", err)
+	}
+	return rows, nil
+}
+
+// validateThreshold enforces the mode enum and the per-mode value range.
+// There is no request-validation middleware in this codebase, so the
+// OpenAPI-declared enum/minimum/maximum must be re-enforced here to take
+// effect (role_stats_thresholds' CHECKs are only the backstop).
+func validateThreshold(mode string, value int) error {
+	var maxValue int
+	switch mode {
+	case ThresholdModePercent:
+		maxValue = maxThresholdPercent
+	case ThresholdModeCount:
+		maxValue = maxThresholdCount
+	default:
+		return fmt.Errorf("%w: mode must be %q or %q", ErrInvalidThreshold, ThresholdModePercent, ThresholdModeCount)
+	}
+	if value < 0 || value > maxValue {
+		return fmt.Errorf("%w: value must be between 0 and %d for mode %q", ErrInvalidThreshold, maxValue, mode)
+	}
+	return nil
 }
 
 func quote(yes, counted int) float32 {

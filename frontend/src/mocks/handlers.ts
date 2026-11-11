@@ -21,11 +21,12 @@ import {
   paginate,
   DEFAULT_MEMBER_ROLE_NAME,
   DEFAULT_PUSH_CATEGORY_PREFERENCES,
+  DEFAULT_STATS_THRESHOLD,
   DEMO_PASSWORD,
   DEMO_LOGIN_EMAIL,
   DEMO_LOGIN_USER_ID,
 } from './db';
-import type { UserRow, TeamRow, StatsPresetRow } from './db';
+import type { UserRow, TeamRow, StatsPresetRow, StatsThresholdRow } from './db';
 import type { ModuleKey, PermLevel, RoleDto } from '@/types';
 import type { EventDto } from '@/features/events';
 import { isRsvpCutoffPassed } from '@/features/events/rsvpCutoff';
@@ -100,6 +101,31 @@ function requirePermission(
   const perms = permissionFor(userId, teamId);
   if (LEVEL_RANK[perms[module]] < LEVEL_RANK[level]) return problem(403, `insufficient permissions for ${module}`);
   return true;
+}
+
+// A team's roles in the backend's role-list order (system roles first, then
+// by name) -- the order both the per-event group breakdown and the threshold
+// list are returned in (see stats.Repository's ORDER BY).
+function teamRolesInOrder(teamId: string): RoleDto[] {
+  return db.roles
+    .filter((r) => r.teamId === teamId)
+    .sort((a, b) => Number(b.system) - Number(a.system) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+function thresholdFor(roleId: string): StatsThresholdRow {
+  return db.statsGroupThresholds[roleId] ?? DEFAULT_STATS_THRESHOLD;
+}
+
+function toWireThresholds(teamId: string): S['StatsGroupThresholdList'] {
+  return { items: teamRolesInOrder(teamId).map((r) => ({ roleId: r.id, ...thresholdFor(r.id) })) };
+}
+
+// Mirrors stats.validateThreshold: mode enum + per-mode value range.
+function isValidThreshold(mode: unknown, value: unknown): boolean {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return false;
+  if (mode === 'percent') return value <= 100;
+  if (mode === 'count') return value <= 10000;
+  return false;
 }
 
 function requireUser(id: string): UserRow {
@@ -1124,6 +1150,8 @@ export const handlers = [
     if (perm !== true) return perm;
     if (!db.roles.some((x) => x.id === params.roleId)) return problem(404, 'Role not found');
     db.roles = db.roles.filter((x) => x.id !== params.roleId);
+    // Mirrors role_stats_thresholds' ON DELETE CASCADE.
+    delete db.statsGroupThresholds[params.roleId as string];
     return new HttpResponse(null, { status: 204 });
   }),
 
@@ -2200,7 +2228,9 @@ export const handlers = [
     // entirely. Mirrors backend/internal/stats/repository.go's identical
     // MemberStats-vs-EventStats asymmetry (see exclude-members-from-stats'
     // design.md).
-    const allMemberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+    const teamMemberships = db.memberships.filter((m) => m.teamId === teamId);
+    const allMemberIds = teamMemberships.map((m) => m.userId);
+    const roles = teamRolesInOrder(teamId);
     const statsMemberIds = db.memberships
       .filter((m) => m.teamId === teamId && !m.excludeFromStats)
       .map((m) => m.userId);
@@ -2230,11 +2260,62 @@ export const handlers = [
         if (s === 'yes') yes++;
       });
       const pct = counted ? yes / counted : 0;
-      return { id: e.id, title: e.title, type: e.type, date: e.date, yes, nominated: counted, pct, enough: pct >= 0.5 };
+      // Per-group breakdown: same roster (allMemberIds, not the
+      // exclude-filtered one) and same counting as yes/counted above, per
+      // role held -- a member with several roles counts in each. Mirrors
+      // stats.Repository.EventGroupStats; a role nobody holds yields no
+      // entry, like the backend's inner joins.
+      const groups: S['EventGroupStat'][] = roles.flatMap((r) => {
+        const holders = teamMemberships.filter((m) => m.roleIds.includes(r.id));
+        if (!holders.length) return [];
+        let gYes = 0, gCounted = 0;
+        holders.forEach((m) => {
+          const s = rawCountedStatus(e.id, m.userId);
+          if (!s) return;
+          gCounted++;
+          if (s === 'yes') gYes++;
+        });
+        const th = thresholdFor(r.id);
+        return [{ roleId: r.id, name: r.name, color: r.color, yes: gYes, counted: gCounted, thresholdMode: th.mode, thresholdValue: th.value }];
+      });
+      return { id: e.id, title: e.title, type: e.type, date: e.date, yes, nominated: counted, pct, enough: pct >= 0.5, groups };
     });
 
     const body: S['StatsOverview'] = { avg, members: memberStats, events: eventStats, pastCount: events.length, from, to };
     return HttpResponse.json(body);
+  }),
+
+  // Per-role attendance thresholds -- settings-gated (they're edited in the
+  // team settings sheet), unlike the stats-gated routes around them.
+  http.get(P('/teams/:teamId/stats/group-thresholds'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const perm = requirePermission(auth, params.teamId as string, 'settings', 'read');
+    if (perm !== true) return perm;
+    return HttpResponse.json(toWireThresholds(params.teamId as string));
+  }),
+
+  http.put(P('/teams/:teamId/stats/group-thresholds'), async ({ params, request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const teamId = params.teamId as string;
+    const perm = requirePermission(auth, teamId, 'settings', 'write');
+    if (perm !== true) return perm;
+    const body = (await request.json()) as S['SetStatsGroupThresholdsRequest'];
+    const items = body.items ?? [];
+    // Validate everything before writing anything, like the backend's
+    // validate-then-single-transaction: one bad item rejects the whole
+    // request and leaves every threshold untouched.
+    if (items.some((i) => !isValidThreshold(i.mode, i.value))) return problem(400, 'invalid attendance threshold');
+    const teamRoleIds = new Set(db.roles.filter((r) => r.teamId === teamId).map((r) => r.id));
+    if (items.some((i) => !teamRoleIds.has(i.roleId)))
+      return problem(422, 'one or more roles do not belong to this team');
+    items.forEach((i) => {
+      db.statsGroupThresholds[i.roleId] = { mode: i.mode, value: i.value };
+    });
+    return HttpResponse.json(toWireThresholds(teamId));
   }),
 
   http.get(P('/teams/:teamId/stats/members/:userId'), async ({ params, request }) => {

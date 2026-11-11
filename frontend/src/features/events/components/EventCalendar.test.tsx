@@ -11,6 +11,15 @@ vi.mock('@/layouts/useCompact', () => ({
   useCompact: vi.fn(() => false),
 }));
 
+// The stretched row height comes from real layout (scroll container height,
+// grid position) that jsdom doesn't compute -- stubbed here so a test can
+// set it directly; everything else in calendarLayout (the limit maths) stays
+// real. Defaults to null = "can't measure", i.e. the fixed base limits.
+vi.mock('./calendarLayout', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('./calendarLayout')>();
+  return { ...mod, useStretchedRowHeight: vi.fn(() => null) };
+});
+
 vi.mock('../hooks/useEventQueries', () => ({
   useEventsQuery: vi.fn(),
 }));
@@ -24,6 +33,8 @@ vi.mock('@/features/members', () => ({
 }));
 
 import { useApp } from '@/context/AppContext';
+import { useCompact } from '@/layouts/useCompact';
+import { useStretchedRowHeight } from './calendarLayout';
 import { useEventsQuery } from '../hooks/useEventQueries';
 import { useAbsencesQuery } from '../hooks/useAbsenceQueries';
 import { useMembersQuery } from '@/features/members';
@@ -32,6 +43,8 @@ const mockUseApp = vi.mocked(useApp);
 const mockUseEventsQuery = vi.mocked(useEventsQuery);
 const mockUseAbsencesQuery = vi.mocked(useAbsencesQuery);
 const mockUseMembersQuery = vi.mocked(useMembersQuery);
+const mockRowHeight = vi.mocked(useStretchedRowHeight);
+const mockUseCompact = vi.mocked(useCompact);
 
 function makeMember(overrides: Partial<Member> = {}): Member {
   return {
@@ -129,6 +142,102 @@ function makeApp(
 describe('EventCalendar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRowHeight.mockReturnValue(null);
+    mockUseCompact.mockReturnValue(false);
+  });
+
+  describe('filling the available space', () => {
+    const eventsOn = (date: string, n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        makeEvent({ id: 'ev' + i, title: 'Termin ' + (i + 1), date, startTime: `1${i % 10}:00` }),
+      );
+    const chipsOnDay = () => screen.queryAllByText(/Termin \d+/);
+
+    it('has no width cap and lays out as a growing flex column', () => {
+      makeApp();
+      render(<EventCalendar />);
+      const root = screen.getByTestId('calendar-root');
+      const style = getComputedStyle(root);
+      expect(['', 'none']).toContain(style.maxWidth);
+      expect(style.display).toBe('flex');
+      expect(style.flexDirection).toBe('column');
+      expect(style.flexGrow).toBe('1');
+    });
+
+    it('lets the card and the grid take the remaining height', () => {
+      makeApp();
+      render(<EventCalendar />);
+      const grid = screen.getByTestId('calendar-grid');
+      expect(getComputedStyle(grid).flexGrow).toBe('1');
+      expect(getComputedStyle(grid.parentElement!).flexGrow).toBe('1');
+      expect(getComputedStyle(grid.parentElement!).display).toBe('flex');
+    });
+
+    it('measures against the grid with the desktop gap, and with no gap on mobile', () => {
+      makeApp();
+      const { unmount } = render(<EventCalendar />);
+      expect(mockRowHeight).toHaveBeenLastCalledWith(expect.objectContaining({ current: expect.anything() }), 6);
+      unmount();
+
+      mockUseCompact.mockReturnValue(true);
+      render(<EventCalendar />);
+      expect(mockRowHeight).toHaveBeenLastCalledWith(expect.anything(), 0);
+    });
+
+    it('keeps the fixed limit of 3 events + "+n" when the height cannot be measured', () => {
+      makeApp({ events: eventsOn('2026-03-10', 5) });
+      render(<EventCalendar />);
+      expect(chipsOnDay()).toHaveLength(3);
+      expect(screen.getByText('+2')).toBeTruthy();
+    });
+
+    it('keeps the fixed limit at the minimum row height', () => {
+      mockRowHeight.mockReturnValue(76);
+      makeApp({ events: eventsOn('2026-03-10', 5) });
+      render(<EventCalendar />);
+      expect(chipsOnDay()).toHaveLength(3);
+      expect(screen.getByText('+2')).toBeTruthy();
+    });
+
+    it('shows every event of a day once the stretched row has room for them', () => {
+      mockRowHeight.mockReturnValue(170); // 8 lines
+      makeApp({ events: eventsOn('2026-03-10', 5) });
+      render(<EventCalendar />);
+      expect(chipsOnDay()).toHaveLength(5);
+      expect(screen.queryByText(/^\+\d+$/)).toBeNull();
+    });
+
+    it('still summarises what does not fit a stretched row with "+n"', () => {
+      mockRowHeight.mockReturnValue(170); // 8 lines -> 7 chips + marker
+      makeApp({ events: eventsOn('2026-03-10', 12) });
+      render(<EventCalendar />);
+      expect(chipsOnDay()).toHaveLength(7);
+      expect(screen.getByText('+5')).toBeTruthy();
+    });
+
+    it('raises the absence limit too when a stretched row has room', () => {
+      mockRowHeight.mockReturnValue(170);
+      makeApp({
+        calShowAbsences: true,
+        absences: ['Anna A', 'Bob B', 'Carla C', 'Dora D'].map((name) => ({
+          from: '2026-03-10',
+          to: '2026-03-10',
+          name,
+          roleColor: '#111111',
+        })),
+      });
+      render(<EventCalendar />);
+      for (const first of ['Anna', 'Bob', 'Carla', 'Dora']) expect(screen.getByText(first)).toBeTruthy();
+      expect(screen.queryByText(/^\+\d+ /)).toBeNull();
+    });
+
+    it('uses the mobile base limit of 2 events when unmeasured on a compact screen', () => {
+      mockUseCompact.mockReturnValue(true);
+      makeApp({ events: eventsOn('2026-03-10', 5) });
+      render(<EventCalendar />);
+      expect(chipsOnDay()).toHaveLength(2);
+      expect(screen.getByText('+3')).toBeTruthy();
+    });
   });
 
   it('renders the month label for the active calMonth', () => {

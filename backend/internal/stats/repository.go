@@ -40,10 +40,12 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 type OverviewReader interface {
 	MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]MemberStatRow, error)
 	EventStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]EventStatRow, error)
+	EventGroupStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]EventGroupStatRow, error)
 }
 
 // WithReadTx runs fn with a Repository view backed by a single read-only,
-// repeatable-read transaction, so MemberStats and EventStats observe one
+// repeatable-read transaction, so MemberStats, EventStats and
+// EventGroupStats observe one
 // consistent snapshot instead of possibly drifting under concurrent writes
 // (e.g. an event created/cancelled or attendance recorded between the two
 // queries) -- unlike finances.GetOverview, which already gets this via its
@@ -183,6 +185,161 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// EventGroupStats returns, per event in the date range, the attendance counts
+// of each group -- a group being a team role -- together with that role's
+// resolved threshold.
+func (r *Repository) EventGroupStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]EventGroupStatRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	// Deliberately the same roster, filters and effective-status CASE as
+	// EventStats above (including NOT filtering on m.exclude_from_stats --
+	// this is per-event turnout, not a personal quota), with only the
+	// membership_roles/roles joins added: a group's yes/counted must mean
+	// exactly what the event row's own yes/counted mean, so the two can be
+	// shown side by side without contradicting each other. Those joins fan a
+	// member out once per role they hold -- intended: a member holding two
+	// roles counts in both groups, which is why group counts do not sum to
+	// the event's total.
+	//
+	// r.team_id = e.team_id is redundant with membership_roles' own
+	// integrity (members.SetRoles only assigns roles of the member's team)
+	// but keeps the per-team scoping explicit on every joined table. A role
+	// with no role_stats_thresholds row resolves to the default via COALESCE.
+	rows, err := r.db.Query(ctx, `
+		SELECT
+			event_id,
+			role_id,
+			role_name,
+			role_color,
+			threshold_mode,
+			threshold_value,
+			COUNT(*) FILTER (WHERE eff = 'yes')                 AS yes_count,
+			COUNT(*) FILTER (WHERE eff IN ('yes','no','maybe')) AS counted
+		FROM (
+			SELECT
+				e.id         AS event_id,
+				e.date       AS event_date,
+				r.id         AS role_id,
+				r.name       AS role_name,
+				r.color      AS role_color,
+				r.system     AS role_system,
+				COALESCE(th.mode, $4)  AS threshold_mode,
+				COALESCE(th.value, $5) AS threshold_value,
+				CASE
+					WHEN a.status IS NULL AND `+attendance.NotRelevantAbsenceCoversExpr+` THEN 'excluded'
+					ELSE `+attendance.EffectiveStatusExpr+`
+				END AS eff
+			FROM events e
+			JOIN memberships m ON m.team_id = e.team_id
+			JOIN membership_roles mr ON mr.membership_id = m.id
+			JOIN roles r ON r.id = mr.role_id AND r.team_id = e.team_id
+			LEFT JOIN role_stats_thresholds th ON th.role_id = r.id
+			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = m.user_id
+			WHERE e.team_id = $1
+			  AND e.date BETWEEN $2 AND $3
+			  AND e.status = 'active'
+			  AND e.exclude_from_stats = false
+		) sub
+		GROUP BY event_id, event_date, role_id, role_name, role_color, role_system, threshold_mode, threshold_value
+		ORDER BY event_date, event_id, role_system DESC, role_name, role_id
+	`, teamID, from, to, DefaultThresholdMode, DefaultThresholdValue)
+	if err != nil {
+		return nil, fmt.Errorf("stats.Repository.EventGroupStats: %w", err)
+	}
+	defer rows.Close()
+
+	var out []EventGroupStatRow
+	for rows.Next() {
+		var s EventGroupStatRow
+		if err := rows.Scan(&s.EventID, &s.RoleID, &s.Name, &s.Color, &s.ThresholdMode, &s.ThresholdValue, &s.Yes, &s.Counted); err != nil {
+			return nil, fmt.Errorf("stats.Repository.EventGroupStats scan: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// ListGroupThresholds returns the attendance threshold of every role of the
+// team (default applied for a role with no stored row), ordered like the
+// role list (system roles first, then by name).
+func (r *Repository) ListGroupThresholds(ctx context.Context, teamID uuid.UUID) ([]GroupThresholdRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return listGroupThresholds(ctx, r.db, teamID)
+}
+
+func listGroupThresholds(ctx context.Context, db pgxIface, teamID uuid.UUID) ([]GroupThresholdRow, error) {
+	// Driven from roles (team-scoped), not from role_stats_thresholds, so
+	// every role appears exactly once whether or not it was ever configured.
+	rows, err := db.Query(ctx, `
+		SELECT r.id, COALESCE(th.mode, $2), COALESCE(th.value, $3)
+		FROM roles r
+		LEFT JOIN role_stats_thresholds th ON th.role_id = r.id
+		WHERE r.team_id = $1
+		ORDER BY r.system DESC, r.name, r.id
+	`, teamID, DefaultThresholdMode, DefaultThresholdValue)
+	if err != nil {
+		return nil, fmt.Errorf("stats.Repository.ListGroupThresholds: %w", err)
+	}
+	defer rows.Close()
+
+	out := []GroupThresholdRow{}
+	for rows.Next() {
+		var t GroupThresholdRow
+		if err := rows.Scan(&t.RoleID, &t.Mode, &t.Value); err != nil {
+			return nil, fmt.Errorf("stats.Repository.ListGroupThresholds scan: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// SetGroupThresholds upserts the given roles' thresholds in one transaction
+// and returns the team's full, resolved threshold list afterwards. Roles not
+// listed are left untouched. If any listed role does not belong to teamID
+// the whole call fails with ErrRoleNotInTeam and nothing is written.
+func (r *Repository) SetGroupThresholds(ctx context.Context, teamID uuid.UUID, items []GroupThresholdRow) ([]GroupThresholdRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("stats.Repository.SetGroupThresholds: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	for _, it := range items {
+		// INSERT ... SELECT FROM roles WHERE team_id = $1 is the team-scoping
+		// guard: a role of another team (or a non-existent one) selects no
+		// row, so nothing is inserted and RowsAffected is 0. Doing the
+		// membership check inside the same statement as the write also means
+		// a concurrent roles.DeleteRole cannot slip in between a check and
+		// the insert -- at worst the FK rejects it or the cascade removes the
+		// row right after, never a dangling threshold.
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO role_stats_thresholds (role_id, mode, value)
+			SELECT r.id, $3, $4 FROM roles r WHERE r.id = $2 AND r.team_id = $1
+			ON CONFLICT (role_id) DO UPDATE
+				SET mode = EXCLUDED.mode, value = EXCLUDED.value, updated_at = now()
+		`, teamID, it.RoleID, it.Mode, it.Value)
+		if err != nil {
+			return nil, fmt.Errorf("stats.Repository.SetGroupThresholds: upsert: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil, ErrRoleNotInTeam
+		}
+	}
+
+	out, err := listGroupThresholds(ctx, tx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("stats.Repository.SetGroupThresholds: commit: %w", err)
+	}
+	return out, nil
 }
 
 // SingleMemberStats returns attendance aggregations for one member in the date range.

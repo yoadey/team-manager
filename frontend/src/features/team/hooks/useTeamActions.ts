@@ -1,6 +1,8 @@
 import { useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
-import type { Invite } from '@/types';
+import type { Invite, StatsGroupThreshold } from '@/types';
+import { queryKeys } from '@/query/keys';
 import type { AppState } from '@/context/AppContext';
 import type { CreateTeamFormValues } from '../components/createTeamSchema';
 import type { TeamSettingsFormValues } from '../components/teamSettingsSchema';
@@ -121,14 +123,31 @@ export function useTeamActions({
     [api, S, refreshTeams, setState, toastMsg, logout],
   );
 
+  const queryClient = useQueryClient();
+
+  // `changedThresholds` are the per-role attendance thresholds the user
+  // actually edited (TeamSettingsSheet diffs the form against what it
+  // loaded) -- empty/omitted means the section is untouched and no threshold
+  // request is sent at all.
   const saveTeamSettings = useCallback(
-    async (f: TeamSettingsFormValues) => {
+    async (f: TeamSettingsFormValues, changedThresholds: StatsGroupThreshold[] = []) => {
+      // Snapshot once: both requests and both invalidations below must target
+      // the team the form was opened for, even if the user switches teams
+      // while the first request is in flight.
+      const teamId = S().activeTeamId!;
       try {
-        await api.teams.updateSettings(S().activeTeamId!, {
+        await api.teams.updateSettings(teamId, {
           name: f.name.trim(),
           description: f.description || '',
           reasonVisibilityRoles: f.reasonRoles || [],
         });
+        if (changedThresholds.length) {
+          await api.stats.setGroupThresholds(teamId, changedThresholds);
+          // The settings sheet's own list, and every cached statistics
+          // overview of this team (each embeds the resolved thresholds).
+          void queryClient.invalidateQueries({ queryKey: queryKeys.statsGroupThresholds(teamId) });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.statsAll(teamId) });
+        }
         await refreshTeams();
         toastMsg(t('team.toastSettingsSaved'));
       } catch (err) {
@@ -136,7 +155,7 @@ export function useTeamActions({
         throw err;
       }
     },
-    [api, S, setState, refreshTeams, toastMsg, logout],
+    [api, S, setState, refreshTeams, toastMsg, logout, queryClient],
   );
 
   const openCreateTeam = useCallback(() => {

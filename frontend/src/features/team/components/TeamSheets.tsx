@@ -1,14 +1,22 @@
+import { useEffect, useRef } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
-import { Av, Field, labelSx, PrimaryButton, SectionTitle, Sym, TextArea, TextInput } from '@/components/ui';
+import { Av, Field, inputSx, labelSx, PrimaryButton, SectionTitle, Sym, TextArea, TextInput } from '@/components/ui';
 import { shortName } from '@/layouts/useCompact';
-import type { Invite } from '@/types';
+import type { Invite, Role, StatsThresholdMode } from '@/types';
 import type { SheetProps } from '@/sheets/types';
 import { createTeamSchema, type CreateTeamFormValues } from './createTeamSchema';
-import { teamSettingsSchema, type TeamSettingsFormValues } from './teamSettingsSchema';
+import {
+  changedThresholds,
+  teamSettingsSchema,
+  toThresholdFormRows,
+  type TeamSettingsFormValues,
+  type ThresholdFormRow,
+} from './teamSettingsSchema';
+import { useStatsGroupThresholdsQuery } from '../hooks/useStatsGroupThresholdsQuery';
 import { t } from '@/i18n';
 
 const TEAM_ICONS = ['🏆', '⭐', '💃', '🕺', '🎭', '🔥', '👑', '🎯', '💎', '🦅', '⚡', '🌟'];
@@ -258,6 +266,128 @@ export function InviteSheet({ app, sheet }: SheetProps) {
   );
 }
 
+// react-hook-form's per-row error shape for the `thresholds` array, narrowed
+// to the one field that can fail (see thresholdRowSchema's superRefine).
+type ThresholdRowErrors = ({ value?: { message?: string } } | undefined)[];
+
+const THRESHOLD_MODES: StatsThresholdMode[] = ['percent', 'count'];
+
+/**
+ * Team settings section: one row per role with a percent/count toggle and
+ * the threshold value. Below that value an incomplete group is marked red in
+ * the statistics' "Termine" tab. Split out of TeamSettingsSheet to keep that
+ * component's render function within the lint complexity limit.
+ */
+function ThresholdSection({
+  roles,
+  rows,
+  errors,
+  primary,
+  onChange,
+}: {
+  roles: Role[];
+  rows: ThresholdFormRow[];
+  errors: ThresholdRowErrors;
+  primary: string;
+  onChange: (roleId: string, patch: Partial<ThresholdFormRow>) => void;
+}) {
+  const roleById = new Map(roles.map((r) => [r.id, r]));
+  return (
+    <Box>
+      <SectionTitle>{t('team.settingsThresholdSection')}</SectionTitle>
+      <Box sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '-2px 0 10px', lineHeight: 1.5 }}>
+        {t('team.settingsThresholdHint')}
+      </Box>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {rows.map((row, idx) => {
+          // A threshold whose role isn't in the loaded role list (e.g. the
+          // role list hasn't caught up yet) has no name to show -- skip the
+          // row; it stays in the form untouched and so is never re-saved.
+          const role = roleById.get(row.roleId);
+          if (!role) return null;
+          const error = errors[idx]?.value?.message;
+          const errorId = 'threshold-error-' + row.roleId;
+          return (
+            <Box key={row.roleId} data-testid="threshold-row">
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 140px', minWidth: 0 }}>
+                  <Box
+                    component="span"
+                    sx={{ width: '9px', height: '9px', borderRadius: '50%', background: role.color, flex: '0 0 auto' }}
+                  />
+                  <Box
+                    sx={{
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {role.name}
+                  </Box>
+                </Box>
+                <Box
+                  role="radiogroup"
+                  aria-label={t('team.thresholdModeAria', { name: role.name })}
+                  sx={{ display: 'flex', background: NEUTRAL.line2, borderRadius: '10px', p: '3px', flex: '0 0 auto' }}
+                >
+                  {THRESHOLD_MODES.map((mode) => {
+                    const sel = row.mode === mode;
+                    return (
+                      <ButtonBase
+                        key={mode}
+                        role="radio"
+                        aria-checked={sel}
+                        onClick={() => onChange(row.roleId, { mode })}
+                        sx={{
+                          p: '6px 11px',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          background: sel ? NEUTRAL.card : 'transparent',
+                          color: sel ? primary : NEUTRAL.secondary,
+                          boxShadow: sel ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
+                        }}
+                      >
+                        {t(mode === 'percent' ? 'team.thresholdModePercent' : 'team.thresholdModeCount')}
+                      </ButtonBase>
+                    );
+                  })}
+                </Box>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={row.mode === 'percent' ? 100 : 10000}
+                  step={1}
+                  value={row.value}
+                  aria-label={t('team.thresholdValueAria', { name: role.name })}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? errorId : undefined}
+                  onChange={(e) => onChange(row.roleId, { value: e.target.value })}
+                  style={{
+                    ...inputSx,
+                    width: '84px',
+                    padding: '8px 10px',
+                    textAlign: 'right',
+                    ...(error ? { borderColor: NEUTRAL.error } : {}),
+                  }}
+                />
+              </Box>
+              {error ? (
+                <Box id={errorId} role="alert" sx={{ fontSize: '12px', color: NEUTRAL.error, mt: '4px', textAlign: 'right' }}>
+                  {error}
+                </Box>
+              ) : null}
+            </Box>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
 export function TeamSettingsSheet({ app, sheet }: SheetProps) {
   void sheet;
   const { state } = app;
@@ -269,6 +399,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
     register,
     handleSubmit,
     setValue,
+    getValues,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<TeamSettingsFormValues>({
@@ -283,11 +414,33 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
 
   const name = watch('name');
   const reasonRoles = watch('reasonRoles');
+  const thresholds = watch('thresholds');
   const canSubmit = !!name?.trim();
+
+  // Per-role attendance thresholds load separately from the team itself
+  // (they're their own, settings-gated resource), so they're seeded into the
+  // form once they arrive instead of via defaultValues. `seededFrom` is the
+  // server snapshot the rows were last seeded from: a later refetch (after a
+  // save, or a background one) re-seeds only while the user has no unsaved
+  // threshold edits, so it can never clobber a half-typed value -- and the
+  // save diff below is always taken against the latest server state.
+  const { data: loadedThresholds } = useStatsGroupThresholdsQuery(app.api, state.activeTeamId);
+  const seededFrom = useRef<typeof loadedThresholds>(undefined);
+  useEffect(() => {
+    if (!loadedThresholds) return;
+    const untouched = changedThresholds(getValues('thresholds'), seededFrom.current).length === 0;
+    if (untouched) setValue('thresholds', toThresholdFormRows(loadedThresholds));
+    seededFrom.current = loadedThresholds;
+  }, [loadedThresholds, getValues, setValue]);
+
+  const setThreshold = (roleId: string, patch: Partial<ThresholdFormRow>) => {
+    const next = (getValues('thresholds') ?? []).map((row) => (row.roleId === roleId ? { ...row, ...patch } : row));
+    setValue('thresholds', next, { shouldValidate: true, shouldDirty: true });
+  };
 
   const onSubmit = async (values: TeamSettingsFormValues) => {
     try {
-      await app.saveTeamSettings(values);
+      await app.saveTeamSettings(values, changedThresholds(values.thresholds, loadedThresholds));
     } catch {
       // Ignored
     }
@@ -512,6 +665,15 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
       {logoSec}
       {photoSec}
       {visSec}
+      {thresholds?.length ? (
+        <ThresholdSection
+          roles={roles}
+          rows={thresholds}
+          errors={(errors.thresholds ?? []) as ThresholdRowErrors}
+          primary={tk.primary}
+          onChange={setThreshold}
+        />
+      ) : null}
       <PrimaryButton
         label={t('team.settingsSave')}
         onClick={handleSubmit(onSubmit)}

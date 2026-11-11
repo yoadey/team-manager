@@ -1,6 +1,43 @@
 package stats
 
-import "github.com/google/uuid"
+import (
+	"errors"
+
+	"github.com/google/uuid"
+)
+
+// Threshold modes for a group's (role's) attendance threshold. Mirrors the
+// OpenAPI StatsThresholdMode enum and role_stats_thresholds.mode's CHECK.
+const (
+	ThresholdModePercent = "percent"
+	ThresholdModeCount   = "count"
+)
+
+// DefaultThresholdMode/DefaultThresholdValue are what a role resolves to
+// while it has no role_stats_thresholds row: "below 50 %", i.e. exactly the
+// cut-off EventStat.enough (pct >= 0.5) has always used for the team as a
+// whole, so an unconfigured team sees no change in what counts as too low.
+const (
+	DefaultThresholdMode  = ThresholdModePercent
+	DefaultThresholdValue = 50
+)
+
+// Upper bounds for a threshold value per mode -- mirrored by
+// role_stats_thresholds' CHECK constraints (the DB backstop) and by
+// StatsGroupThreshold.value's maximum in openapi.yaml.
+const (
+	maxThresholdPercent = 100
+	maxThresholdCount   = 10000
+)
+
+// ErrInvalidThreshold is returned by Service.SetGroupThresholds for an
+// unknown mode or an out-of-range value. Mapped to 400 by the handler.
+var ErrInvalidThreshold = errors.New("invalid attendance threshold")
+
+// ErrRoleNotInTeam is returned by Repository.SetGroupThresholds when a
+// listed role does not belong to the team being updated. Mapped to 422 by
+// the handler (same status teams.ErrRoleNotInTeam maps to).
+var ErrRoleNotInTeam = errors.New("role does not belong to team")
 
 // MemberStatRow holds the raw attendance aggregation for one member.
 type MemberStatRow struct {
@@ -40,4 +77,24 @@ type MatrixCellRow struct {
 	HasPhoto    bool
 	EventID     *uuid.UUID
 	Eff         string // yes | no | maybe | pending
+}
+
+// EventGroupStatRow holds one group's (role's) attendance counts for one
+// event, plus that role's resolved threshold (default already applied).
+type EventGroupStatRow struct {
+	EventID        uuid.UUID
+	RoleID         uuid.UUID
+	Name           string
+	Color          *string
+	Yes            int
+	Counted        int
+	ThresholdMode  string // percent | count
+	ThresholdValue int
+}
+
+// GroupThresholdRow is one role's attendance threshold.
+type GroupThresholdRow struct {
+	RoleID uuid.UUID
+	Mode   string // percent | count
+	Value  int
 }

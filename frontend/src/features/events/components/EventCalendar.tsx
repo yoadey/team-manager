@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
@@ -12,6 +12,7 @@ import { useEventsQuery } from '../hooks/useEventQueries';
 import { useAbsencesQuery } from '../hooks/useAbsenceQueries';
 import type { Absence, TeamEvent } from '../types';
 import { synthesizeBirthdayEvents, groupBirthdaysByDate, type BirthdayEntry } from './synthesizeBirthdayEvents';
+import { MIN_ROW_HEIGHT, cellLimits, linesThatFit, useStretchedRowHeight } from './calendarLayout';
 
 // Fixed color pair for the birthday chip, deliberately not one of typeMeta's
 // event-type colors (nor NEUTRAL) so a birthday pseudo-event reads as
@@ -167,6 +168,8 @@ interface CalendarDayCellProps {
   inMonth: boolean;
   isToday: boolean;
   mobile: boolean;
+  /** Entry lines this cell's row has room for, or null when unmeasured (see calendarLayout). */
+  lines: number | null;
   primary: string;
   primaryContainer: string;
   events: EventOccurrence[];
@@ -184,6 +187,7 @@ function CalendarDayCell({
   inMonth,
   isToday,
   mobile,
+  lines,
   primary,
   primaryContainer,
   events,
@@ -192,8 +196,11 @@ function CalendarDayCell({
   onOpenEvent,
   onCreateEvent,
 }: CalendarDayCellProps) {
-  const eventLimit = mobile ? 2 : 3;
-  const absenceLimit = mobile ? 1 : 2;
+  const { events: eventLimit, absences: absenceLimit } = cellLimits(lines, mobile, {
+    events: events.length,
+    birthdays: birthdays.length,
+    absences: absences.length,
+  });
   const visibleEvents = events.slice(0, eventLimit);
   const visibleAbsences = absences.slice(0, absenceLimit);
   // Double-click is the primary gesture, but a div with an onDoubleClick has
@@ -217,7 +224,7 @@ function CalendarDayCell({
       tabIndex={onCreateEvent ? 0 : undefined}
       aria-label={createLabel}
       sx={{
-        minHeight: mobile ? '58px' : '76px',
+        minHeight: (mobile ? MIN_ROW_HEIGHT.mobile : MIN_ROW_HEIGHT.desktop) + 'px',
         border: `1px solid ${NEUTRAL.line2}`,
         borderRadius: mobile ? 0 : '9px',
         p: mobile ? '3px' : '5px',
@@ -318,6 +325,12 @@ export function EventCalendar() {
     ? groupBirthdaysByDate(synthesizeBirthdayEvents(members, gridStart, gridEnd))
     : {};
 
+  // Stretch the six week rows to the bottom of the page when there is room,
+  // and let each day show as many entries as its row then has space for.
+  const gridRef = useRef<HTMLDivElement>(null);
+  const gridGap = mobile ? 0 : 6;
+  const lines = linesThatFit(useStretchedRowHeight(gridRef, gridGap), mobile);
+
   const cells: React.ReactNode[] = [];
   const dtf = new Intl.DateTimeFormat(getIntlLocale(), { weekday: mobile ? 'narrow' : 'short' });
   // Build Mon–Sun headers using a known Monday (2024-01-01 was a Monday)
@@ -344,6 +357,7 @@ export function EventCalendar() {
         inMonth={inMonth}
         isToday={ds === today}
         mobile={mobile}
+        lines={lines}
         primary={tk.primary}
         primaryContainer={tk.primaryContainer}
         events={evByDate[ds] || []}
@@ -360,11 +374,16 @@ export function EventCalendar() {
     app.setState({ calMonth: new Date(year, month + delta, 1) });
   };
 
+  // Full width, and a flex column that takes whatever height EventsPage's
+  // calendar branch has left (see its minHeight: 100% wrapper): the card and
+  // the grid inside it grow with it, so the calendar fills the screen
+  // instead of sitting in its top-left corner.
   return (
-    <Box sx={{ maxWidth: '820px' }}>
+    <Box data-testid="calendar-root" sx={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <Box
         component="label"
         sx={{
+          flex: '0 0 auto',
           display: 'flex',
           alignItems: 'center',
           gap: '9px',
@@ -384,8 +403,8 @@ export function EventCalendar() {
         <Sym name="beach_access" size={18} color={NEUTRAL.secondary} />
         {t('events.showAbsences')}
       </Box>
-      <Card>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', mb: '12px' }}>
+      <Card sx={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <Box sx={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '10px', mb: '12px' }}>
           <Box sx={{ flex: 1, fontSize: '16px', fontWeight: 700, textTransform: 'capitalize' }}>{monthLabel}</Box>
           <ButtonBase
             onClick={nav(-1)}
@@ -417,8 +436,22 @@ export function EventCalendar() {
           </ButtonBase>
         </Box>
         <Box
+          ref={gridRef}
           data-testid="calendar-grid"
-          sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? 0 : '6px' }}
+          sx={{
+            flex: '1 1 auto',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(7,1fr)',
+            // Weekday header row, then six week rows that share the leftover
+            // height equally. `min-content` (not the implicit `auto`) as the
+            // floor: the cells are overflow:hidden, which would otherwise
+            // zero their automatic minimum and let a row be squeezed below
+            // its content on a short viewport -- with it, a row is never
+            // smaller than its cell's min-height or its entries, and the
+            // page scrolls instead.
+            gridTemplateRows: 'auto repeat(6, minmax(min-content, 1fr))',
+            gap: gridGap + 'px',
+          }}
         >
           {cells}
         </Box>

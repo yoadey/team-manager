@@ -20,6 +20,8 @@ import type {
   Invite,
   MemberStat,
   EventStat,
+  EventGroupStat,
+  StatsGroupThreshold,
   StatsOverview,
   AttendanceMatrix,
   AttendanceMatrixColumn,
@@ -515,7 +517,25 @@ export function mapEventStat(s: S['EventStat']): EventStat {
     nominated: s.nominated,
     pct: fractionToPercent(s.pct),
     enough: s.enough,
+    groups: s.groups.map(mapEventGroupStat),
   };
+}
+
+function mapEventGroupStat(g: S['EventGroupStat']): EventGroupStat {
+  return {
+    roleId: g.roleId,
+    name: g.name,
+    // Same fallback mapRole uses for a role stored without a colour.
+    color: g.color ?? '#888888',
+    yes: g.yes,
+    counted: g.counted,
+    thresholdMode: g.thresholdMode,
+    thresholdValue: g.thresholdValue,
+  };
+}
+
+export function mapStatsGroupThreshold(t: S['StatsGroupThreshold']): StatsGroupThreshold {
+  return { roleId: t.roleId, mode: t.mode, value: t.value };
 }
 
 export function mapStatsOverview(o: S['StatsOverview']): StatsOverview {

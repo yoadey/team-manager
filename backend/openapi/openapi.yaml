@@ -2090,6 +2090,47 @@ paths:
               schema:
                 $ref: "#/components/schemas/AttendanceMatrix"
 
+  /teams/{teamId}/stats/group-thresholds:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [stats]
+      operationId: listStatsGroupThresholds
+      x-rbac-module: settings
+      summary: >-
+        List the per-group (role) attendance thresholds that decide when a
+        group's per-event attendance is highlighted as too low. Returns one
+        item per team role, with the default (percent / 50) for a role that
+        was never configured.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsGroupThresholdList"
+    put:
+      tags: [stats]
+      operationId: setStatsGroupThresholds
+      x-rbac-module: settings
+      summary: >-
+        Save per-group (role) attendance thresholds. Roles not listed keep
+        their current threshold. The whole request is rejected (422) when
+        any listed role does not belong to this team.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetStatsGroupThresholdsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsGroupThresholdList"
+
   /teams/{teamId}/stats/members/{userId}:
     parameters:
       - $ref: "#/components/parameters/teamId"
@@ -4157,7 +4198,7 @@ components:
 
     EventStat:
       type: object
-      required: [id, title, type, date, yes, nominated, pct, enough]
+      required: [id, title, type, date, yes, nominated, pct, enough, groups]
       properties:
         id:
           type: string
@@ -4178,6 +4219,85 @@ components:
           format: float
         enough:
           type: boolean
+        groups:
+          type: array
+          description: >-
+            This event's attendance broken down by group -- one entry per
+            team role held by at least one current member, ordered like the
+            role list (system roles first, then by name). Uses the same
+            roster and effective-attendance counting as yes/nominated above.
+            A member holding several roles is counted in each of them, so
+            the entries do not sum to yes/nominated.
+          items:
+            $ref: "#/components/schemas/EventGroupStat"
+
+    EventGroupStat:
+      type: object
+      required: [roleId, name, yes, counted, thresholdMode, thresholdValue]
+      properties:
+        roleId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        color:
+          type: string
+        yes:
+          type: integer
+        counted:
+          type: integer
+          description: >-
+            Members of this group with a counted (yes/no/maybe) effective
+            response. 0 means "no data" -- the group is then neither complete
+            nor below its threshold.
+        thresholdMode:
+          $ref: "#/components/schemas/StatsThresholdMode"
+        thresholdValue:
+          type: integer
+          description: >-
+            The group's resolved threshold (default applied). An incomplete
+            group is highlighted as too low when its attendance percentage
+            (thresholdMode percent) or its number of attendees (thresholdMode
+            count) is below this value.
+
+    StatsThresholdMode:
+      type: string
+      enum: [percent, count]
+
+    StatsGroupThreshold:
+      type: object
+      required: [roleId, mode, value]
+      properties:
+        roleId:
+          type: string
+          format: uuid
+        mode:
+          $ref: "#/components/schemas/StatsThresholdMode"
+        value:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: >-
+            0-100 when mode is percent, 0-10000 when mode is count.
+
+    StatsGroupThresholdList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatsGroupThreshold"
+
+    SetStatsGroupThresholdsRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/StatsGroupThreshold"
 
     StatsOverview:
       type: object

@@ -175,6 +175,26 @@ describe('EventsPage', () => {
     expect(screen.getByTestId('calendar')).toBeTruthy();
   });
 
+  // The calendar is the one events view that fills the screen: its wrapper is
+  // a flex column at least as tall as the scrolling <main> content box, so
+  // the calendar inside can stretch to the bottom of the page.
+  it('wraps the calendar view in a full-height flex column, unlike the list view', () => {
+    mockUseApp.mockReturnValue(makeApp({ eventsView: 'calendar' }));
+    const { unmount } = render(<EventsPage />);
+    const wrapper = screen.getByTestId('events-calendar-view');
+    const style = getComputedStyle(wrapper);
+    expect(style.display).toBe('flex');
+    expect(style.flexDirection).toBe('column');
+    expect(style.minHeight).toBe('100%');
+    expect(['', 'none']).toContain(style.maxWidth);
+    expect(wrapper.contains(screen.getByTestId('calendar'))).toBe(true);
+    unmount();
+
+    mockUseApp.mockReturnValue(makeApp({ eventsView: 'list' }));
+    render(<EventsPage />);
+    expect(screen.queryByTestId('events-calendar-view')).toBeNull();
+  });
+
   it('renders absences view when eventsView is absences', () => {
     mockUseApp.mockReturnValue(makeApp({ eventsView: 'absences' }));
     render(<EventsPage />);

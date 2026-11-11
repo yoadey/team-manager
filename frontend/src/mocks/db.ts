@@ -273,7 +273,19 @@ export interface DemoDb {
   statsLastSelection: Record<string, StatsLastSelectionRow>;
   /** Mock equivalent of the backend's stats_view_presets table. */
   statsPresets: StatsPresetRow[];
+  /** roleId -> attendance threshold, mock equivalent of the backend's
+   * role_stats_thresholds table. Missing entry means "never configured" --
+   * resolves to DEFAULT_STATS_THRESHOLD, mirroring
+   * stats.DefaultThresholdMode/Value. */
+  statsGroupThresholds: Record<string, StatsThresholdRow>;
 }
+
+export interface StatsThresholdRow {
+  mode: 'percent' | 'count';
+  value: number;
+}
+
+export const DEFAULT_STATS_THRESHOLD: StatsThresholdRow = { mode: 'percent', value: 50 };
 
 export interface StatsLastSelectionRow {
   from: string;
@@ -360,6 +372,7 @@ export function createSeedData(): DemoDb {
     pushPreferences: {},
     statsLastSelection: {},
     statsPresets: [],
+    statsGroupThresholds: {},
   };
 
   const U = (id: string, name: string, email: string, phone: string, color: string): UserRow => ({

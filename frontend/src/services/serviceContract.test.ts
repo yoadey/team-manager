@@ -1083,3 +1083,178 @@ describe('series-wide mutations leave already-held occurrences alone', () => {
     for (const e of upcoming) expect(e.title).toBe('Umbenannt');
   });
 });
+
+describe('per-event group breakdown and per-group attendance thresholds', () => {
+  const roleByName = (name: string) => db.roles.find((r) => r.teamId === 't_a' && r.name === name)!;
+
+  async function createEventWithResponses() {
+    const event = await api.events.create('t_a', { type: 'training', title: 'Group stats test', date: todayLocalDate() });
+    // u1: Admin / Trainer + Tänzer / Mitglied; u2: Teamkapitän + Tänzer /
+    // Mitglied; u4, u5: Tänzer / Mitglied only (see db.ts's seed).
+    await api.attendance.set(event.id, 'u1', { status: 'yes' }, 't_a');
+    await api.attendance.set(event.id, 'u2', { status: 'no' }, 't_a');
+    await api.attendance.set(event.id, 'u4', { status: 'yes' }, 't_a');
+    await api.attendance.set(event.id, 'u5', { status: 'maybe' }, 't_a');
+    return event;
+  }
+
+  it('reports yes/counted per role, counting a multi-role member in each of their groups', async () => {
+    const event = await createEventWithResponses();
+    const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+    const group = (name: string) => stat.groups.find((g) => g.roleId === roleByName(name).id)!;
+
+    // u1 is the only trainer and attended -> complete.
+    expect(group('Admin / Trainer')).toMatchObject({ name: 'Admin / Trainer', yes: 1, counted: 1 });
+    // u2 is the only captain and declined.
+    expect(group('Teamkapitän')).toMatchObject({ yes: 0, counted: 1 });
+    // All four responders hold the member role: u1 + u4 yes, u2 no, u5 maybe.
+    expect(group('Tänzer / Mitglied')).toMatchObject({ yes: 2, counted: 4 });
+    // A role whose holders all stayed silent has no counted response.
+    expect(group('Kassenwart')).toMatchObject({ yes: 0, counted: 0 });
+
+    // Everyone on t_a holds the member role, so that group reconciles with
+    // the event's own (de-duplicated) turnout.
+    expect(group('Tänzer / Mitglied').yes).toBe(stat.yes);
+    expect(group('Tänzer / Mitglied').counted).toBe(stat.nominated);
+    // The role colour travels with the group for the indicator's dot.
+    expect(group('Admin / Trainer').color).toBe(roleByName('Admin / Trainer').color);
+  });
+
+  it('orders the groups like the role list: system roles first, then by name', async () => {
+    const event = await createEventWithResponses();
+    const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+    const expected = db.roles
+      .filter((r) => r.teamId === 't_a' && db.memberships.some((m) => m.teamId === 't_a' && m.roleIds.includes(r.id)))
+      .sort((a, b) => Number(b.system) - Number(a.system) || a.name.localeCompare(b.name))
+      .map((r) => r.id);
+    expect(stat.groups.map((g) => g.roleId)).toEqual(expected);
+  });
+
+  it('omits a role nobody holds from the breakdown but lists it among the thresholds', async () => {
+    const empty: RoleDto = { id: rid('role'), teamId: 't_a', name: 'Leere Rolle', system: false, color: '#888888', permissions: perms({}) };
+    db.roles.push(empty);
+    const event = await createEventWithResponses();
+    const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+    expect(stat.groups.some((g) => g.roleId === empty.id)).toBe(false);
+    expect((await api.stats.groupThresholds('t_a')).some((t) => t.roleId === empty.id)).toBe(true);
+  });
+
+  it('defaults every role to 50 percent until configured', async () => {
+    const thresholds = await api.stats.groupThresholds('t_a');
+    expect(thresholds.map((t) => t.roleId).sort()).toEqual(
+      db.roles
+        .filter((r) => r.teamId === 't_a')
+        .map((r) => r.id)
+        .sort(),
+    );
+    for (const t of thresholds) expect(t).toMatchObject({ mode: 'percent', value: 50 });
+
+    const event = await createEventWithResponses();
+    const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+    for (const g of stat.groups) expect(g).toMatchObject({ thresholdMode: 'percent', thresholdValue: 50 });
+  });
+
+  it('stores a percent and a count threshold, leaves other roles untouched, and reports them on the overview', async () => {
+    const member = roleByName('Tänzer / Mitglied');
+    const trainer = roleByName('Admin / Trainer');
+    const captain = roleByName('Teamkapitän');
+
+    const saved = await api.stats.setGroupThresholds('t_a', [
+      { roleId: member.id, mode: 'count', value: 8 },
+      { roleId: trainer.id, mode: 'percent', value: 75 },
+    ]);
+    const find = (list: typeof saved, id: string) => list.find((t) => t.roleId === id)!;
+    expect(find(saved, member.id)).toEqual({ roleId: member.id, mode: 'count', value: 8 });
+    expect(find(saved, trainer.id)).toEqual({ roleId: trainer.id, mode: 'percent', value: 75 });
+    expect(find(saved, captain.id)).toEqual({ roleId: captain.id, mode: 'percent', value: 50 });
+    // The response is the full list, and a fresh read agrees with it.
+    expect(await api.stats.groupThresholds('t_a')).toEqual(saved);
+
+    const event = await createEventWithResponses();
+    const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+    expect(stat.groups.find((g) => g.roleId === member.id)).toMatchObject({ thresholdMode: 'count', thresholdValue: 8 });
+    expect(stat.groups.find((g) => g.roleId === trainer.id)).toMatchObject({ thresholdMode: 'percent', thresholdValue: 75 });
+
+    // Saving again overwrites (and may switch the mode back).
+    await api.stats.setGroupThresholds('t_a', [{ roleId: member.id, mode: 'percent', value: 0 }]);
+    expect(find(await api.stats.groupThresholds('t_a'), member.id)).toEqual({ roleId: member.id, mode: 'percent', value: 0 });
+  });
+
+  it.each([
+    ['a percentage above 100', { mode: 'percent', value: 101 }],
+    ['a negative value', { mode: 'count', value: -1 }],
+    ['a count above 10000', { mode: 'count', value: 10001 }],
+    ['a fractional value', { mode: 'percent', value: 12.5 }],
+    ['an unknown mode', { mode: 'ratio', value: 10 }],
+  ] as const)('rejects %s without storing anything, even for valid items in the same request', async (_label, bad) => {
+    const member = roleByName('Tänzer / Mitglied');
+    const trainer = roleByName('Admin / Trainer');
+    await expect(
+      api.stats.setGroupThresholds('t_a', [
+        { roleId: trainer.id, mode: 'count', value: 1 },
+        { roleId: member.id, ...bad } as never,
+      ]),
+    ).rejects.toBeInstanceOf(ValidationError);
+    for (const t of await api.stats.groupThresholds('t_a')) expect(t).toMatchObject({ mode: 'percent', value: 50 });
+  });
+
+  it("rejects another team's role and stores nothing, in either team", async () => {
+    const trainer = roleByName('Admin / Trainer');
+    const foreign = db.roles.find((r) => r.teamId === 't_b')!;
+    await expect(
+      api.stats.setGroupThresholds('t_a', [
+        { roleId: trainer.id, mode: 'count', value: 1 },
+        { roleId: foreign.id, mode: 'count', value: 3 },
+      ]),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(db.statsGroupThresholds).toEqual({});
+  });
+
+  it('drops a threshold together with its role', async () => {
+    const custom: RoleDto = { id: rid('role'), teamId: 't_a', name: 'Kurzzeitrolle', system: false, color: '#888888', permissions: perms({}) };
+    db.roles.push(custom);
+    await api.stats.setGroupThresholds('t_a', [{ roleId: custom.id, mode: 'count', value: 3 }]);
+    expect(db.statsGroupThresholds[custom.id]).toEqual({ mode: 'count', value: 3 });
+
+    await api.roles.remove(custom.id, 't_a');
+    expect(db.statsGroupThresholds[custom.id]).toBeUndefined();
+    expect((await api.stats.groupThresholds('t_a')).some((t) => t.roleId === custom.id)).toBe(false);
+  });
+
+  describe('authorization (settings module, not stats)', () => {
+    it('forbids reading and saving thresholds with settings:none, even with stats:write', async () => {
+      const trainer = roleByName('Admin / Trainer');
+      grantOnly('t_a', 'u1', { stats: 'write', settings: 'none' });
+      await expect(api.stats.groupThresholds('t_a')).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        api.stats.setGroupThresholds('t_a', [{ roleId: trainer.id, mode: 'count', value: 1 }]),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(db.statsGroupThresholds).toEqual({});
+    });
+
+    it('allows reading but not saving with settings:read', async () => {
+      const trainer = roleByName('Admin / Trainer');
+      grantOnly('t_a', 'u1', { settings: 'read' });
+      await expect(api.stats.groupThresholds('t_a')).resolves.toBeInstanceOf(Array);
+      await expect(
+        api.stats.setGroupThresholds('t_a', [{ roleId: trainer.id, mode: 'count', value: 1 }]),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it('still shows each group with its resolved threshold to a stats:read member without settings access', async () => {
+      const member = roleByName('Tänzer / Mitglied');
+      await api.stats.setGroupThresholds('t_a', [{ roleId: member.id, mode: 'count', value: 8 }]);
+      const event = await createEventWithResponses();
+
+      grantOnly('t_a', 'u1', { stats: 'read', settings: 'none' });
+      const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+      expect(stat.groups.find((g) => g.roleId === member.id)).toMatchObject({ thresholdMode: 'count', thresholdValue: 8 });
+    });
+
+    it('rejects an unauthenticated request', async () => {
+      await api.auth.logout();
+      await expect(api.stats.groupThresholds('t_a')).rejects.toBeInstanceOf(AuthError);
+      await expect(api.stats.setGroupThresholds('t_a', [])).rejects.toBeInstanceOf(AuthError);
+    });
+  });
+});

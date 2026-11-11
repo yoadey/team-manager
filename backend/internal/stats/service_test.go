@@ -2,6 +2,7 @@ package stats_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -23,6 +24,27 @@ type mockRepo struct {
 	singleMemberStatsFn func(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*stats.MemberStatRow, error)
 	withReadTxFn        func(ctx context.Context, fn func(stats.OverviewReader) error) error
 	attendanceMatrixFn  func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MatrixColumnRow, []stats.MatrixCellRow, error)
+	eventGroupStatsFn   func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.EventGroupStatRow, error)
+	listThresholdsFn    func(ctx context.Context, teamID uuid.UUID) ([]stats.GroupThresholdRow, error)
+	setThresholdsFn     func(ctx context.Context, teamID uuid.UUID, items []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error)
+}
+
+// EventGroupStats defaults to "no groups" when a test doesn't set
+// eventGroupStatsFn, so the pre-existing GetOverview tests (which predate
+// the per-group breakdown) need no change.
+func (m *mockRepo) EventGroupStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.EventGroupStatRow, error) {
+	if m.eventGroupStatsFn == nil {
+		return nil, nil
+	}
+	return m.eventGroupStatsFn(ctx, teamID, from, to)
+}
+
+func (m *mockRepo) ListGroupThresholds(ctx context.Context, teamID uuid.UUID) ([]stats.GroupThresholdRow, error) {
+	return m.listThresholdsFn(ctx, teamID)
+}
+
+func (m *mockRepo) SetGroupThresholds(ctx context.Context, teamID uuid.UUID, items []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error) {
+	return m.setThresholdsFn(ctx, teamID, items)
 }
 
 func (m *mockRepo) MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MemberStatRow, error) {
@@ -418,6 +440,175 @@ func TestService_GetAttendanceMatrix_DefaultsDateRangeWhenUnset(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, gotTo.AddDate(0, -3, 0).Format("2006-01-02"), gotFrom.Format("2006-01-02"),
 		"matrix must reuse the overview's 3-month default window")
+}
+
+// TestService_GetOverview_AttachesGroupsToTheirEvent pins that each event's
+// Groups holds exactly the group rows of that event, in the repository's
+// order, with the threshold carried through -- and that an event with no
+// group rows serializes as an empty array, never null (Groups is a required
+// array in the schema).
+func TestService_GetOverview_AttachesGroupsToTheirEvent(t *testing.T) {
+	t.Parallel()
+
+	ev1, ev2, ev3 := uuid.New(), uuid.New(), uuid.New()
+	trainer, member := uuid.New(), uuid.New()
+	blue := "#1565C0"
+	repo := &mockRepo{
+		memberStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.MemberStatRow, error) {
+			return nil, nil
+		},
+		eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) {
+			return []stats.EventStatRow{
+				{EventID: ev1, Title: "Match", Type: "auftritt", Date: "2026-01-15", Yes: 5, Counted: 6},
+				{EventID: ev2, Title: "Training", Type: "training", Date: "2026-01-20", Yes: 2, Counted: 6},
+				{EventID: ev3, Title: "Fest", Type: "event", Date: "2026-01-25", Yes: 0, Counted: 0},
+			}, nil
+		},
+		eventGroupStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventGroupStatRow, error) {
+			return []stats.EventGroupStatRow{
+				{EventID: ev1, RoleID: trainer, Name: "Trainer", Color: &blue, Yes: 2, Counted: 2, ThresholdMode: "count", ThresholdValue: 1},
+				{EventID: ev1, RoleID: member, Name: "Mitglied", Yes: 5, Counted: 6, ThresholdMode: "percent", ThresholdValue: 50},
+				{EventID: ev2, RoleID: trainer, Name: "Trainer", Color: &blue, Yes: 0, Counted: 2, ThresholdMode: "count", ThresholdValue: 1},
+				{EventID: ev2, RoleID: member, Name: "Mitglied", Yes: 2, Counted: 6, ThresholdMode: "percent", ThresholdValue: 50},
+			}, nil
+		},
+	}
+
+	overview, err := stats.NewService(repo).GetOverview(context.Background(), uuid.New(), nil, nil)
+	require.NoError(t, err)
+	require.Len(t, overview.Events, 3)
+
+	g1 := overview.Events[0].Groups
+	require.Len(t, g1, 2)
+	assert.Equal(t, trainer, g1[0].RoleId)
+	assert.Equal(t, "Trainer", g1[0].Name)
+	require.NotNil(t, g1[0].Color)
+	assert.Equal(t, blue, *g1[0].Color)
+	assert.Equal(t, 2, g1[0].Yes)
+	assert.Equal(t, 2, g1[0].Counted)
+	assert.Equal(t, gen.StatsThresholdMode("count"), g1[0].ThresholdMode)
+	assert.Equal(t, 1, g1[0].ThresholdValue)
+	assert.Equal(t, member, g1[1].RoleId)
+	assert.Nil(t, g1[1].Color)
+	assert.Equal(t, gen.StatsThresholdMode("percent"), g1[1].ThresholdMode)
+	assert.Equal(t, 50, g1[1].ThresholdValue)
+
+	g2 := overview.Events[1].Groups
+	require.Len(t, g2, 2)
+	assert.Equal(t, 0, g2[0].Yes)
+	assert.Equal(t, 2, g2[1].Yes)
+
+	require.NotNil(t, overview.Events[2].Groups, "an event without group rows must serialize as [], not null")
+	assert.Empty(t, overview.Events[2].Groups)
+	raw, err := json.Marshal(overview.Events[2])
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"groups":[]`)
+}
+
+func TestService_GetOverview_PropagatesGroupStatsError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("group query failed")
+	repo := &mockRepo{
+		memberStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.MemberStatRow, error) {
+			return nil, nil
+		},
+		eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) {
+			return nil, nil
+		},
+		eventGroupStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventGroupStatRow, error) {
+			return nil, wantErr
+		},
+	}
+	_, err := stats.NewService(repo).GetOverview(context.Background(), uuid.New(), nil, nil)
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestService_ListGroupThresholds(t *testing.T) {
+	t.Parallel()
+
+	teamID, roleID := uuid.New(), uuid.New()
+	repo := &mockRepo{
+		listThresholdsFn: func(_ context.Context, gotTeam uuid.UUID) ([]stats.GroupThresholdRow, error) {
+			assert.Equal(t, teamID, gotTeam)
+			return []stats.GroupThresholdRow{{RoleID: roleID, Mode: "percent", Value: 50}}, nil
+		},
+	}
+	rows, err := stats.NewService(repo).ListGroupThresholds(context.Background(), teamID)
+	require.NoError(t, err)
+	assert.Equal(t, []stats.GroupThresholdRow{{RoleID: roleID, Mode: "percent", Value: 50}}, rows)
+
+	wantErr := errors.New("db unavailable")
+	repo.listThresholdsFn = func(context.Context, uuid.UUID) ([]stats.GroupThresholdRow, error) { return nil, wantErr }
+	_, err = stats.NewService(repo).ListGroupThresholds(context.Background(), teamID)
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestService_SetGroupThresholds_PassesValidItemsThrough(t *testing.T) {
+	t.Parallel()
+
+	teamID, r1, r2 := uuid.New(), uuid.New(), uuid.New()
+	// Boundary values of both modes are all valid.
+	items := []stats.GroupThresholdRow{
+		{RoleID: r1, Mode: "percent", Value: 0},
+		{RoleID: r1, Mode: "percent", Value: 100},
+		{RoleID: r2, Mode: "count", Value: 0},
+		{RoleID: r2, Mode: "count", Value: 10000},
+	}
+	var got []stats.GroupThresholdRow
+	repo := &mockRepo{
+		setThresholdsFn: func(_ context.Context, gotTeam uuid.UUID, in []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error) {
+			assert.Equal(t, teamID, gotTeam)
+			got = in
+			return in, nil
+		},
+	}
+	rows, err := stats.NewService(repo).SetGroupThresholds(context.Background(), teamID, items)
+	require.NoError(t, err)
+	assert.Equal(t, items, got)
+	assert.Equal(t, items, rows)
+}
+
+func TestService_SetGroupThresholds_RejectsInvalidItemsWithoutWriting(t *testing.T) {
+	t.Parallel()
+
+	roleID := uuid.New()
+	valid := stats.GroupThresholdRow{RoleID: roleID, Mode: "percent", Value: 50}
+	cases := map[string]stats.GroupThresholdRow{
+		"unknown mode":      {RoleID: roleID, Mode: "ratio", Value: 10},
+		"empty mode":        {RoleID: roleID, Mode: "", Value: 10},
+		"negative percent":  {RoleID: roleID, Mode: "percent", Value: -1},
+		"percent above 100": {RoleID: roleID, Mode: "percent", Value: 101},
+		"negative count":    {RoleID: roleID, Mode: "count", Value: -1},
+		"count above cap":   {RoleID: roleID, Mode: "count", Value: 10001},
+	}
+	for name, bad := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			repo := &mockRepo{
+				setThresholdsFn: func(context.Context, uuid.UUID, []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error) {
+					t.Error("repository must not be called when any item is invalid")
+					return nil, nil
+				},
+			}
+			// A valid item ahead of the bad one must not be written either.
+			_, err := stats.NewService(repo).SetGroupThresholds(context.Background(), uuid.New(), []stats.GroupThresholdRow{valid, bad})
+			require.ErrorIs(t, err, stats.ErrInvalidThreshold)
+		})
+	}
+}
+
+func TestService_SetGroupThresholds_PropagatesRoleNotInTeam(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{
+		setThresholdsFn: func(context.Context, uuid.UUID, []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error) {
+			return nil, stats.ErrRoleNotInTeam
+		},
+	}
+	_, err := stats.NewService(repo).SetGroupThresholds(context.Background(), uuid.New(),
+		[]stats.GroupThresholdRow{{RoleID: uuid.New(), Mode: "count", Value: 3}})
+	require.ErrorIs(t, err, stats.ErrRoleNotInTeam)
 }
 
 func mustParseDate(t *testing.T, s string) time.Time {

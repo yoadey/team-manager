@@ -1,9 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Stats } from './Stats';
 
 const mockSetStatsRange = vi.fn();
+
+function group(
+  roleId: string,
+  name: string,
+  yes: number,
+  counted: number,
+  [thresholdMode, thresholdValue]: ['percent' | 'count', number],
+) {
+  return { roleId, name, color: '#1565C0', yes, counted, thresholdMode, thresholdValue };
+}
 
 function makeStats() {
   return {
@@ -15,8 +25,38 @@ function makeStats() {
       { userId: 'u3', name: 'Clara Braun', quote: null, photo: null, avatarColor: '#00F' },
     ],
     events: [
-      { id: 'ev1', title: 'Training', date: '2026-03-01', type: 'training', yes: 8, nominated: 10, enough: true },
-      { id: 'ev2', title: 'Spiel', date: '2026-03-05', type: 'match', yes: 5, nominated: 10, enough: false },
+      {
+        id: 'ev1',
+        title: 'Training',
+        date: '2026-03-01',
+        type: 'training',
+        yes: 8,
+        nominated: 10,
+        enough: true,
+        groups: [
+          // complete -> check mark
+          group('r_trainer', 'Trainer', 2, 2, ['count', 1]),
+          // 6/8 = 75% >= 50% -> plain percentage
+          group('r_member', 'Mitglied', 6, 8, ['percent', 50]),
+        ],
+      },
+      {
+        id: 'ev2',
+        title: 'Spiel',
+        date: '2026-03-05',
+        type: 'match',
+        yes: 5,
+        nominated: 10,
+        enough: false,
+        groups: [
+          // nobody responded -> no data
+          group('r_trainer', 'Trainer', 0, 0, ['count', 1]),
+          // 2/5 = 40% < 50% -> red
+          group('r_member', 'Mitglied', 2, 5, ['percent', 50]),
+          // 6/10 = 60%, but fewer than 8 attendees -> red (count mode)
+          group('r_player', 'Spieler', 6, 10, ['count', 8]),
+        ],
+      },
     ],
   };
 }
@@ -208,26 +248,126 @@ describe('Stats', () => {
     expect(dashes.length).toBeGreaterThan(0);
   });
 
-  it('renders event stats section', () => {
+  it('no longer lists events below the quotas on the quota tab', () => {
     mockUseApp.mockReturnValue(makeApp(makeStats()));
     render(<Stats />);
-    expect(screen.getByText('Aufstellung je Termin')).toBeTruthy();
-    expect(screen.getByText('Training')).toBeTruthy();
-    expect(screen.getByText('Spiel')).toBeTruthy();
+    expect(screen.getByText('Quote pro Person')).toBeTruthy();
+    expect(screen.queryByText('Training')).toBeNull();
+    expect(screen.queryByText('Spiel')).toBeNull();
+    expect(screen.queryAllByTestId('stats-event-row')).toHaveLength(0);
   });
 
-  it('shows "Vollständig" chip for events with enough attendance', () => {
-    mockUseApp.mockReturnValue(makeApp(makeStats()));
-    render(<Stats />);
-    expect(screen.getByText('Vollständig')).toBeTruthy();
-    expect(screen.getByText('Zu wenig')).toBeTruthy();
-  });
+  describe('events tab ("Termine")', () => {
+    async function openEventsTab(stats: unknown = makeStats()) {
+      mockUseApp.mockReturnValue(makeApp(stats));
+      render(<Stats />);
+      await userEvent.click(screen.getByRole('tab', { name: 'Termine' }));
+    }
 
-  it('shows empty events state when no past events', () => {
-    const stats = { ...makeStats(), events: [] };
-    mockUseApp.mockReturnValue(makeApp(stats));
-    render(<Stats />);
-    expect(screen.getByText('Noch keine vergangenen Termine')).toBeTruthy();
+    it('lists the events of the range with their turnout, without the quota sections', async () => {
+      await openEventsTab();
+      expect(screen.getByRole('tab', { name: 'Termine' }).getAttribute('aria-selected')).toBe('true');
+      const rows = screen.getAllByTestId('stats-event-row');
+      expect(rows).toHaveLength(2);
+      expect(within(rows[0]!).getByText('Training')).toBeTruthy();
+      expect(within(rows[0]!).getByText(/8\/10 anwesend/)).toBeTruthy();
+      expect(within(rows[1]!).getByText('Spiel')).toBeTruthy();
+      expect(screen.queryByText('Quote pro Person')).toBeNull();
+    });
+
+    it('does not request the matrix for the events tab', async () => {
+      await openEventsTab();
+      const calls = mockUseMatrixQuery.mock.calls;
+      expect(calls[calls.length - 1]![3]).toBe(false);
+    });
+
+    it('shows a check mark instead of a percentage for a complete group', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      const pill = within(row).getByLabelText('Trainer: vollständig anwesend (2 von 2)');
+      expect(pill.getAttribute('data-state')).toBe('complete');
+      expect(pill.textContent).not.toMatch(/%/);
+      expect(pill.querySelector('svg')).toBeTruthy();
+    });
+
+    it('shows the percentage, not red, for an incomplete group at or above its threshold', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      const pill = within(row).getByLabelText('Mitglied: 75% anwesend (6 von 8)');
+      expect(pill.getAttribute('data-state')).toBe('ok');
+      expect(pill.textContent).toContain('75%');
+      expect(pill.querySelector('svg')).toBeNull();
+    });
+
+    it('marks an incomplete group below its percentage threshold red', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[1]!;
+      const pill = within(row).getByLabelText('Mitglied: 40% anwesend (2 von 5), unter dem Schwellenwert');
+      expect(pill.getAttribute('data-state')).toBe('low');
+      expect(pill.textContent).toContain('40%');
+    });
+
+    it('marks an incomplete group below its absolute threshold red, still showing a percentage', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[1]!;
+      const pill = within(row).getByLabelText('Spieler: 60% anwesend (6 von 10), unter dem Schwellenwert');
+      expect(pill.getAttribute('data-state')).toBe('low');
+      expect(pill.textContent).toContain('60%');
+    });
+
+    it('shows a dash for a group without counted responses', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[1]!;
+      const pill = within(row).getByLabelText('Trainer: keine Daten');
+      expect(pill.getAttribute('data-state')).toBe('none');
+      expect(pill.textContent).toContain('–');
+    });
+
+    it('renders one indicator per group, in the order the API returned them', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[1]!;
+      const list = within(row).getByRole('list', { name: 'Anwesenheit je Gruppe für Spiel' });
+      const names = within(list)
+        .getAllByRole('listitem')
+        .map((li) => li.getAttribute('aria-label')!.split(':')[0]);
+      expect(names).toEqual(['Trainer', 'Mitglied', 'Spieler']);
+    });
+
+    it('renders an event without groups without a group list', async () => {
+      const stats = makeStats();
+      stats.events[0]!.groups = [];
+      await openEventsTab(stats);
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      expect(within(row).queryByRole('list')).toBeNull();
+    });
+
+    it('shows no group indicators for an event without any counted response', async () => {
+      const stats = makeStats();
+      stats.events[0] = {
+        ...stats.events[0]!,
+        yes: 0,
+        nominated: 0,
+        groups: [group('r_trainer', 'Trainer', 0, 0, ['count', 1]), group('r_member', 'Mitglied', 0, 0, ['percent', 50])],
+      };
+      await openEventsTab(stats);
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      expect(within(row).getByText(/0\/0 anwesend/)).toBeTruthy();
+      expect(within(row).queryByRole('list')).toBeNull();
+      // The other event still shows its indicators.
+      expect(within(screen.getAllByTestId('stats-event-row')[1]!).getByRole('list')).toBeTruthy();
+    });
+
+    it('shows the empty state when the range has no events', async () => {
+      await openEventsTab({ ...makeStats(), events: [] });
+      expect(screen.getByText('Noch keine vergangenen Termine')).toBeTruthy();
+    });
+
+    it('shows a spinner while the overview is loading', async () => {
+      mockUseApp.mockReturnValue(makeApp(null));
+      render(<Stats />);
+      await userEvent.click(screen.getByRole('tab', { name: 'Termine' }));
+      expect(screen.getByRole('status')).toBeTruthy();
+    });
   });
 
   it('highlights active range preset', () => {
@@ -249,11 +389,33 @@ describe('Stats', () => {
     expect(screen.getByText('Gesamt')).toBeTruthy();
   });
 
-  it('renders the Quote/Matrix tab toggle', () => {
+  it('renders the Quote/Matrix/Termine tabs in that order', () => {
     mockUseApp.mockReturnValue(makeApp(makeStats()));
     render(<Stats />);
-    expect(screen.getByRole('tab', { name: 'Quote' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Matrix' })).toBeTruthy();
+    expect(screen.getAllByRole('tab').map((el) => el.textContent)).toEqual(['Quote', 'Matrix', 'Termine']);
+  });
+
+  it('puts the attendance count directly after the member name in the matrix', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, makeMatrix()));
+    render(<Stats />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Matrix' }));
+
+    // Header: Mitglied | Ja | 1.1. | 6.1. | 7.1.
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    expect(headers).toEqual(['Mitglied', 'Ja', '1.1.', '6.1.', '7.1.']);
+
+    // Every body row: name cell, then the count, then one cell per event.
+    const bodyRows = screen.getAllByRole('row').slice(1);
+    expect(bodyRows).toHaveLength(2);
+    const peter = bodyRows[0]!;
+    expect(within(peter).getByRole('rowheader').textContent).toContain('Peter');
+    const peterCells = within(peter).getAllByRole('cell');
+    expect(peterCells).toHaveLength(4);
+    expect(peterCells[0]!.getAttribute('data-testid')).toBe('matrix-total');
+    expect(peterCells[0]!.textContent).toBe('2');
+    expect(within(bodyRows[1]!).getAllByRole('cell')[0]!.textContent).toBe('1');
+    // The count is no longer the last cell.
+    expect(peterCells[peterCells.length - 1]!.getAttribute('data-testid')).toBeNull();
   });
 
   it('switches to the matrix tab and renders the member × event grid', async () => {

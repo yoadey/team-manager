@@ -4,13 +4,22 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtDate, NEUTRAL, statusMeta, todayStr, typeMeta } from '@/styles/tokens';
 import { ALL_TIME_FROM_DATE, monthsAgoLocal } from '@/utils/date';
-import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, TextInput, inputSx } from '@/components/ui';
+import { Av, EmptyState, SectionTitle, SpinnerBox, Sym, TextInput, inputSx } from '@/components/ui';
 import { t as tr } from '@/i18n';
-import type { AttendanceCellStatus, AttendanceMatrix, DateRange, EventType, StatsOverview, StatsPreset } from '@/types';
+import type {
+  AttendanceCellStatus,
+  AttendanceMatrix,
+  DateRange,
+  EventGroupStat,
+  EventType,
+  StatsOverview,
+  StatsPreset,
+} from '@/types';
+import { groupIndicator } from './statsGroups';
 import { useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
 import { useStatsPreferencesActions } from './hooks/useStatsPreferencesActions';
 
-type StatsTab = 'quota' | 'matrix';
+type StatsTab = 'quota' | 'matrix' | 'events';
 
 // Glyph + colour for each matrix cell state: ✓ ja (grün), ? vielleicht
 // (orange), ✗ nein (rot), – unbekannt (grau).
@@ -216,6 +225,7 @@ export function Stats() {
   const tabs: [StatsTab, string][] = [
     ['quota', tr('stats.tabQuota')],
     ['matrix', tr('stats.tabMatrix')],
+    ['events', tr('stats.tabEvents')],
   ];
   const tabBar = (
     <Box key="tabs" role="tablist" aria-label={tr('stats.tabsAria')} sx={{ display: 'flex', gap: '8px', mb: '16px' }}>
@@ -280,7 +290,7 @@ export function Stats() {
     <Box sx={{ maxWidth: '760px' }}>
       {filterBar}
       {tabBar}
-      <QuotaView st={st} t={t} />
+      {tab === 'events' ? <EventsView st={st} /> : <QuotaView st={st} t={t} />}
     </Box>
   );
 }
@@ -522,65 +532,136 @@ function QuotaView({ st, t }: { st: StatsOverview; t: ReturnType<typeof buildTok
     </Box>
   );
 
-  const eventsSec = (
-    <Box key="ev">
-      <SectionTitle>{tr('stats.lineupPerEvent')}</SectionTitle>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {st.events.length ? (
-          st.events.map((e) => {
-            const tm = typeMeta(e.type);
-            return (
-              <Box
-                key={e.id}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  background: NEUTRAL.card,
-                  border: `1px solid ${NEUTRAL.line}`,
-                  borderRadius: '14px',
-                  p: '11px 14px',
-                }}
-              >
-                <Sym name={tm.icon} size={20} color={tm.color} />
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Box
-                    sx={{
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {e.title}
-                  </Box>
-                  <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
-                    {fmtDate(e.date) + ' · ' + tr('stats.present', { yes: e.yes, nominated: e.nominated })}
-                  </Box>
-                </Box>
-                <Chip
-                  label={e.enough ? tr('stats.complete') : tr('stats.tooFew')}
-                  color={e.enough ? NEUTRAL.success : NEUTRAL.error}
-                  bg={e.enough ? NEUTRAL.successBg : NEUTRAL.errorBg}
-                  icon={e.enough ? 'check_circle' : 'warning'}
-                />
-              </Box>
-            );
-          })
-        ) : (
-          <EmptyState icon="insights" text={tr('stats.emptyPast')} />
-        )}
-      </Box>
-    </Box>
-  );
-
   return (
     <>
       {ring}
       {memberBars}
-      {eventsSec}
     </>
+  );
+}
+
+/** The "Termine" tab: one row per event in range with the team's turnout and
+ * one indicator per group (role). Fed by the already-loaded overview query,
+ * so switching to this tab costs no extra request. */
+function EventsView({ st }: { st: StatsOverview }) {
+  if (!st.events.length) return <EmptyState icon="insights" text={tr('stats.emptyPast')} />;
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {st.events.map((e) => {
+        const tm = typeMeta(e.type);
+        return (
+          <Box
+            key={e.id}
+            data-testid="stats-event-row"
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '9px',
+              background: NEUTRAL.card,
+              border: `1px solid ${NEUTRAL.line}`,
+              borderRadius: '14px',
+              p: '11px 14px',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Sym name={tm.icon} size={20} color={tm.color} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Box
+                  sx={{
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {e.title}
+                </Box>
+                <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
+                  {fmtDate(e.date) + ' · ' + tr('stats.present', { yes: e.yes, nominated: e.nominated })}
+                </Box>
+              </Box>
+            </Box>
+            {/* An event nobody has a counted response for would only show a
+                row of "no data" dashes -- its "0/0" line already says so. */}
+            {e.groups.length && e.nominated > 0 ? (
+              <Box
+                component="ul"
+                aria-label={tr('stats.groupsAria', { title: e.title })}
+                sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px', m: 0, p: 0, listStyle: 'none' }}
+              >
+                {e.groups.map((g) => (
+                  <GroupPill key={g.roleId} g={g} />
+                ))}
+              </Box>
+            ) : null}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+/** One group's indicator for one event: role-colour dot + name, then a check
+ * mark (complete), the attendance percentage (red when below the group's
+ * threshold) or a dash (no counted response). */
+function GroupPill({ g }: { g: EventGroupStat }) {
+  const ind = groupIndicator(g);
+  const low = ind.kind === 'pct' && ind.low;
+  const tone =
+    ind.kind === 'complete'
+      ? { fg: NEUTRAL.success, bg: NEUTRAL.successBg }
+      : low
+        ? { fg: NEUTRAL.error, bg: NEUTRAL.errorBg }
+        : { fg: ind.kind === 'none' ? NEUTRAL.faint : NEUTRAL.onSurfaceVariant, bg: NEUTRAL.line2 };
+  const counts = { name: g.name, yes: g.yes, counted: g.counted };
+  const label =
+    ind.kind === 'none'
+      ? tr('stats.groupNoDataAria', { name: g.name })
+      : ind.kind === 'complete'
+        ? tr('stats.groupCompleteAria', counts)
+        : tr(low ? 'stats.groupLowAria' : 'stats.groupPctAria', { ...counts, pct: ind.pct });
+  return (
+    <Box
+      component="li"
+      aria-label={label}
+      title={label}
+      data-state={ind.kind === 'pct' ? (low ? 'low' : 'ok') : ind.kind}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        p: '3px 10px 3px 8px',
+        borderRadius: '999px',
+        background: tone.bg,
+        color: tone.fg,
+        fontSize: '12px',
+        fontWeight: 700,
+        maxWidth: '100%',
+      }}
+    >
+      <Box
+        component="span"
+        aria-hidden
+        sx={{ width: '8px', height: '8px', borderRadius: '50%', background: g.color, flex: '0 0 auto' }}
+      />
+      <Box
+        component="span"
+        aria-hidden
+        sx={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+      >
+        {g.name}
+      </Box>
+      <Box component="span" aria-hidden sx={{ display: 'inline-flex', alignItems: 'center', flex: '0 0 auto' }}>
+        {ind.kind === 'complete' ? (
+          <Sym name="check" size={15} color={tone.fg} />
+        ) : ind.kind === 'none' ? (
+          '–'
+        ) : (
+          ind.pct + '%'
+        )}
+      </Box>
+    </Box>
   );
 }
 
@@ -675,6 +756,17 @@ function MatrixView({
                 <Box component="th" scope="col" sx={{ ...thBase, ...nameColSx }}>
                   {tr('stats.matrixMemberHeader')}
                 </Box>
+                {/* Attendance count directly after the name (not at the far
+                    right), so it stays next to the member it belongs to
+                    however many event columns follow. */}
+                <Box
+                  component="th"
+                  scope="col"
+                  aria-label={tr('stats.matrixTotalAria')}
+                  sx={{ ...thBase, textAlign: 'center', minWidth: '44px' }}
+                >
+                  {tr('stats.matrixTotalHeader')}
+                </Box>
                 {columns.map((c) => {
                   const tm = typeMeta(c.type);
                   return (
@@ -692,14 +784,6 @@ function MatrixView({
                     </Box>
                   );
                 })}
-                <Box
-                  component="th"
-                  scope="col"
-                  aria-label={tr('stats.matrixTotalAria')}
-                  sx={{ ...thBase, textAlign: 'center', minWidth: '44px' }}
-                >
-                  {tr('stats.matrixTotalHeader')}
-                </Box>
               </Box>
             </Box>
             <Box component="tbody">
@@ -720,6 +804,20 @@ function MatrixView({
                       <Av name={m.name} photo={m.photo} color={m.avatarColor} size={26} />
                       <Box sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</Box>
                     </Box>
+                  </Box>
+                  <Box
+                    component="td"
+                    data-testid="matrix-total"
+                    sx={{
+                      borderBottom: `1px solid ${NEUTRAL.line}`,
+                      textAlign: 'center',
+                      padding: '6px',
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      color: NEUTRAL.success,
+                    }}
+                  >
+                    {m.yes}
                   </Box>
                   {columns.map((c) => {
                     const status: AttendanceCellStatus = m.cells[c.id] ?? 'pending';
@@ -747,19 +845,6 @@ function MatrixView({
                       </Box>
                     );
                   })}
-                  <Box
-                    component="td"
-                    sx={{
-                      borderBottom: `1px solid ${NEUTRAL.line}`,
-                      textAlign: 'center',
-                      padding: '6px',
-                      fontSize: '13px',
-                      fontWeight: 800,
-                      color: NEUTRAL.success,
-                    }}
-                  >
-                    {m.yes}
-                  </Box>
                 </Box>
               ))}
             </Box>

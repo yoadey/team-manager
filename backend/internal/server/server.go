@@ -762,6 +762,14 @@ func (s *Server) GetAttendanceMatrix(ctx context.Context, req gen.GetAttendanceM
 	return s.Stats.GetAttendanceMatrix(ctx, req)
 }
 
+func (s *Server) ListStatsGroupThresholds(ctx context.Context, req gen.ListStatsGroupThresholdsRequestObject) (gen.ListStatsGroupThresholdsResponseObject, error) {
+	return s.Stats.ListStatsGroupThresholds(ctx, req)
+}
+
+func (s *Server) SetStatsGroupThresholds(ctx context.Context, req gen.SetStatsGroupThresholdsRequestObject) (gen.SetStatsGroupThresholdsResponseObject, error) {
+	return s.Stats.SetStatsGroupThresholds(ctx, req)
+}
+
 // ─── Stats preferences delegations ────────────────────────────────────────────
 
 func (s *Server) GetStatsPreferences(ctx context.Context, req gen.GetStatsPreferencesRequestObject) (gen.GetStatsPreferencesResponseObject, error) {
