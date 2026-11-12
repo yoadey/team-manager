@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
+import { useCompact } from '@/layouts/useCompact';
 import { buildTokens, fmtDate, NEUTRAL, statusMeta, todayStr, typeMeta } from '@/styles/tokens';
 import { ALL_TIME_FROM_DATE, monthsAgoLocal } from '@/utils/date';
 import { Av, EmptyState, SectionTitle, SpinnerBox, Sym, TextInput, inputSx } from '@/components/ui';
@@ -31,6 +32,10 @@ const CELL_META: Record<AttendanceCellStatus, { icon: string; color: string }> =
 };
 
 const MATRIX_TYPES: EventType[] = ['training', 'auftritt', 'event'];
+
+// Width of the matrix's pinned name column on desktop; also the `left`
+// offset of the pinned attendance-count column right after it.
+const MATRIX_NAME_COL_WIDTH = 190;
 
 // Compact numeric column header (e.g. "1.1.") matching the user's mental model
 // of a season grid, from a YYYY-MM-DD date.
@@ -603,8 +608,8 @@ function EventsView({ st }: { st: StatsOverview }) {
 }
 
 /** One group's indicator for one event: role-colour dot + name, then a check
- * mark (complete), the attendance percentage (red when below the group's
- * threshold) or a dash (no counted response). */
+ * mark (complete), the attendance percentage (red with a warning icon when
+ * below the group's threshold) or a dash (no counted response). */
 function GroupPill({ g }: { g: EventGroupStat }) {
   const ind = groupIndicator(g);
   const low = ind.kind === 'pct' && ind.low;
@@ -658,7 +663,11 @@ function GroupPill({ g }: { g: EventGroupStat }) {
         ) : ind.kind === 'none' ? (
           '–'
         ) : (
-          ind.pct + '%'
+          <>
+            {/* "Too low" must not be carried by colour alone. */}
+            {low ? <Sym name="warning" size={14} color={tone.fg} sx={{ mr: '3px' }} /> : null}
+            {ind.pct + '%'}
+          </>
         )}
       </Box>
     </Box>
@@ -676,6 +685,7 @@ function MatrixView({
   onToggleType: (t: EventType) => void;
   primary: string;
 }) {
+  const compact = useCompact();
   const typeFilter = (
     <Box
       role="group"
@@ -733,15 +743,33 @@ function MatrixView({
     color: NEUTRAL.secondary,
     background: NEUTRAL.card,
   } as const;
+  // The name column is pinned while the event columns scroll horizontally.
+  // On desktop the attendance count next to it is pinned too, so it stays
+  // beside the name however many event columns follow; that needs a fixed
+  // name-column width for the count's `left` offset. On a phone only the
+  // name is pinned -- a second pinned column would leave too little room
+  // for the event columns themselves.
+  const pinTotal = !compact;
+  const dividerShadow = `1px 0 0 ${NEUTRAL.line}`;
   const nameColSx = {
     position: 'sticky',
     left: 0,
     zIndex: 1,
     background: NEUTRAL.card,
     textAlign: 'left',
-    minWidth: '150px',
-    boxShadow: `1px 0 0 ${NEUTRAL.line}`,
+    ...(pinTotal
+      ? { width: MATRIX_NAME_COL_WIDTH + 'px', minWidth: MATRIX_NAME_COL_WIDTH + 'px' }
+      : { minWidth: '150px', boxShadow: dividerShadow }),
   } as const;
+  const totalColSx = pinTotal
+    ? ({
+        position: 'sticky',
+        left: MATRIX_NAME_COL_WIDTH + 'px',
+        zIndex: 1,
+        background: NEUTRAL.card,
+        boxShadow: dividerShadow,
+      } as const)
+    : {};
 
   return (
     <Box>
@@ -756,14 +784,14 @@ function MatrixView({
                 <Box component="th" scope="col" sx={{ ...thBase, ...nameColSx }}>
                   {tr('stats.matrixMemberHeader')}
                 </Box>
-                {/* Attendance count directly after the name (not at the far
-                    right), so it stays next to the member it belongs to
-                    however many event columns follow. */}
+                {/* Attendance count directly after the name, not at the far
+                    right behind every event column. */}
                 <Box
                   component="th"
                   scope="col"
+                  data-testid="matrix-total-header"
                   aria-label={tr('stats.matrixTotalAria')}
-                  sx={{ ...thBase, textAlign: 'center', minWidth: '44px' }}
+                  sx={{ ...thBase, ...totalColSx, textAlign: 'center', minWidth: '44px' }}
                 >
                   {tr('stats.matrixTotalHeader')}
                 </Box>
@@ -800,15 +828,31 @@ function MatrixView({
                       fontSize: '13px',
                     }}
                   >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        // Fixed inner width = column width minus the cell's
+                        // 2 x 8px padding, so a long name is cut off with an
+                        // ellipsis instead of widening the pinned column.
+                        ...(pinTotal ? { width: MATRIX_NAME_COL_WIDTH - 16 + 'px' } : {}),
+                      }}
+                    >
                       <Av name={m.name} photo={m.photo} color={m.avatarColor} size={26} />
-                      <Box sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</Box>
+                      <Box
+                        title={m.name}
+                        sx={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      >
+                        {m.name}
+                      </Box>
                     </Box>
                   </Box>
                   <Box
                     component="td"
                     data-testid="matrix-total"
                     sx={{
+                      ...totalColSx,
                       borderBottom: `1px solid ${NEUTRAL.line}`,
                       textAlign: 'center',
                       padding: '6px',

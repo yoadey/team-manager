@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { useRef } from 'react';
-import { BASE_LIMITS, cellLimits, linesThatFit, useStretchedRowHeight } from './calendarLayout';
+import { BASE_LIMITS, cellLimits, linesThatFit, useStretchedRowHeight, weekRowTemplate } from './calendarLayout';
 
 describe('linesThatFit', () => {
   it('is null while the row height is unknown', () => {
@@ -9,11 +9,11 @@ describe('linesThatFit', () => {
     expect(linesThatFit(null, true)).toBeNull();
   });
 
-  it('counts whole 17px lines after the 34px cell overhead on desktop', () => {
-    expect(linesThatFit(76, false)).toBe(2); // (76 - 34) / 17 = 2.47
-    expect(linesThatFit(85, false)).toBe(3); // exactly 3 lines
-    expect(linesThatFit(84, false)).toBe(2); // one pixel short of 3
-    expect(linesThatFit(170, false)).toBe(8);
+  it('counts whole 18px lines after the 34px cell overhead on desktop', () => {
+    expect(linesThatFit(76, false)).toBe(2); // (76 - 34) / 18 = 2.33
+    expect(linesThatFit(88, false)).toBe(3); // exactly 3 lines
+    expect(linesThatFit(87, false)).toBe(2); // one pixel short of 3
+    expect(linesThatFit(170, false)).toBe(7);
   });
 
   it('counts whole 16px lines after the 30px cell overhead on mobile', () => {
@@ -24,6 +24,34 @@ describe('linesThatFit', () => {
 
   it('never goes negative for a row smaller than the overhead', () => {
     expect(linesThatFit(10, false)).toBe(0);
+  });
+});
+
+describe('weekRowTemplate', () => {
+  it('falls back to the fixed minimum row height while unmeasured', () => {
+    expect(weekRowTemplate(null, false)).toBe('auto repeat(6, minmax(76px, auto))');
+    expect(weekRowTemplate(null, true)).toBe('auto repeat(6, minmax(58px, auto))');
+  });
+
+  it('uses the measured row height as the minimum of every week row', () => {
+    expect(weekRowTemplate(140, false)).toBe('auto repeat(6, minmax(140px, auto))');
+    expect(weekRowTemplate(90, true)).toBe('auto repeat(6, minmax(90px, auto))');
+  });
+
+  it('never goes below the fixed minimum on a short viewport', () => {
+    expect(weekRowTemplate(40, false)).toBe('auto repeat(6, minmax(76px, auto))');
+    expect(weekRowTemplate(40, true)).toBe('auto repeat(6, minmax(58px, auto))');
+  });
+
+  // Regression: `1fr` week rows are sized against an indefinite height here
+  // (the page can grow and scroll), which makes all six rows as tall as the
+  // tallest one -- a single busy day inflated every week. The row maximum
+  // must stay content-sized so only the busy week grows.
+  it('keeps the rows content-sized instead of flexible', () => {
+    for (const tmpl of [weekRowTemplate(null, false), weekRowTemplate(140, false), weekRowTemplate(40, true)]) {
+      expect(tmpl).not.toContain('fr');
+      expect(tmpl).toMatch(/, auto\)\)$/);
+    }
   });
 });
 

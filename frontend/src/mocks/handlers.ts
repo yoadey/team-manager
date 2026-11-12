@@ -2262,9 +2262,19 @@ export const handlers = [
       const pct = counted ? yes / counted : 0;
       // Per-group breakdown: same roster (allMemberIds, not the
       // exclude-filtered one) and same counting as yes/counted above, per
-      // role held -- a member with several roles counts in each. Mirrors
-      // stats.Repository.EventGroupStats; a role nobody holds yields no
-      // entry, like the backend's inner joins.
+      // role held -- a member with several roles counts in each, and a role
+      // nobody holds yields no entry (like stats.Repository.EventGroupStats'
+      // inner joins). What it must guarantee is that a group reconciles with
+      // this handler's own event row.
+      //
+      // Known drift, older than the group breakdown and deliberately not
+      // widened here: this whole overview handler counts explicit responses
+      // only (rawCountedStatus), while the real backend has since moved to
+      // *effective* attendance (opt-out default, covering absence -- see
+      // attendance.EffectiveStatusExpr), which this demo's matrix handler
+      // already uses. So for an opt-out training nobody answered, the demo
+      // shows "0/0" and no group indicators where the real backend reports
+      // everyone present.
       const groups: S['EventGroupStat'][] = roles.flatMap((r) => {
         const holders = teamMemberships.filter((m) => m.roleIds.includes(r.id));
         if (!holders.length) return [];

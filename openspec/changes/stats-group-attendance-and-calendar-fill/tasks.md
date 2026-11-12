@@ -71,20 +71,45 @@
 - [x] 7.1 `docs/end-user/statistik.md`, `docs/end-user/termine.md`.
 - [x] 7.2 `CLAUDE.md`: RBAC note for the settings-gated threshold route.
 
-## 8. Verification
+## 8. Independent-review follow-ups
 
-- [x] 8.1 `openspec validate stats-group-attendance-and-calendar-fill
+- [x] 8.1 Calendar: one busy day inflated all six week rows (`1fr` rows
+      against an indefinite height). Rows are now `minmax(<measured>, auto)`
+      so only the busy week grows; line-height estimate rounded up for
+      absence/birthday chips; e2e regression test in `e2e/events.spec.ts`.
+- [x] 8.2 Team settings: a failed threshold save after a successful team
+      save is reported as a partial save, the team list still refreshes and
+      the threshold list reloads.
+- [x] 8.3 Statistics: a too-low group carries a warning icon, not colour
+      alone.
+- [x] 8.4 Matrix: count column pinned next to the pinned name column on
+      desktop; inaccurate code comment removed.
+- [x] 8.5 API: `SetStatsGroupThresholdsRequest.items.maxItems` 500 → 200 to
+      match the handler's cap; regenerated.
+- [x] 8.6 Backend: upserts in role-id order (no deadlock between concurrent
+      saves), FK violation from a concurrently deleted role → 422, audit
+      record `stats.thresholds_update`.
+- [x] 8.7 Demo backend: comment at the group breakdown corrected; the
+      pre-existing raw-vs-effective drift of the mock overview documented
+      (design.md, Risks) rather than widened into this change.
+
+## 9. Verification
+
+- [x] 9.1 `openspec validate stats-group-attendance-and-calendar-fill
       --strict`
-- [x] 8.2 Frontend: `npm run lint`, `npm run typecheck`, `npm test`
+- [x] 9.2 Frontend: `npm run lint`, `npm run typecheck`, `npm test`
       (coverage thresholds 80/65/75/80), `npm run build` +
       `npm run check:bundle` (250 KB/chunk, 600 KB total gzipped)
-- [x] 8.3 Backend: `make generate` + `make generate-ts` leave no diff
+- [x] 9.3 Backend: `make generate` + `make generate-ts` leave no diff
       (openapi-drift), `go build ./...`, `make lint` (+ tool-pin-sync
       unaffected), `go test ./...` (Docker-backed tests ran, none
-      skipped). Left to CI: the business-logic coverage gate (≥ 35 %) and
-      `govulncheck` (vuln.go.dev unreachable from the sandbox; no
-      dependency was added).
-- [x] 8.4 Migration gates: rollback (up → down → up) and migration-safety
+      skipped), business-logic coverage 74 % (gate: ≥ 35 %). `govulncheck`
+      cannot run in the sandbox (vuln.go.dev unreachable); CI runs it and it
+      is red there for reasons unrelated to this change (no dependency was
+      added — see the PR discussion).
+- [x] 9.4 Migration gates: rollback (up → down → up) and migration-safety
       lint on `00037`
-- [x] 8.5 e2e suite unaffected (17/17 pass)
-- [ ] 8.6 Independent review by a fresh subagent; findings addressed
+- [x] 9.5 e2e suite: 18/18 pass, including the new calendar layout test
+- [x] 9.6 Independent review by a fresh subagent; findings addressed (see
+      group 8). Left as an open product decision: whether members who gave
+      no response should count against a group being "complete".

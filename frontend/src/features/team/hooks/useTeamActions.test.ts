@@ -343,9 +343,15 @@ describe('useTeamActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Team-Einstellungen gespeichert');
   });
 
-  it('saveTeamSettings reports a failed threshold save and shows no success toast', async () => {
+  // The two requests are not atomic: when the threshold save fails, the
+  // team's own settings are already stored. The failure must say so (not
+  // claim nothing was saved), the team list must still refresh, and the
+  // threshold list must re-sync with the server.
+  it('saveTeamSettings reports a failed threshold save as a partial save', async () => {
     api.stats.setGroupThresholds.mockRejectedValueOnce(new Error('boom'));
-    const { result } = renderActions();
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderActions(client);
     await act(async () => {
       await expect(
         result.current.saveTeamSettings({ name: 'Updated Team', description: '', reasonRoles: [] } as never, [
@@ -353,7 +359,46 @@ describe('useTeamActions', () => {
         ]),
       ).rejects.toThrow('boom');
     });
+    expect(api.teams.updateSettings).toHaveBeenCalled();
+    expect(refreshTeams).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['teams', 'team1', 'statsGroupThresholds'] });
+    // Exactly one toast: the specific partial-save message, as an error.
+    expect(toastMsg).toHaveBeenCalledTimes(1);
+    expect(toastMsg).toHaveBeenCalledWith(
+      expect.stringContaining('Team-Einstellungen gespeichert, aber die Mindest-Anwesenheit je Gruppe konnte nicht gespeichert werden'),
+      undefined,
+      'error',
+    );
     expect(toastMsg).not.toHaveBeenCalledWith('Team-Einstellungen gespeichert');
+  });
+
+  it('saveTeamSettings sends no threshold request when the team settings themselves fail', async () => {
+    api.teams.updateSettings.mockRejectedValueOnce(new Error('nope'));
+    const { result } = renderActions();
+    await act(async () => {
+      await expect(
+        result.current.saveTeamSettings({ name: 'Updated Team', description: '', reasonRoles: [] } as never, [
+          { roleId: 'r1', mode: 'percent', value: 60 },
+        ]),
+      ).rejects.toThrow('nope');
+    });
+    expect(api.stats.setGroupThresholds).not.toHaveBeenCalled();
+    expect(refreshTeams).not.toHaveBeenCalled();
+    expect(toastMsg).toHaveBeenCalledTimes(1);
+  });
+
+  it('saveTeamSettings logs out on a 401 from the threshold save, reporting it once', async () => {
+    api.stats.setGroupThresholds.mockRejectedValueOnce(new AuthError());
+    const { result } = renderActions();
+    await act(async () => {
+      await expect(
+        result.current.saveTeamSettings({ name: 'Updated Team', description: '', reasonRoles: [] } as never, [
+          { roleId: 'r1', mode: 'percent', value: 60 },
+        ]),
+      ).rejects.toBeInstanceOf(AuthError);
+    });
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(toastMsg).toHaveBeenCalledTimes(1);
   });
 
   it('saveTeamSettings triggers logout on a 401 (expired session)', async () => {

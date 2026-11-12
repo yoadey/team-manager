@@ -20,6 +20,18 @@ rather than shrink.
 - **WHEN** the content area is shorter than the calendar's minimum height
 - **THEN** each week row keeps its minimum height and the page scrolls
 
+### Requirement: A busy day grows only its own week
+When a day's entries need more height than its week row has, only that week
+row MUST grow; the other week rows MUST keep the height they share, so one
+busy day never makes every week taller.
+
+#### Scenario: One day with more entries than fit
+- **WHEN** one day of the month shows more entries than its stretched row
+  has room for
+- **THEN** exactly that week row is taller than the others
+- **AND** the other five rows keep their shared height
+- **AND** the page scrolls by no more than that one week grew
+
 ### Requirement: Day cells show as many entries as fit
 A calendar day cell MUST show at least the previously fixed number of
 entries (3 events and 2 absences on desktop, 2 events and 1 absence on
@@ -27,14 +39,19 @@ mobile) and MUST show more when its measured height has room for them;
 entries that still do not fit MUST be summarised by a "+n" marker.
 
 #### Scenario: Stretched cell shows more entries
-- **WHEN** a day has five events and its cell is tall enough for five event
-  chips
+- **WHEN** a day has five events and its week row is tall enough for five
+  event chips
 - **THEN** all five events are shown and no "+n" marker appears
 
 #### Scenario: Minimum-height cell keeps the previous limit
-- **WHEN** a day has five events and its cell is at the minimum height on
-  desktop
+- **WHEN** a day has five events and its week row is at the minimum height
+  on desktop
 - **THEN** three events are shown followed by a "+2" marker
+
+#### Scenario: A raised limit never makes a row taller
+- **WHEN** a day's limit is raised above the previous fixed limit
+- **THEN** the entries it then shows, including any "+n" marker, fit the
+  stretched row height
 
 #### Scenario: Measurement unavailable
 - **WHEN** the browser cannot measure the grid (no `ResizeObserver`)

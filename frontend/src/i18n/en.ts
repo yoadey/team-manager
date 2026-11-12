@@ -778,6 +778,7 @@ export const en: Messages = {
     thresholdValueAria: 'Threshold for {name}',
     thresholdPercentError: 'Please enter a whole number from 0 to 100.',
     thresholdCountError: 'Please enter a whole number from 0 to 10000.',
+    thresholdSaveFailed: 'Team settings saved, but the minimum attendance per group could not be saved',
     settingsSave: 'Save settings',
     permWrite: 'Write',
     permRead: 'Read',

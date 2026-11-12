@@ -10,6 +10,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/validate"
@@ -28,11 +29,16 @@ type statsService interface {
 type Handler struct {
 	svc    statsService
 	logger *slog.Logger
+	audit  *audit.Logger
 }
 
-// NewHandler creates a new Handler.
-func NewHandler(svc statsService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger}
+// NewHandler creates a new Handler. al is the shared audit logger; when nil a
+// log-only one is used (mirrors teams.NewHandler).
+func NewHandler(svc statsService, logger *slog.Logger, al *audit.Logger) *Handler {
+	if al == nil {
+		al = audit.New(logger)
+	}
+	return &Handler{svc: svc, logger: logger, audit: al}
 }
 
 // GetStatsOverview returns aggregated attendance statistics for the team.
@@ -96,7 +102,8 @@ func (h *Handler) ListStatsGroupThresholds(ctx context.Context, req gen.ListStat
 // SetStatsGroupThresholds stores per-group (role) attendance thresholds.
 // Requires settings:write (x-rbac-module: settings, mutating method).
 func (h *Handler) SetStatsGroupThresholds(ctx context.Context, req gen.SetStatsGroupThresholdsRequestObject) (gen.SetStatsGroupThresholdsResponseObject, error) {
-	if _, ok := auth.UserFromContext(ctx); !ok {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 	if req.Body == nil {
@@ -122,6 +129,10 @@ func (h *Handler) SetStatsGroupThresholds(ctx context.Context, req gen.SetStatsG
 		h.logger.ErrorContext(ctx, "SetStatsGroupThresholds failed", "err", err)
 		return nil, apierror.Internal("failed to save attendance thresholds")
 	}
+	// A settings mutation like team.update / role.update, so it is audited
+	// the same way.
+	h.audit.Record(ctx, audit.EventStatsThresholdsUpdate, audit.Success, user.Id.String(),
+		slog.String("teamId", req.TeamId.String()), slog.Int("roles", len(items)))
 	return gen.SetStatsGroupThresholds200JSONResponse(toGenThresholdList(rows)), nil
 }
 

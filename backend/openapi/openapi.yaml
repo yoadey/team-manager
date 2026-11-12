@@ -4295,7 +4295,11 @@ components:
       properties:
         items:
           type: array
-          maxItems: 500
+          maxItems: 200
+          description: >-
+            At most 200 items per request (the same cap every role-id-shaped
+            array in this API carries); a team with more roles saves them in
+            several requests.
           items:
             $ref: "#/components/schemas/StatsGroupThreshold"
 

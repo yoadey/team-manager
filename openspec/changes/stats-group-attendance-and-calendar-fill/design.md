@@ -122,18 +122,30 @@ that consumes the values), not `internal/roles`.
   moves into an `EventsView` fed by the already-loaded overview query (no
   new request). Group indicators are small pills: role-colour dot + name +
   (check | percent | –); `aria-label` spells out "name: x of y attended".
-- Matrix: the Σ column becomes the second column (not sticky — on a phone a
-  second sticky column would leave too little room for the scrolling event
-  columns).
+- Matrix: the count column becomes the second column (see below for
+  pinning).
 - Team settings sheet: one row per role with a `%`/`Anzahl` toggle and a
   number input, part of the existing react-hook-form + zod form and saved by
   the existing "save" button (PUT only when the section is dirty).
 - Calendar: the events page's calendar branch becomes a flex column with
-  `minHeight: 100%` of `<main>`'s content box; the card and grid take
-  `flex: 1`, rows are `minmax(<today's min>, 1fr)`. A `ResizeObserver` on
-  the grid reports the row height; the per-cell entry limits grow with it
-  and never drop below today's fixed limits (also the fallback where
-  `ResizeObserver` is unavailable, e.g. jsdom).
+  `minHeight: 100%` of `<main>`'s content box, so the card reaches the
+  bottom of the page. The six week rows are *not* flexible tracks: a hook
+  (`useStretchedRowHeight`, `ResizeObserver` on `<main>`) computes the
+  height each row gets when the grid reaches the bottom of the scroll
+  container, from the container's height and the grid's top edge only, and
+  the rows are `minmax(<that height>, auto)`. The per-cell entry limits are
+  derived from the same number and never drop below today's fixed limits
+  (also the fallback where nothing can be measured, e.g. jsdom).
+  *Why not `1fr` rows:* the grid's height is indefinite (the page is only
+  min-height-constrained so it can still grow and scroll), and `fr` tracks
+  sized against an indefinite height all take the size of the tallest
+  track -- one busy day inflated all six weeks and pushed the calendar off
+  screen (found in independent review, covered by an e2e test).
+  *Why not measure the rows themselves:* their height grows with the entries
+  shown, so limits derived from it would feed back into themselves.
+- Matrix: on desktop the count column is pinned (`position: sticky`) right
+  after the pinned, fixed-width name column; on a phone only the name is
+  pinned, so the event columns keep enough room.
 
 ## Risks / Trade-offs
 
@@ -147,6 +159,19 @@ that consumes the values), not `internal/roles`.
   and `maxRolesPerTeam`.
 - [Calendar height measurement can lag one frame behind a resize] → limits
   only ever grow from the safe minimum, and cells keep `overflow: hidden`.
+- [A day whose *minimum* entries (the previous fixed limits) need more than
+  the stretched row has -- e.g. three events in an 82 px row on a 1440×900
+  screen -- makes its week taller, so the page scrolls by that excess] →
+  accepted: it is exactly the pre-change behaviour for that week, and the
+  alternative (showing fewer entries than before) is worse.
+- [Saving team settings and thresholds is two requests, not one
+  transaction] → a threshold failure is reported as a partial save, the
+  team list is refreshed and the threshold list reloaded.
+- [The demo (MSW) backend's statistics overview counts explicit responses
+  only, while the real backend counts effective attendance] → pre-existing
+  drift, documented at the mock's group breakdown; the mock keeps a group
+  consistent with its own event row. Aligning the whole mock overview is a
+  separate change.
 
 ## Migration Plan
 

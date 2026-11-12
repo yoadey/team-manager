@@ -117,6 +117,11 @@ function makeApp(
   };
 }
 
+// Desktop by default; the matrix pins its count column only there.
+vi.mock('@/layouts/useCompact', () => ({
+  useCompact: vi.fn(() => false),
+}));
+
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
   useAppActions: vi.fn().mockReturnValue({ openEventDetail: vi.fn() }),
@@ -140,16 +145,19 @@ vi.mock('./hooks/useStatsPreferencesActions', () => ({
 }));
 
 import { useApp } from '@/context/AppContext';
+import { useCompact } from '@/layouts/useCompact';
 import { useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
 import { useStatsPreferencesActions } from './hooks/useStatsPreferencesActions';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
 const mockUseMatrixQuery = useAttendanceMatrixQuery as ReturnType<typeof vi.fn>;
 const mockUseStatsPreferencesActions = useStatsPreferencesActions as ReturnType<typeof vi.fn>;
+const mockUseCompact = useCompact as ReturnType<typeof vi.fn>;
 
 describe('Stats', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseCompact.mockReturnValue(false);
     mockUseStatsPreferencesActions.mockReturnValue({
       preferences: undefined,
       preferencesLoaded: false,
@@ -304,6 +312,8 @@ describe('Stats', () => {
       const row = screen.getAllByTestId('stats-event-row')[1]!;
       const pill = within(row).getByLabelText('Mitglied: 40% anwesend (2 von 5), unter dem Schwellenwert');
       expect(pill.getAttribute('data-state')).toBe('low');
+      // Not colour alone: a low group also carries a warning icon.
+      expect(pill.querySelector('svg')).toBeTruthy();
       expect(pill.textContent).toContain('40%');
     });
 
@@ -312,6 +322,8 @@ describe('Stats', () => {
       const row = screen.getAllByTestId('stats-event-row')[1]!;
       const pill = within(row).getByLabelText('Spieler: 60% anwesend (6 von 10), unter dem Schwellenwert');
       expect(pill.getAttribute('data-state')).toBe('low');
+      // Not colour alone: a low group also carries a warning icon.
+      expect(pill.querySelector('svg')).toBeTruthy();
       expect(pill.textContent).toContain('60%');
     });
 
@@ -416,6 +428,42 @@ describe('Stats', () => {
     expect(within(bodyRows[1]!).getAllByRole('cell')[0]!.textContent).toBe('1');
     // The count is no longer the last cell.
     expect(peterCells[peterCells.length - 1]!.getAttribute('data-testid')).toBeNull();
+  });
+
+  it('pins the count column next to the pinned name column on desktop', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, makeMatrix()));
+    render(<Stats />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Matrix' }));
+
+    const nameCell = screen.getAllByRole('rowheader')[0]!;
+    const nameStyle = getComputedStyle(nameCell);
+    expect(nameStyle.position).toBe('sticky');
+    expect(nameStyle.left).toBe('0px');
+    expect(nameStyle.width).toBe('190px');
+
+    // The count sits exactly at the right edge of the fixed-width name column.
+    for (const el of [screen.getByTestId('matrix-total-header'), ...screen.getAllByTestId('matrix-total')]) {
+      const style = getComputedStyle(el);
+      expect(style.position).toBe('sticky');
+      expect(style.left).toBe('190px');
+    }
+    // Event cells scroll.
+    const eventCell = within(screen.getAllByRole('row')[1]!).getAllByRole('cell')[1]!;
+    expect(getComputedStyle(eventCell).position).not.toBe('sticky');
+  });
+
+  it('pins only the name column on a phone', async () => {
+    mockUseCompact.mockReturnValue(true);
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, makeMatrix()));
+    render(<Stats />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Matrix' }));
+
+    expect(getComputedStyle(screen.getAllByRole('rowheader')[0]!).position).toBe('sticky');
+    for (const el of [screen.getByTestId('matrix-total-header'), ...screen.getAllByTestId('matrix-total')]) {
+      expect(getComputedStyle(el).position).not.toBe('sticky');
+    }
+    // Still the second column.
+    expect(screen.getAllByRole('columnheader').map((th) => th.textContent)).toEqual(['Mitglied', 'Ja', '1.1.', '6.1.', '7.1.']);
   });
 
   it('switches to the matrix tab and renders the member × event grid', async () => {

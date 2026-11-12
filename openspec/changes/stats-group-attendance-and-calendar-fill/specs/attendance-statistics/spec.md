@@ -53,8 +53,9 @@ per-person quotas.
 Each event row in the events tab MUST show one indicator per group: a check
 mark when the group is complete (`counted > 0` and `yes = counted`), a "no
 data" dash when `counted = 0`, otherwise the attendance percentage. An
-incomplete group below its threshold MUST be marked red, and an incomplete
-group MUST never be displayed as 100 %.
+incomplete group below its threshold MUST be marked red and carry a warning
+icon (never colour alone), and an incomplete group MUST never be displayed
+as 100 %.
 
 #### Scenario: Complete group shows a check mark
 - **WHEN** a group has `yes = 5` and `counted = 5` for an event
@@ -62,7 +63,7 @@ group MUST never be displayed as 100 %.
 
 #### Scenario: Incomplete group below a percent threshold is red
 - **WHEN** a group has `yes = 2`, `counted = 5` and a threshold of 50 percent
-- **THEN** its indicator reads "40%" and is marked red
+- **THEN** its indicator reads "40%", is marked red and shows a warning icon
 
 #### Scenario: Incomplete group at or above a percent threshold is not red
 - **WHEN** a group has `yes = 3`, `counted = 5` and a threshold of 50 percent
@@ -100,3 +101,13 @@ first event column.
 - **WHEN** the matrix is rendered with at least one event column
 - **THEN** the second column of every row is that member's attendance count
 - **AND** the event columns follow it in chronological order
+
+#### Scenario: Count stays visible while scrolling on desktop
+- **WHEN** the matrix is scrolled horizontally on a desktop viewport
+- **THEN** the member name and the attendance count both stay pinned at the
+  left edge
+
+#### Scenario: Only the name is pinned on a phone
+- **WHEN** the matrix is scrolled horizontally on a mobile viewport
+- **THEN** the member name stays pinned and the attendance count scrolls
+  with the event columns

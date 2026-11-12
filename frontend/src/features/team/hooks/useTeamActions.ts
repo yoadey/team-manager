@@ -11,6 +11,16 @@ import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
+/** Marks a threshold-save failure that saveTeamSettings has already reported
+ * to the user, so its outer catch doesn't report it a second time. */
+class ThresholdSaveError extends Error {
+  readonly original: unknown;
+  constructor(original: unknown) {
+    super('threshold save failed');
+    this.original = original;
+  }
+}
+
 type TeamDeps = {
   api: typeof defaultApi;
   S: () => AppState;
@@ -141,16 +151,34 @@ export function useTeamActions({
           description: f.description || '',
           reasonVisibilityRoles: f.reasonRoles || [],
         });
+        // The thresholds are a second request, so the save is not atomic: by
+        // the time it runs the team's own settings are already stored. Its
+        // failure is therefore reported on its own terms below, after the
+        // team list has been refreshed -- not as "nothing was saved".
+        let thresholdError: unknown = null;
         if (changedThresholds.length) {
-          await api.stats.setGroupThresholds(teamId, changedThresholds);
-          // The settings sheet's own list, and every cached statistics
-          // overview of this team (each embeds the resolved thresholds).
+          try {
+            await api.stats.setGroupThresholds(teamId, changedThresholds);
+          } catch (err) {
+            thresholdError = err;
+          }
+          // On success and on failure alike: the settings sheet's own list
+          // (after a failure it re-syncs with the server, e.g. dropping a
+          // role someone else just deleted, instead of failing every further
+          // save), and every cached statistics overview of this team (each
+          // embeds the resolved thresholds).
           void queryClient.invalidateQueries({ queryKey: queryKeys.statsGroupThresholds(teamId) });
           void queryClient.invalidateQueries({ queryKey: queryKeys.statsAll(teamId) });
         }
         await refreshTeams();
+        if (thresholdError) {
+          reportActionError({ setState, toastMsg, onAuthError: logout }, thresholdError, 'team.thresholdSaveFailed');
+          throw new ThresholdSaveError(thresholdError);
+        }
         toastMsg(t('team.toastSettingsSaved'));
       } catch (err) {
+        // Already reported above, with its own message.
+        if (err instanceof ThresholdSaveError) throw err.original;
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         throw err;
       }

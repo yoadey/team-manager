@@ -1,16 +1,23 @@
 package stats
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/yoadey/team-manager/backend/internal/attendance"
 )
+
+// pgForeignKeyViolation is the Postgres SQLSTATE for a violated foreign key.
+const pgForeignKeyViolation = "23503"
 
 // pgxIface is satisfied by both *pgxpool.Pool and pgx.Tx, letting Repository
 // run its queries either directly against the pool or inside a transaction
@@ -310,7 +317,16 @@ func (r *Repository) SetGroupThresholds(ctx context.Context, teamID uuid.UUID, i
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	for _, it := range items {
+	// Upsert in a fixed (role id) order, on a copy so the caller's slice is
+	// left alone: two concurrent saves touching the same roles in different
+	// orders would otherwise take their row locks in opposite order and
+	// deadlock, surfacing as a 500 to one of them.
+	ordered := slices.Clone(items)
+	slices.SortStableFunc(ordered, func(a, b GroupThresholdRow) int {
+		return cmp.Compare(a.RoleID.String(), b.RoleID.String())
+	})
+
+	for _, it := range ordered {
 		// INSERT ... SELECT FROM roles WHERE team_id = $1 is the team-scoping
 		// guard: a role of another team (or a non-existent one) selects no
 		// row, so nothing is inserted and RowsAffected is 0. Doing the
@@ -325,6 +341,14 @@ func (r *Repository) SetGroupThresholds(ctx context.Context, teamID uuid.UUID, i
 				SET mode = EXCLUDED.mode, value = EXCLUDED.value, updated_at = now()
 		`, teamID, it.RoleID, it.Mode, it.Value)
 		if err != nil {
+			// The role existed when the SELECT ran but was deleted before the
+			// insert landed (a concurrent roles.DeleteRole): the FK rejects
+			// the row. Same outcome for the caller as a role that was never
+			// in the team -- not a server fault.
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == pgForeignKeyViolation {
+				return nil, ErrRoleNotInTeam
+			}
 			return nil, fmt.Errorf("stats.Repository.SetGroupThresholds: upsert: %w", err)
 		}
 		if tag.RowsAffected() == 0 {

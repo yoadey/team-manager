@@ -27,7 +27,8 @@ zurückmelden konnte, fließen in ihre Quote ein.
 Der Reiter **Matrix** zeigt je Mitglied (Zeile) und Termin (Spalte), ob
 zugesagt, abgesagt oder nicht geantwortet wurde. Direkt hinter dem Namen
 steht in der Spalte „Ja" die Anzahl der Anwesenheiten im gewählten
-Zeitraum — so bleibt sie auch bei vielen Terminen neben dem Namen sichtbar.
+Zeitraum. Auf dem Desktop bleiben Name und Anzahl beim seitlichen Scrollen
+durch viele Termine stehen; auf dem Handy bleibt nur der Name stehen.
 Über „Termintypen" lassen sich Trainings, Wettkämpfe/Auftritte und
 Team-Events ein- und ausblenden.
 
@@ -42,7 +43,8 @@ Gruppe ist eine Rolle eures Teams (z. B. „Trainer", „Mitglied",
 - **Häkchen** — alle Mitglieder der Gruppe, die zurückgemeldet haben, waren
   anwesend.
 - **Prozentzahl** — der Anteil der Anwesenden in der Gruppe. Liegt er unter
-  dem Schwellenwert der Gruppe, wird er **rot** markiert.
+  dem Schwellenwert der Gruppe, wird er **rot** und mit einem Warnsymbol
+  markiert.
 - **Strich (–)** — aus dieser Gruppe liegt keine Rückmeldung vor.
 
 Wer mehrere Rollen hat, zählt in jeder seiner Gruppen mit — die Gruppen

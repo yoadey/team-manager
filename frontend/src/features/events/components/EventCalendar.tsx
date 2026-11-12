@@ -12,7 +12,7 @@ import { useEventsQuery } from '../hooks/useEventQueries';
 import { useAbsencesQuery } from '../hooks/useAbsenceQueries';
 import type { Absence, TeamEvent } from '../types';
 import { synthesizeBirthdayEvents, groupBirthdaysByDate, type BirthdayEntry } from './synthesizeBirthdayEvents';
-import { MIN_ROW_HEIGHT, cellLimits, linesThatFit, useStretchedRowHeight } from './calendarLayout';
+import { MIN_ROW_HEIGHT, cellLimits, linesThatFit, useStretchedRowHeight, weekRowTemplate } from './calendarLayout';
 
 // Fixed color pair for the birthday chip, deliberately not one of typeMeta's
 // event-type colors (nor NEUTRAL) so a birthday pseudo-event reads as
@@ -329,7 +329,8 @@ export function EventCalendar() {
   // and let each day show as many entries as its row then has space for.
   const gridRef = useRef<HTMLDivElement>(null);
   const gridGap = mobile ? 0 : 6;
-  const lines = linesThatFit(useStretchedRowHeight(gridRef, gridGap), mobile);
+  const rowHeight = useStretchedRowHeight(gridRef, gridGap);
+  const lines = linesThatFit(rowHeight, mobile);
 
   const cells: React.ReactNode[] = [];
   const dtf = new Intl.DateTimeFormat(getIntlLocale(), { weekday: mobile ? 'narrow' : 'short' });
@@ -375,9 +376,10 @@ export function EventCalendar() {
   };
 
   // Full width, and a flex column that takes whatever height EventsPage's
-  // calendar branch has left (see its minHeight: 100% wrapper): the card and
-  // the grid inside it grow with it, so the calendar fills the screen
-  // instead of sitting in its top-left corner.
+  // calendar branch has left (see its minHeight: 100% wrapper), so the card
+  // reaches the bottom of the page. The week rows themselves are sized from
+  // the measured free height (weekRowTemplate), not by flex-stretching the
+  // grid -- see there for why.
   return (
     <Box data-testid="calendar-root" sx={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <Box
@@ -439,17 +441,9 @@ export function EventCalendar() {
           ref={gridRef}
           data-testid="calendar-grid"
           sx={{
-            flex: '1 1 auto',
             display: 'grid',
             gridTemplateColumns: 'repeat(7,1fr)',
-            // Weekday header row, then six week rows that share the leftover
-            // height equally. `min-content` (not the implicit `auto`) as the
-            // floor: the cells are overflow:hidden, which would otherwise
-            // zero their automatic minimum and let a row be squeezed below
-            // its content on a short viewport -- with it, a row is never
-            // smaller than its cell's min-height or its entries, and the
-            // page scrolls instead.
-            gridTemplateRows: 'auto repeat(6, minmax(min-content, 1fr))',
+            gridTemplateRows: weekRowTemplate(rowHeight, mobile),
             gap: gridGap + 'px',
           }}
         >

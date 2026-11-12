@@ -164,13 +164,24 @@ describe('EventCalendar', () => {
       expect(style.flexGrow).toBe('1');
     });
 
-    it('lets the card and the grid take the remaining height', () => {
+    it('lets the card take the remaining height and sizes the week rows from the measured row height', () => {
+      mockRowHeight.mockReturnValue(140);
       makeApp();
       render(<EventCalendar />);
       const grid = screen.getByTestId('calendar-grid');
-      expect(getComputedStyle(grid).flexGrow).toBe('1');
       expect(getComputedStyle(grid.parentElement!).flexGrow).toBe('1');
       expect(getComputedStyle(grid.parentElement!).display).toBe('flex');
+      // Content-sized rows with the measured height as their minimum -- not
+      // flexible (fr) rows, which would let one busy day inflate every week.
+      expect(getComputedStyle(grid).gridTemplateRows).toBe('auto repeat(6, minmax(140px, auto))');
+    });
+
+    it('falls back to the fixed minimum row height while unmeasured', () => {
+      makeApp();
+      render(<EventCalendar />);
+      expect(getComputedStyle(screen.getByTestId('calendar-grid')).gridTemplateRows).toBe(
+        'auto repeat(6, minmax(76px, auto))',
+      );
     });
 
     it('measures against the grid with the desktop gap, and with no gap on mobile', () => {
@@ -200,7 +211,7 @@ describe('EventCalendar', () => {
     });
 
     it('shows every event of a day once the stretched row has room for them', () => {
-      mockRowHeight.mockReturnValue(170); // 8 lines
+      mockRowHeight.mockReturnValue(170); // 7 lines
       makeApp({ events: eventsOn('2026-03-10', 5) });
       render(<EventCalendar />);
       expect(chipsOnDay()).toHaveLength(5);
@@ -208,11 +219,11 @@ describe('EventCalendar', () => {
     });
 
     it('still summarises what does not fit a stretched row with "+n"', () => {
-      mockRowHeight.mockReturnValue(170); // 8 lines -> 7 chips + marker
+      mockRowHeight.mockReturnValue(170); // 7 lines -> 6 chips + marker
       makeApp({ events: eventsOn('2026-03-10', 12) });
       render(<EventCalendar />);
-      expect(chipsOnDay()).toHaveLength(7);
-      expect(screen.getByText('+5')).toBeTruthy();
+      expect(chipsOnDay()).toHaveLength(6);
+      expect(screen.getByText('+6')).toBeTruthy();
     });
 
     it('raises the absence limit too when a stretched row has room', () => {

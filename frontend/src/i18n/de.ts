@@ -786,6 +786,8 @@ export const de = {
     thresholdValueAria: 'Schwellenwert für {name}',
     thresholdPercentError: 'Bitte eine ganze Zahl von 0 bis 100 eingeben.',
     thresholdCountError: 'Bitte eine ganze Zahl von 0 bis 10000 eingeben.',
+    thresholdSaveFailed:
+      'Team-Einstellungen gespeichert, aber die Mindest-Anwesenheit je Gruppe konnte nicht gespeichert werden',
     settingsSave: 'Einstellungen speichern',
     permWrite: 'Schreiben',
     permRead: 'Lesen',

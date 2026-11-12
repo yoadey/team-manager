@@ -20,11 +20,34 @@ export const BASE_LIMITS: { desktop: CellLimits; mobile: CellLimits } = {
 export const MIN_ROW_HEIGHT = { desktop: 76, mobile: 58 } as const;
 
 // Vertical space one entry line takes inside a day cell, including the 2px
-// gap between lines (the tallest line is an event chip: 15px on desktop,
-// 14px on mobile), and the space a cell needs before its first entry
-// (2 x padding + 2 x border + the 20px day number + its gap).
-const LINE_HEIGHT = { desktop: 17, mobile: 16 } as const;
+// gap between lines, and the space a cell needs before its first entry
+// (2 x padding + 2 x border + the 20px day number + its gap). The line
+// height is the tallest chip rounded up: on desktop an absence/birthday chip
+// renders at 15.5px (an event chip at 15px), on mobile an event chip at 14px.
+// Rounding up matters: a raised limit must never make a cell taller than
+// its row (see weekRowTemplate), so the estimate has to err on the side of
+// one entry too few.
+const LINE_HEIGHT = { desktop: 18, mobile: 16 } as const;
 const CELL_OVERHEAD = { desktop: 34, mobile: 30 } as const;
+
+/**
+ * `grid-template-rows` for the weekday header plus the six week rows.
+ *
+ * Each week row is at least `rowHeight` tall -- the measured share of the
+ * free height (never below the fixed minimum) -- and otherwise as tall as
+ * its own content (`auto`). So the rows are equal and fill the screen as
+ * long as every day fits, and a day with more entries than fit grows *only
+ * its own week*, exactly like before the calendar stretched.
+ *
+ * Deliberately not `1fr`: the grid's height is indefinite (the page is only
+ * min-height-constrained, so it can grow and scroll), and `fr` rows sized
+ * against an indefinite height all take the size of the tallest row -- one
+ * busy day would inflate all six weeks and push the calendar off screen.
+ */
+export function weekRowTemplate(rowHeight: number | null, mobile: boolean): string {
+  const min = mobile ? MIN_ROW_HEIGHT.mobile : MIN_ROW_HEIGHT.desktop;
+  return `auto repeat(6, minmax(${Math.max(min, rowHeight ?? 0)}px, auto))`;
+}
 
 /**
  * How many entry lines fit into a day cell of the given row height, or null

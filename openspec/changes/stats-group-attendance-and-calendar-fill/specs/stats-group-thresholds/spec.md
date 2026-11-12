@@ -51,6 +51,24 @@ Unprocessable Entity. A rejected request MUST NOT change any threshold.
 - **AND** neither team's thresholds change, including for valid roles
   listed in the same request
 
+#### Scenario: Too many items
+- **WHEN** a save request lists more than 200 thresholds
+- **THEN** the request fails with 400 and nothing is stored
+
+### Requirement: Threshold changes are audited
+A successful threshold save MUST be recorded in the audit log with the
+acting user and the team, like other team-settings mutations; a rejected
+save MUST NOT be recorded as a success.
+
+#### Scenario: Successful save
+- **WHEN** a settings-authorized user saves thresholds
+- **THEN** an audit record `stats.thresholds_update` with outcome `success`
+  is written for that user and team
+
+#### Scenario: Rejected save
+- **WHEN** a threshold save is rejected
+- **THEN** no successful `stats.thresholds_update` record is written
+
 ### Requirement: Threshold authorization
 Reading the thresholds MUST require `settings: read` and saving them MUST
 require `settings: write` in the team; an unauthenticated request MUST be
@@ -87,3 +105,11 @@ changes together with the other team settings.
 #### Scenario: Invalid input is blocked in the form
 - **WHEN** the user enters 150 for a role in percentage mode
 - **THEN** the form shows a validation error and does not submit
+
+#### Scenario: Thresholds fail to save after the team settings were saved
+- **WHEN** the team settings are stored but the threshold save is rejected
+- **THEN** the user is told that the team settings were saved and the
+  thresholds were not
+- **AND** the team name and other settings shown in the app reflect the
+  saved values
+- **AND** the threshold list is reloaded from the server

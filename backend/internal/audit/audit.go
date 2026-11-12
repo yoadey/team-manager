@@ -64,6 +64,11 @@ const (
 	EventTeamInvite       = "team.invite_create"
 	EventTeamInviteAccept = "team.invite_accept"
 
+	// EventStatsThresholdsUpdate is recorded when a team's per-role
+	// attendance thresholds are saved -- a team-settings mutation like
+	// EventTeamUpdate, but stored and authorized as its own resource.
+	EventStatsThresholdsUpdate = "stats.thresholds_update"
+
 	// EventTeamBrandingUpdate covers photo/logo upload and delete; the
 	// specific action is carried in an "operation" attribute (e.g.
 	// photo.upload), mirroring EventFinanceMutation's shape.

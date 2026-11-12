@@ -927,6 +927,25 @@ func TestStatsRepository_GroupThresholds_DefaultUpsertAndOrder(t *testing.T) {
 	assert.Equal(t, "percent", groups[0].ThresholdMode)
 	assert.Equal(t, 75, groups[0].ThresholdValue)
 
+	// Items are applied whatever order they arrive in (the repository
+	// upserts in role-id order internally to keep concurrent saves from
+	// deadlocking), and the caller's slice is left exactly as it was.
+	in := []stats.GroupThresholdRow{
+		{RoleID: f.spieler, Mode: "count", Value: 9},
+		{RoleID: f.trainer, Mode: "percent", Value: 10},
+	}
+	reversed := []stats.GroupThresholdRow{in[1], in[0]}
+	for _, order := range [][]stats.GroupThresholdRow{in, reversed} {
+		snapshot := append([]stats.GroupThresholdRow(nil), order...)
+		rows, err = repo.SetGroupThresholds(ctx, f.teamID, order)
+		require.NoError(t, err)
+		assert.Equal(t, snapshot, order, "the caller's slice must not be reordered")
+		assert.Equal(t, []stats.GroupThresholdRow{
+			{RoleID: f.trainer, Mode: "percent", Value: 10},
+			{RoleID: f.spieler, Mode: "count", Value: 9},
+		}, rows)
+	}
+
 	// An empty save is a no-op that still returns the list.
 	rows, err = repo.SetGroupThresholds(ctx, f.teamID, nil)
 	require.NoError(t, err)

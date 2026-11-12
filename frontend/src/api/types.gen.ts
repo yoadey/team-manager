@@ -2304,6 +2304,7 @@ export interface components {
             items: components["schemas"]["StatsGroupThreshold"][];
         };
         SetStatsGroupThresholdsRequest: {
+            /** @description At most 200 items per request (the same cap every role-id-shaped array in this API carries); a team with more roles saves them in several requests. */
             items: components["schemas"]["StatsGroupThreshold"][];
         };
         StatsOverview: {

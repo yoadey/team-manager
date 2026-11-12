@@ -1075,6 +1075,7 @@ type SetRolesRequest struct {
 
 // SetStatsGroupThresholdsRequest defines model for SetStatsGroupThresholdsRequest.
 type SetStatsGroupThresholdsRequest struct {
+	// Items At most 200 items per request (the same cap every role-id-shaped array in this API carries); a team with more roles saves them in several requests.
 	Items []StatsGroupThreshold `json:"items"`
 }
 
