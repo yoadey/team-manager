@@ -16,7 +16,7 @@ import type {
   StatsOverview,
   StatsPreset,
 } from '@/types';
-import { groupIndicator } from './statsGroups';
+import { groupIndicator, groupSize } from './statsGroups';
 import { useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
 import { useStatsPreferencesActions } from './hooks/useStatsPreferencesActions';
 
@@ -554,6 +554,10 @@ function EventsView({ st }: { st: StatsOverview }) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {st.events.map((e) => {
         const tm = typeMeta(e.type);
+        // A member who gave no response counts as not present here, so the
+        // line reads "attended / expected" -- the same basis the group
+        // indicators below it use.
+        const expected = e.nominated + e.pending;
         return (
           <Box
             key={e.id}
@@ -583,13 +587,13 @@ function EventsView({ st }: { st: StatsOverview }) {
                   {e.title}
                 </Box>
                 <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
-                  {fmtDate(e.date) + ' · ' + tr('stats.present', { yes: e.yes, nominated: e.nominated })}
+                  {fmtDate(e.date) + ' · ' + tr('stats.present', { yes: e.yes, nominated: expected })}
                 </Box>
               </Box>
             </Box>
-            {/* An event nobody has a counted response for would only show a
-                row of "no data" dashes -- its "0/0" line already says so. */}
-            {e.groups.length && e.nominated > 0 ? (
+            {/* An event nobody was expected at would only show a row of
+                "no data" dashes -- its "0/0" line already says so. */}
+            {e.groups.length && expected > 0 ? (
               <Box
                 component="ul"
                 aria-label={tr('stats.groupsAria', { title: e.title })}
@@ -608,8 +612,9 @@ function EventsView({ st }: { st: StatsOverview }) {
 }
 
 /** One group's indicator for one event: role-colour dot + name, then a check
- * mark (complete), the attendance percentage (red with a warning icon when
- * below the group's threshold) or a dash (no counted response). */
+ * mark (everyone expected attended), the attendance percentage (red with a
+ * warning icon when below the group's threshold) or a dash (nobody of the
+ * group was expected). Members without a response count as not present. */
 function GroupPill({ g }: { g: EventGroupStat }) {
   const ind = groupIndicator(g);
   const low = ind.kind === 'pct' && ind.low;
@@ -619,7 +624,7 @@ function GroupPill({ g }: { g: EventGroupStat }) {
       : low
         ? { fg: NEUTRAL.error, bg: NEUTRAL.errorBg }
         : { fg: ind.kind === 'none' ? NEUTRAL.faint : NEUTRAL.onSurfaceVariant, bg: NEUTRAL.line2 };
-  const counts = { name: g.name, yes: g.yes, counted: g.counted };
+  const counts = { name: g.name, yes: g.yes, counted: groupSize(g) };
   const label =
     ind.kind === 'none'
       ? tr('stats.groupNoDataAria', { name: g.name })

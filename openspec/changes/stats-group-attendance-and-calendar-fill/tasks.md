@@ -93,23 +93,37 @@
       pre-existing raw-vs-effective drift of the mock overview documented
       (design.md, Risks) rather than widened into this change.
 
-## 9. Verification
+## 9. Missing responses count as not present (owner decision)
 
-- [x] 9.1 `openspec validate stats-group-attendance-and-calendar-fill
+- [x] 9.1 API: required `pending` on `EventStat` and `EventGroupStat`;
+      regenerated.
+- [x] 9.2 Backend: `EventStats` / `EventGroupStats` report `pending`
+      (effective status `pending`) next to `counted`; `nominated` / `pct` /
+      `enough` and the quotas unchanged; tests incl. not-nominated members.
+- [x] 9.3 Frontend: group indicator and the event line measure against
+      `counted + pending`; tests.
+- [x] 9.4 Demo backend: per-event line-up moved to effective attendance
+      (agrees with its matrix and the real backend); contract tests updated.
+- [x] 9.5 Spec delta, design decision and end-user docs updated.
+
+## 10. Verification
+
+- [x] 10.1 `openspec validate stats-group-attendance-and-calendar-fill
       --strict`
-- [x] 9.2 Frontend: `npm run lint`, `npm run typecheck`, `npm test`
+- [x] 10.2 Frontend: `npm run lint`, `npm run typecheck`, `npm test`
       (coverage thresholds 80/65/75/80), `npm run build` +
       `npm run check:bundle` (250 KB/chunk, 600 KB total gzipped)
-- [x] 9.3 Backend: `make generate` + `make generate-ts` leave no diff
+- [x] 10.3 Backend: `make generate` + `make generate-ts` leave no diff
       (openapi-drift), `go build ./...`, `make lint` (+ tool-pin-sync
       unaffected), `go test ./...` (Docker-backed tests ran, none
       skipped), business-logic coverage 74 % (gate: ≥ 35 %). `govulncheck`
       cannot run in the sandbox (vuln.go.dev unreachable); CI runs it and it
       is red there for reasons unrelated to this change (no dependency was
       added — see the PR discussion).
-- [x] 9.4 Migration gates: rollback (up → down → up) and migration-safety
+- [x] 10.4 Migration gates: rollback (up → down → up) and migration-safety
       lint on `00037`
-- [x] 9.5 e2e suite: 18/18 pass, including the new calendar layout test
-- [x] 9.6 Independent review by a fresh subagent; findings addressed (see
-      group 8). Left as an open product decision: whether members who gave
-      no response should count against a group being "complete".
+- [x] 10.5 e2e suite: 18/18 pass, including the new calendar layout test
+- [x] 10.6 Independent review by a fresh subagent; findings addressed (see
+      group 8). The product question it raised -- whether members who gave
+      no response count against a group being "complete" -- was decided by
+      the owner and implemented in group 9.

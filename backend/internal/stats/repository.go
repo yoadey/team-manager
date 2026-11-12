@@ -156,7 +156,8 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 			type,
 			date,
 			COUNT(*) FILTER (WHERE eff = 'yes')                 AS yes_count,
-			COUNT(*) FILTER (WHERE eff IN ('yes','no','maybe')) AS counted
+			COUNT(*) FILTER (WHERE eff IN ('yes','no','maybe')) AS counted,
+			COUNT(*) FILTER (WHERE eff = 'pending')             AS pending
 		FROM (
 			SELECT
 				e.id         AS event_id,
@@ -186,7 +187,7 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 	var out []EventStatRow
 	for rows.Next() {
 		var s EventStatRow
-		if err := rows.Scan(&s.EventID, &s.Title, &s.Type, &s.Date, &s.Yes, &s.Counted); err != nil {
+		if err := rows.Scan(&s.EventID, &s.Title, &s.Type, &s.Date, &s.Yes, &s.Counted, &s.Pending); err != nil {
 			return nil, fmt.Errorf("stats.Repository.EventStats scan: %w", err)
 		}
 		out = append(out, s)
@@ -214,6 +215,13 @@ func (r *Repository) EventGroupStats(ctx context.Context, teamID uuid.UUID, from
 	// integrity (members.SetRoles only assigns roles of the member's team)
 	// but keeps the per-team scoping explicit on every joined table. A role
 	// with no role_stats_thresholds row resolves to the default via COALESCE.
+	//
+	// `pending` counts the members whose effective status is 'pending' (no
+	// response at all). It is reported next to `counted`, not folded into
+	// it: yes/counted keep meaning what they mean everywhere else, and the
+	// line-up decides what a missing response means (not present). Members
+	// who are 'not_nominated' or covered by a not-relevant absence
+	// ('excluded') are in neither number -- they were not expected.
 	rows, err := r.db.Query(ctx, `
 		SELECT
 			event_id,
@@ -223,7 +231,8 @@ func (r *Repository) EventGroupStats(ctx context.Context, teamID uuid.UUID, from
 			threshold_mode,
 			threshold_value,
 			COUNT(*) FILTER (WHERE eff = 'yes')                 AS yes_count,
-			COUNT(*) FILTER (WHERE eff IN ('yes','no','maybe')) AS counted
+			COUNT(*) FILTER (WHERE eff IN ('yes','no','maybe')) AS counted,
+			COUNT(*) FILTER (WHERE eff = 'pending')             AS pending
 		FROM (
 			SELECT
 				e.id         AS event_id,
@@ -260,7 +269,7 @@ func (r *Repository) EventGroupStats(ctx context.Context, teamID uuid.UUID, from
 	var out []EventGroupStatRow
 	for rows.Next() {
 		var s EventGroupStatRow
-		if err := rows.Scan(&s.EventID, &s.RoleID, &s.Name, &s.Color, &s.ThresholdMode, &s.ThresholdValue, &s.Yes, &s.Counted); err != nil {
+		if err := rows.Scan(&s.EventID, &s.RoleID, &s.Name, &s.Color, &s.ThresholdMode, &s.ThresholdValue, &s.Yes, &s.Counted, &s.Pending); err != nil {
 			return nil, fmt.Errorf("stats.Repository.EventGroupStats scan: %w", err)
 		}
 		out = append(out, s)

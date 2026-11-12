@@ -1,13 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { groupIndicator } from './statsGroups';
+import { groupIndicator, groupSize } from './statsGroups';
 import type { EventGroupStat, StatsThresholdMode } from '@/types';
 
-function g(yes: number, counted: number, thresholdMode: StatsThresholdMode, thresholdValue: number): EventGroupStat {
-  return { roleId: 'r1', name: 'Spieler', color: '#000', yes, counted, thresholdMode, thresholdValue };
+function g(
+  yes: number,
+  counted: number,
+  thresholdMode: StatsThresholdMode,
+  thresholdValue: number,
+  pending = 0,
+): EventGroupStat {
+  return { roleId: 'r1', name: 'Spieler', color: '#000', yes, counted, pending, thresholdMode, thresholdValue };
 }
 
+describe('groupSize', () => {
+  it('is everyone expected: counted responses plus missing responses', () => {
+    expect(groupSize({ counted: 3, pending: 12 })).toBe(15);
+    expect(groupSize({ counted: 0, pending: 0 })).toBe(0);
+  });
+});
+
 describe('groupIndicator', () => {
-  it('is "none" when nobody has a counted response -- never complete, never low', () => {
+  it('is "none" when nobody of the group was expected -- never complete, never low', () => {
     expect(groupIndicator(g(0, 0, 'percent', 50))).toEqual({ kind: 'none' });
     expect(groupIndicator(g(0, 0, 'count', 8))).toEqual({ kind: 'none' });
   });
@@ -68,6 +81,37 @@ describe('groupIndicator', () => {
 
     it('never marks anything low with a threshold of 0', () => {
       expect(groupIndicator(g(0, 5, 'count', 0))).toEqual({ kind: 'pct', pct: 0, low: false });
+    });
+  });
+
+  // A member who gave no response counts as not present.
+  describe('missing responses', () => {
+    it('does not show a group as complete when some members never responded', () => {
+      // Three "yes", twelve silent: 3 of 15, not "3 of 3".
+      expect(groupIndicator(g(3, 3, 'percent', 50, 12))).toEqual({ kind: 'pct', pct: 20, low: true });
+    });
+
+    it('applies an absolute threshold against the attendees, however few responded', () => {
+      expect(groupIndicator(g(3, 3, 'count', 8, 12))).toEqual({ kind: 'pct', pct: 20, low: true });
+      // Enough attendees, even though some never answered.
+      expect(groupIndicator(g(8, 8, 'count', 8, 2))).toEqual({ kind: 'pct', pct: 80, low: false });
+    });
+
+    it('measures the percentage against the whole group, not only the responders', () => {
+      // 6 yes, 2 no, 2 silent -> 6 of 10.
+      expect(groupIndicator(g(6, 8, 'percent', 70, 2))).toEqual({ kind: 'pct', pct: 60, low: true });
+      expect(groupIndicator(g(6, 8, 'percent', 60, 2))).toEqual({ kind: 'pct', pct: 60, low: false });
+    });
+
+    it('shows a group where nobody responded as 0%, not as "no data"', () => {
+      expect(groupIndicator(g(0, 0, 'percent', 50, 5))).toEqual({ kind: 'pct', pct: 0, low: true });
+      // Threshold 0 = never red, also here.
+      expect(groupIndicator(g(0, 0, 'percent', 0, 5))).toEqual({ kind: 'pct', pct: 0, low: false });
+    });
+
+    it('is complete only once nobody is missing', () => {
+      expect(groupIndicator(g(5, 5, 'percent', 50, 1))).toEqual({ kind: 'pct', pct: 83, low: false });
+      expect(groupIndicator(g(5, 5, 'percent', 50, 0))).toEqual({ kind: 'complete' });
     });
   });
 

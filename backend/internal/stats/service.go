@@ -149,6 +149,7 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 			Color:          g.Color,
 			Yes:            g.Yes,
 			Counted:        g.Counted,
+			Pending:        g.Pending,
 			ThresholdMode:  gen.StatsThresholdMode(g.ThresholdMode),
 			ThresholdValue: g.ThresholdValue,
 		})
@@ -171,6 +172,7 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 			Date:      parseDateOrZero(e.Date),
 			Yes:       e.Yes,
 			Nominated: e.Counted,
+			Pending:   e.Pending,
 			Pct:       pct,
 			Enough:    pct >= 0.5,
 			Groups:    evGroups,

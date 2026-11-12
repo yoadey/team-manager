@@ -57,6 +57,9 @@ type EventStatRow struct {
 	Date    string // YYYY-MM-DD
 	Yes     int
 	Counted int
+	// Pending is the number of roster members with no response at all (see
+	// EventGroupStatRow.Pending).
+	Pending int
 }
 
 // MatrixColumnRow is one event column of the attendance matrix.
@@ -82,12 +85,18 @@ type MatrixCellRow struct {
 // EventGroupStatRow holds one group's (role's) attendance counts for one
 // event, plus that role's resolved threshold (default already applied).
 type EventGroupStatRow struct {
-	EventID        uuid.UUID
-	RoleID         uuid.UUID
-	Name           string
-	Color          *string
-	Yes            int
-	Counted        int
+	EventID uuid.UUID
+	RoleID  uuid.UUID
+	Name    string
+	Color   *string
+	Yes     int
+	Counted int
+	// Pending is the number of the group's members whose effective status
+	// is "pending": no explicit response, no covering absence, and the event
+	// is not opt-out. Kept apart from Counted (yes/no/maybe) because the
+	// quotas deliberately ignore such members, while the per-event line-up
+	// counts them as not present.
+	Pending        int
 	ThresholdMode  string // percent | count
 	ThresholdValue int
 }

@@ -515,6 +515,7 @@ export function mapEventStat(s: S['EventStat']): EventStat {
     date: s.date,
     yes: s.yes,
     nominated: s.nominated,
+    pending: s.pending,
     pct: fractionToPercent(s.pct),
     enough: s.enough,
     groups: s.groups.map(mapEventGroupStat),
@@ -529,6 +530,7 @@ function mapEventGroupStat(g: S['EventGroupStat']): EventGroupStat {
     color: g.color ?? '#888888',
     yes: g.yes,
     counted: g.counted,
+    pending: g.pending,
     thresholdMode: g.thresholdMode,
     thresholdValue: g.thresholdValue,
   };

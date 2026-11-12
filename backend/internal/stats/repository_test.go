@@ -762,9 +762,12 @@ func TestStatsRepository_EventGroupStats_CountsPerRole(t *testing.T) {
 	assert.Equal(t, 2, tr.Yes, "both trainers attended")
 	assert.Equal(t, 2, tr.Counted)
 
+	assert.Equal(t, 0, tr.Pending, "every trainer responded")
+
 	sp := byRole[f.spieler]
 	assert.Equal(t, 2, sp.Yes, "coach (two roles) + player 1")
 	assert.Equal(t, 3, sp.Counted, "coach, player 1, player 2 -- the pending player 3 is not counted")
+	assert.Equal(t, 1, sp.Pending, "player 3 gave no response: reported apart from counted, so the line-up can treat it as not present")
 
 	// Unconfigured roles resolve to the default threshold.
 	assert.Equal(t, stats.DefaultThresholdMode, tr.ThresholdMode)
@@ -777,6 +780,40 @@ func TestStatsRepository_EventGroupStats_CountsPerRole(t *testing.T) {
 	require.Len(t, evRows, 1)
 	assert.Equal(t, 4, evRows[0].Yes)
 	assert.Equal(t, 5, evRows[0].Counted)
+	assert.Equal(t, 1, evRows[0].Pending, "player 3 is the event's only non-responder")
+}
+
+// A member who was not nominated for the event was not expected at it: they
+// are neither counted nor pending, in the group and on the event row alike.
+func TestStatsRepository_EventGroupStats_NotNominatedIsNeitherCountedNorPending(t *testing.T) {
+	t.Parallel()
+
+	f := newGroupFixture(t)
+	repo := stats.NewRepository(f.pool)
+	ctx := context.Background()
+
+	nominated := f.addMember("Nominated", f.spieler)
+	benched := f.addMember("Benched", f.spieler)
+	silent := f.addMember("Silent", f.spieler)
+	_ = silent
+
+	ev := f.addEvent("Match", "opt_in")
+	f.respond(ev, nominated, "yes")
+	f.respond(ev, benched, "not_nominated")
+
+	rows, err := repo.EventGroupStats(ctx, f.teamID, f.from, f.to)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, 1, rows[0].Yes)
+	assert.Equal(t, 1, rows[0].Counted)
+	assert.Equal(t, 1, rows[0].Pending, "only the silent member is pending; the benched one was not expected")
+
+	evRows, err := repo.EventStats(ctx, f.teamID, f.from, f.to)
+	require.NoError(t, err)
+	require.Len(t, evRows, 1)
+	assert.Equal(t, 1, evRows[0].Yes)
+	assert.Equal(t, 1, evRows[0].Counted)
+	assert.Equal(t, 1, evRows[0].Pending)
 }
 
 // A group in which every member holds the same role reconciles exactly with
@@ -836,6 +873,10 @@ func TestStatsRepository_EventGroupStats_ReconcilesWithEventStats(t *testing.T) 
 	assert.Equal(t, 4, rows[0].Counted, "silent, absent, excluded, declined -- the not-relevant absence is dropped")
 	assert.Equal(t, evRows[0].Yes, rows[0].Yes, "group must reconcile with the event row")
 	assert.Equal(t, evRows[0].Counted, rows[0].Counted, "group must reconcile with the event row")
+	// An opt-out event has no pending members by definition: a missing
+	// response defaults to attending (or to "no" under an absence).
+	assert.Equal(t, 0, rows[0].Pending)
+	assert.Equal(t, evRows[0].Pending, rows[0].Pending, "group must reconcile with the event row")
 }
 
 func TestStatsRepository_EventGroupStats_ScopedToTeamAndRange(t *testing.T) {

@@ -379,13 +379,40 @@ describe('drift-bug fix: stats count only explicit attendance responses, not opt
     const statU4 = await api.stats.attendanceFor('t_a', 'u4');
     expect(statU4.counted).toBeGreaterThanOrEqual(1);
 
+    // The per-member quotas of the demo backend still count explicit
+    // responses only (known, documented drift from the real backend) --
+    // u5, who never answered, has no counted event from this one.
     const overview = await api.stats.teamOverview('t_a');
-    const eventStat = overview.events.find((e) => e.id === event.id)!;
-    // Only u4 explicitly responded; every other member (including u5, who is
-    // implicitly "yes" for the roster/summary view) is excluded from the
-    // stats denominator.
-    expect(eventStat.nominated).toBe(1);
-    expect(eventStat.yes).toBe(1);
+    const quotaU4 = overview.members.find((m) => m.userId === 'u4')!;
+    const quotaU5 = overview.members.find((m) => m.userId === 'u5')!;
+    expect(quotaU4.counted).toBe(statU4.counted);
+    expect(quotaU5.counted).toBe(quotaU4.counted - 1);
+  });
+
+  // The per-event line-up, unlike the quotas above, uses effective
+  // attendance -- like the real backend and like this demo's own matrix: on
+  // an opt-out event a missing response means attending, so the whole team
+  // counts as present and nobody is pending.
+  it('counts every non-responder to an opt-out event as attending in the per-event line-up', async () => {
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'OptOut line-up test',
+      date: todayLocalDate(),
+      responseMode: 'opt_out',
+    });
+    await api.attendance.set(event.id, 'u4', { status: 'no' }, 't_a');
+
+    const teamSize = db.memberships.filter((m) => m.teamId === 't_a').length;
+    const eventStat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+    expect(eventStat.nominated).toBe(teamSize);
+    expect(eventStat.yes).toBe(teamSize - 1);
+    expect(eventStat.pending).toBe(0);
+
+    // ... and agrees with the matrix for the same event.
+    const matrix = await api.stats.attendanceMatrix('t_a');
+    const yesInMatrix = matrix.members.filter((m) => m.cells[event.id] === 'yes').length;
+    const excluded = db.memberships.filter((m) => m.teamId === 't_a' && m.excludeFromStats).length;
+    expect(yesInMatrix).toBe(eventStat.yes - excluded);
   });
 });
 
@@ -1103,21 +1130,47 @@ describe('per-event group breakdown and per-group attendance thresholds', () => 
     const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
     const group = (name: string) => stat.groups.find((g) => g.roleId === roleByName(name).id)!;
 
-    // u1 is the only trainer and attended -> complete.
-    expect(group('Admin / Trainer')).toMatchObject({ name: 'Admin / Trainer', yes: 1, counted: 1 });
-    // u2 is the only captain and declined.
-    expect(group('Teamkapitän')).toMatchObject({ yes: 0, counted: 1 });
-    // All four responders hold the member role: u1 + u4 yes, u2 no, u5 maybe.
-    expect(group('Tänzer / Mitglied')).toMatchObject({ yes: 2, counted: 4 });
-    // A role whose holders all stayed silent has no counted response.
-    expect(group('Kassenwart')).toMatchObject({ yes: 0, counted: 0 });
+    const holders = (name: string) =>
+      db.memberships.filter((m) => m.teamId === 't_a' && m.roleIds.includes(roleByName(name).id)).length;
 
-    // Everyone on t_a holds the member role, so that group reconciles with
-    // the event's own (de-duplicated) turnout.
+    // u1 is the only trainer and attended -> complete, nobody missing.
+    expect(group('Admin / Trainer')).toMatchObject({ name: 'Admin / Trainer', yes: 1, counted: 1, pending: 0 });
+    // u2 is the only captain and declined.
+    expect(group('Teamkapitän')).toMatchObject({ yes: 0, counted: 1, pending: 0 });
+    // All four responders hold the member role: u1 + u4 yes, u2 no, u5 maybe.
+    // Everyone else in the role gave no response on this opt-in event.
+    expect(group('Tänzer / Mitglied')).toMatchObject({ yes: 2, counted: 4, pending: holders('Tänzer / Mitglied') - 4 });
+    expect(group('Tänzer / Mitglied').pending).toBeGreaterThan(0);
+    // A role whose holders all stayed silent: nothing counted, all pending
+    // (the line-up shows that as 0%, not as "no data").
+    expect(group('Kassenwart')).toMatchObject({ yes: 0, counted: 0, pending: holders('Kassenwart') });
+
+    // All four responders hold the member role, so that group's responses
+    // reconcile with the event's own (de-duplicated) turnout ...
     expect(group('Tänzer / Mitglied').yes).toBe(stat.yes);
     expect(group('Tänzer / Mitglied').counted).toBe(stat.nominated);
+    // ... and on the event row everyone else on the team is pending, whatever
+    // roles they hold: responses + missing responses = the whole team.
+    const teamSize = db.memberships.filter((m) => m.teamId === 't_a').length;
+    expect(stat.pending).toBe(teamSize - 4);
+    expect(stat.nominated + stat.pending).toBe(teamSize);
     // The role colour travels with the group for the indicator's dot.
     expect(group('Admin / Trainer').color).toBe(roleByName('Admin / Trainer').color);
+  });
+
+  it('counts a planned absence as "no" and leaves a not-nominated member out entirely', async () => {
+    const event = await api.events.create('t_a', { type: 'training', title: 'Line-up edge cases', date: todayLocalDate() });
+    const today = todayLocalDate();
+    // u4: covering absence, no explicit response -> effectively "no".
+    db.absences.push({ id: rid('abs'), teamId: 't_a', userId: 'u4', from: today, to: today, name: '', roleColor: '' } as never);
+    // u5: not nominated -> not expected, neither counted nor pending.
+    db.attendance.push({ eventId: event.id, userId: 'u5', status: 'not_nominated' } as never);
+
+    const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+    const teamSize = db.memberships.filter((m) => m.teamId === 't_a').length;
+    expect(stat.yes).toBe(0);
+    expect(stat.nominated).toBe(1); // u4's absence
+    expect(stat.pending).toBe(teamSize - 2); // everyone but u4 (no) and u5 (not expected)
   });
 
   it('orders the groups like the role list: system roles first, then by name', async () => {

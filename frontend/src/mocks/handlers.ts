@@ -2251,44 +2251,45 @@ export const handlers = [
       .sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name, 'de'));
     const avg = memberStats.length ? memberStats.reduce((s, m) => s + m.quote, 0) / memberStats.length : 0;
 
+    // Per-event turnout and its per-group breakdown use *effective*
+    // attendance, like the real backend (attendance.EffectiveStatusExpr) and
+    // this demo's own matrix handler: an explicit response wins, a covering
+    // absence defaults to "no", an opt-out event defaults to "yes", anything
+    // else is pending. `pending` is reported apart from `counted`: the
+    // line-up treats a missing response as not present. A member marked
+    // not_nominated was not expected and is in neither number.
+    //
+    // Known drift, older than this and deliberately left alone here: the
+    // per-member quotas above (and the single-member endpoint) still count
+    // explicit responses only (rawCountedStatus), unlike the real backend.
+    const tally = (e: (typeof events)[number], userIds: string[]) => {
+      let yes = 0, counted = 0, pending = 0;
+      userIds.forEach((uid) => {
+        const s = effectiveStatus(e, uid, teamId).status;
+        if (s === 'yes') {
+          yes++;
+          counted++;
+        } else if (s === 'no' || s === 'maybe') counted++;
+        else if (s === 'pending') pending++;
+      });
+      return { yes, counted, pending };
+    };
+
     const eventStats: S['EventStat'][] = events.map((e) => {
-      let yes = 0, counted = 0;
-      allMemberIds.forEach((uid) => {
-        const s = rawCountedStatus(e.id, uid);
-        if (!s) return;
-        counted++;
-        if (s === 'yes') yes++;
-      });
+      const { yes, counted, pending } = tally(e, allMemberIds);
       const pct = counted ? yes / counted : 0;
-      // Per-group breakdown: same roster (allMemberIds, not the
-      // exclude-filtered one) and same counting as yes/counted above, per
-      // role held -- a member with several roles counts in each, and a role
-      // nobody holds yields no entry (like stats.Repository.EventGroupStats'
-      // inner joins). What it must guarantee is that a group reconciles with
-      // this handler's own event row.
-      //
-      // Known drift, older than the group breakdown and deliberately not
-      // widened here: this whole overview handler counts explicit responses
-      // only (rawCountedStatus), while the real backend has since moved to
-      // *effective* attendance (opt-out default, covering absence -- see
-      // attendance.EffectiveStatusExpr), which this demo's matrix handler
-      // already uses. So for an opt-out training nobody answered, the demo
-      // shows "0/0" and no group indicators where the real backend reports
-      // everyone present.
+      // Same roster (allMemberIds, not the exclude-filtered one) and same
+      // counting as the event row, per role held -- a member with several
+      // roles counts in each, and a role nobody holds yields no entry (like
+      // stats.Repository.EventGroupStats' inner joins).
       const groups: S['EventGroupStat'][] = roles.flatMap((r) => {
-        const holders = teamMemberships.filter((m) => m.roleIds.includes(r.id));
+        const holders = teamMemberships.filter((m) => m.roleIds.includes(r.id)).map((m) => m.userId);
         if (!holders.length) return [];
-        let gYes = 0, gCounted = 0;
-        holders.forEach((m) => {
-          const s = rawCountedStatus(e.id, m.userId);
-          if (!s) return;
-          gCounted++;
-          if (s === 'yes') gYes++;
-        });
+        const g = tally(e, holders);
         const th = thresholdFor(r.id);
-        return [{ roleId: r.id, name: r.name, color: r.color, yes: gYes, counted: gCounted, thresholdMode: th.mode, thresholdValue: th.value }];
+        return [{ roleId: r.id, name: r.name, color: r.color, yes: g.yes, counted: g.counted, pending: g.pending, thresholdMode: th.mode, thresholdValue: th.value }];
       });
-      return { id: e.id, title: e.title, type: e.type, date: e.date, yes, nominated: counted, pct, enough: pct >= 0.5, groups };
+      return { id: e.id, title: e.title, type: e.type, date: e.date, yes, nominated: counted, pending, pct, enough: pct >= 0.5, groups };
     });
 
     const body: S['StatsOverview'] = { avg, members: memberStats, events: eventStats, pastCount: events.length, from, to };

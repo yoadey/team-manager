@@ -459,7 +459,7 @@ func TestService_GetOverview_AttachesGroupsToTheirEvent(t *testing.T) {
 		},
 		eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) {
 			return []stats.EventStatRow{
-				{EventID: ev1, Title: "Match", Type: "auftritt", Date: "2026-01-15", Yes: 5, Counted: 6},
+				{EventID: ev1, Title: "Match", Type: "auftritt", Date: "2026-01-15", Yes: 5, Counted: 6, Pending: 3},
 				{EventID: ev2, Title: "Training", Type: "training", Date: "2026-01-20", Yes: 2, Counted: 6},
 				{EventID: ev3, Title: "Fest", Type: "event", Date: "2026-01-25", Yes: 0, Counted: 0},
 			}, nil
@@ -467,7 +467,7 @@ func TestService_GetOverview_AttachesGroupsToTheirEvent(t *testing.T) {
 		eventGroupStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventGroupStatRow, error) {
 			return []stats.EventGroupStatRow{
 				{EventID: ev1, RoleID: trainer, Name: "Trainer", Color: &blue, Yes: 2, Counted: 2, ThresholdMode: "count", ThresholdValue: 1},
-				{EventID: ev1, RoleID: member, Name: "Mitglied", Yes: 5, Counted: 6, ThresholdMode: "percent", ThresholdValue: 50},
+				{EventID: ev1, RoleID: member, Name: "Mitglied", Yes: 5, Counted: 6, Pending: 3, ThresholdMode: "percent", ThresholdValue: 50},
 				{EventID: ev2, RoleID: trainer, Name: "Trainer", Color: &blue, Yes: 0, Counted: 2, ThresholdMode: "count", ThresholdValue: 1},
 				{EventID: ev2, RoleID: member, Name: "Mitglied", Yes: 2, Counted: 6, ThresholdMode: "percent", ThresholdValue: 50},
 			}, nil
@@ -488,8 +488,17 @@ func TestService_GetOverview_AttachesGroupsToTheirEvent(t *testing.T) {
 	assert.Equal(t, 2, g1[0].Counted)
 	assert.Equal(t, gen.StatsThresholdMode("count"), g1[0].ThresholdMode)
 	assert.Equal(t, 1, g1[0].ThresholdValue)
+	assert.Equal(t, 0, g1[0].Pending)
 	assert.Equal(t, member, g1[1].RoleId)
 	assert.Nil(t, g1[1].Color)
+	// Non-responders are passed through apart from the counted responses,
+	// on the group and on the event itself -- and leave pct/enough alone.
+	assert.Equal(t, 6, g1[1].Counted)
+	assert.Equal(t, 3, g1[1].Pending)
+	assert.Equal(t, 6, overview.Events[0].Nominated)
+	assert.Equal(t, 3, overview.Events[0].Pending)
+	assert.InDelta(t, 5.0/6.0, overview.Events[0].Pct, 0.001, "pct stays yes/counted, unaffected by pending")
+	assert.True(t, overview.Events[0].Enough)
 	assert.Equal(t, gen.StatsThresholdMode("percent"), g1[1].ThresholdMode)
 	assert.Equal(t, 50, g1[1].ThresholdValue)
 

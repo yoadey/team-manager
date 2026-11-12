@@ -2273,10 +2273,12 @@ export interface components {
             date: string;
             yes: number;
             nominated: number;
+            /** @description Members expected at this event who gave no response at all (no explicit answer, no covering absence, not an opt-out event). Not part of `nominated`/`pct`/`enough`, which keep counting responses only; the per-event line-up treats these members as not present, so its denominator is `nominated + pending`. */
+            pending: number;
             /** Format: float */
             pct: number;
             enough: boolean;
-            /** @description This event's attendance broken down by group -- one entry per team role held by at least one current member, ordered like the role list (system roles first, then by name). Uses the same roster and effective-attendance counting as yes/nominated above. A member holding several roles is counted in each of them, so the entries do not sum to yes/nominated. */
+            /** @description This event's attendance broken down by group -- one entry per team role held by at least one current member, ordered like the role list (system roles first, then by name). Uses the same roster and effective-attendance counting as yes/nominated/pending above. A member holding several roles is counted in each of them, so the entries do not sum to the event's own numbers. */
             groups: components["schemas"]["EventGroupStat"][];
         };
         EventGroupStat: {
@@ -2285,8 +2287,10 @@ export interface components {
             name: string;
             color?: string;
             yes: number;
-            /** @description Members of this group with a counted (yes/no/maybe) effective response. 0 means "no data" -- the group is then neither complete nor below its threshold. */
+            /** @description Members of this group with a counted (yes/no/maybe) effective response. */
             counted: number;
+            /** @description Members of this group expected at the event who gave no response at all. They count as not present: the group is complete only when `yes = counted + pending`, and its attendance percentage is `yes / (counted + pending)`. `counted + pending = 0` means the group has nobody expected at this event ("no data"). */
+            pending: number;
             thresholdMode: components["schemas"]["StatsThresholdMode"];
             /** @description The group's resolved threshold (default applied). An incomplete group is highlighted as too low when its attendance percentage (thresholdMode percent) or its number of attendees (thresholdMode count) is below this value. */
             thresholdValue: number;

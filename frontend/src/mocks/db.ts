@@ -895,8 +895,9 @@ export interface EffectiveAttendance {
 // Mirrors backend events.computeEffectiveAttendance: an explicit row wins;
 // otherwise a covering planned absence defaults to "no" (auto, absent); an
 // opt_out event with no record defaults to "yes" (auto); everything else is
-// "pending". Used for event summaries/attendance rows/roster views — NOT for
-// stats (see rawCountedStatus below, drift-bug fix #2). teamId scopes the
+// "pending". Used for event summaries/attendance rows/roster views and for
+// the statistics' matrix and per-event line-up; the per-member quotas still
+// use rawCountedStatus below. teamId scopes the
 // absence lookup -- for a cross-team event, callers pass whichever team is
 // this particular computation's "identity" team for userId (the viewing
 // team for a same-team/own-status lookup, or the picked target-team
@@ -920,12 +921,12 @@ export function effectiveStatus(event: EventDto, userId: string | null, teamId: 
   return { status: 'pending', reason: '', reasonId: null, reasonVisibility: null, auto: false, absent: false };
 }
 
-// Drift-bug fix #2: stats.Repository (backend/internal/stats/repository.go)
-// joins the raw `attendance` table directly (`a.status IN ('yes','no','maybe')`)
-// with no opt_out/absence defaulting — unlike the event-summary/roster views,
-// a member who never explicitly responded to an opt_out event or who is
-// auto-marked absent does NOT count toward a stats quota. Only an explicit
-// attendance record counts.
+// Counts explicit attendance records only (no opt_out/absence defaulting).
+// Still used by the demo backend's per-member quota handlers. This was
+// written to mirror the real stats.Repository of its time; that has since
+// moved to effective attendance (attendance.EffectiveStatusExpr), which the
+// demo's matrix and per-event line-up use via effectiveStatus() above. The
+// per-member quotas are known, not-yet-aligned drift.
 export function rawCountedStatus(eventId: string, userId: string): 'yes' | 'no' | 'maybe' | null {
   const rec = db.attendance.find((a) => a.eventId === eventId && a.userId === userId);
   if (rec && (rec.status === 'yes' || rec.status === 'no' || rec.status === 'maybe')) return rec.status;

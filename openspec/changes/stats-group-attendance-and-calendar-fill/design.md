@@ -46,26 +46,36 @@ members there?" independently. *Alternative considered:* primary role only
 artefact (`ORDER BY r.id`), not something a coach chooses, so a trainer
 could silently vanish from the "Trainer" group.
 
-### Group figures use the same roster and the same counting as the event row
+### Group figures use the same roster and status as the event row
 `EventGroupStats` reuses `EventStats`' exact shape — `events JOIN
 memberships` (deliberately *not* filtered on `m.exclude_from_stats`, per
 `member-stats-exclusion`: this is per-event turnout, not a personal quota),
 the shared `EffectiveStatusExpr`, the stats-only "excluded" outcome for a
-not-relevant absence — and only adds `JOIN membership_roles JOIN roles`. So
-`yes`/`counted` per group mean exactly what `yes`/`nominated` mean on the
-event row beside them: `counted` is yes + no + maybe; a member with no
-response on an opt-in event is "pending" and in neither number. A group is
-*complete* when `counted > 0 AND yes = counted`. *Alternative considered:*
-counting pending members as absent for the group check — rejected: it would
-make a group's percentage contradict the event's own "x of y attended" line
-and every other statistic, breaking the "no view contradicts another"
-purpose of `attendance-statistics`. A group whose members all have no
-counted response reports `counted = 0` and renders as "no data" (–), never
-as complete.
+not-relevant absence — and only adds `JOIN membership_roles JOIN roles`. Both
+queries run in the overview's existing read-only repeatable-read transaction
+(`WithReadTx`), so group figures cannot drift from the event row.
 
-Both queries run in the overview's existing read-only repeatable-read
-transaction (`WithReadTx`), so group figures cannot drift from the event
-row.
+### A missing response counts as not present — in the line-up only
+Product decision (the owner's, after the independent review flagged the
+alternative): a group is "fully present" only when *everyone expected*
+attended. A member with no response at all (effective status `pending`: no
+explicit answer, no covering absence, not an opt-out event) was not
+confirmed present and counts against completeness and in the percentage's
+denominator. Three "yes" and twelve silent members are 3 of 15 (20 %), not a
+check mark — and an absolute threshold of "at least 8" is red.
+
+Mechanically, both queries report `pending` *next to* `counted` instead of
+folding it in: `EventStat.yes` / `nominated` / `pct` / `enough` and the
+per-member quotas keep meaning exactly what they meant (responses only, so
+nothing else in the statistics changes), while the line-up — the event's
+"x/y anwesend" line and every group indicator — uses `counted + pending` as
+"expected". Members marked not nominated, or covered by an absence flagged
+not relevant for statistics, were not expected and are in neither number; a
+group nobody was expected from shows "no data" (–).
+
+*Alternative considered (and first implemented):* responses only, i.e.
+`complete = yes == counted`, for consistency with the quotas — rejected by
+the owner: it shows a check mark for a group most of which never answered.
 
 ### Thresholds live in their own table keyed by role
 `role_stats_thresholds(role_id PK → roles ON DELETE CASCADE, mode, value,
@@ -167,11 +177,16 @@ that consumes the values), not `internal/roles`.
 - [Saving team settings and thresholds is two requests, not one
   transaction] → a threshold failure is reported as a partial save, the
   team list is refreshed and the threshold list reloaded.
-- [The demo (MSW) backend's statistics overview counts explicit responses
-  only, while the real backend counts effective attendance] → pre-existing
-  drift, documented at the mock's group breakdown; the mock keeps a group
-  consistent with its own event row. Aligning the whole mock overview is a
-  separate change.
+- [The line-up's "x/y anwesend" (everyone expected) can differ from what
+  the quota tab implies (responses only)] → intended, see the decision
+  above; the two answer different questions.
+- [The demo (MSW) backend's *per-member quotas* still count explicit
+  responses only, while the real backend counts effective attendance] →
+  pre-existing drift, left alone. The per-event line-up of the demo was
+  moved to effective attendance in this change (it has to be: with missing
+  responses counting as not present, raw counting would have shown every
+  unanswered opt-out training as 0 %), so it now agrees with the demo's own
+  matrix and with the real backend.
 
 ## Migration Plan
 

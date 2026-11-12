@@ -5,14 +5,16 @@ import { Stats } from './Stats';
 
 const mockSetStatsRange = vi.fn();
 
+// `threshold` is [mode, value, pending]; pending (members of the group who
+// gave no response) defaults to 0.
 function group(
   roleId: string,
   name: string,
   yes: number,
   counted: number,
-  [thresholdMode, thresholdValue]: ['percent' | 'count', number],
+  [thresholdMode, thresholdValue, pending = 0]: ['percent' | 'count', number, number?],
 ) {
-  return { roleId, name, color: '#1565C0', yes, counted, thresholdMode, thresholdValue };
+  return { roleId, name, color: '#1565C0', yes, counted, pending, thresholdMode, thresholdValue };
 }
 
 function makeStats() {
@@ -32,6 +34,7 @@ function makeStats() {
         type: 'training',
         yes: 8,
         nominated: 10,
+        pending: 0,
         enough: true,
         groups: [
           // complete -> check mark
@@ -47,6 +50,7 @@ function makeStats() {
         type: 'match',
         yes: 5,
         nominated: 10,
+        pending: 0,
         enough: false,
         groups: [
           // nobody responded -> no data
@@ -353,12 +357,59 @@ describe('Stats', () => {
       expect(within(row).queryByRole('list')).toBeNull();
     });
 
-    it('shows no group indicators for an event without any counted response', async () => {
+    // A missing response counts as not present: the event line and the group
+    // indicators are both measured against everyone expected.
+    it('counts members without a response as not present, on the event line and in the groups', async () => {
+      const stats = makeStats();
+      stats.events[0] = {
+        ...stats.events[0]!,
+        yes: 3,
+        nominated: 3,
+        pending: 12,
+        groups: [
+          // both trainers answered yes -> complete
+          group('r_trainer', 'Trainer', 2, 2, ['count', 1, 0]),
+          // 3 yes, 12 silent -> 3 of 15, below "at least 8"
+          group('r_player', 'Spieler', 3, 3, ['count', 8, 12]),
+          // nobody answered -> 0 of 4, red; not "no data"
+          group('r_helper', 'Betreuer', 0, 0, ['percent', 50, 4]),
+        ],
+      };
+      await openEventsTab(stats);
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      expect(within(row).getByText(/3\/15 anwesend/)).toBeTruthy();
+      expect(within(row).queryByText(/3\/3 anwesend/)).toBeNull();
+
+      expect(within(row).getByLabelText('Trainer: vollständig anwesend (2 von 2)').getAttribute('data-state')).toBe('complete');
+      const players = within(row).getByLabelText('Spieler: 20% anwesend (3 von 15), unter dem Schwellenwert');
+      expect(players.getAttribute('data-state')).toBe('low');
+      expect(players.textContent).toContain('20%');
+      const helpers = within(row).getByLabelText('Betreuer: 0% anwesend (0 von 4), unter dem Schwellenwert');
+      expect(helpers.getAttribute('data-state')).toBe('low');
+    });
+
+    it('still shows the group indicators when nobody responded but members were expected', async () => {
       const stats = makeStats();
       stats.events[0] = {
         ...stats.events[0]!,
         yes: 0,
         nominated: 0,
+        pending: 6,
+        groups: [group('r_member', 'Mitglied', 0, 0, ['percent', 50, 6])],
+      };
+      await openEventsTab(stats);
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      expect(within(row).getByText(/0\/6 anwesend/)).toBeTruthy();
+      expect(within(row).getByRole('list')).toBeTruthy();
+    });
+
+    it('shows no group indicators for an event nobody was expected at', async () => {
+      const stats = makeStats();
+      stats.events[0] = {
+        ...stats.events[0]!,
+        yes: 0,
+        nominated: 0,
+        pending: 0,
         groups: [group('r_trainer', 'Trainer', 0, 0, ['count', 1]), group('r_member', 'Mitglied', 0, 0, ['percent', 50])],
       };
       await openEventsTab(stats);

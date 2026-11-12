@@ -3,15 +3,16 @@
 ### Requirement: Per-event attendance broken down by group
 The statistics overview MUST report, for every event it lists, one entry per
 group (a team role held by at least one current member) with that group's
-`yes` and `counted` numbers and its resolved attendance threshold. The
-numbers MUST use the same roster and effective-attendance counting as the
-event's own `yes`/`nominated` figures, and a member holding several roles
-MUST be counted in each of those groups.
+`yes`, `counted` and `pending` numbers and its resolved attendance
+threshold. The numbers MUST use the same roster and effective-attendance
+status as the event's own figures, and a member holding several roles MUST
+be counted in each of those groups.
 
 #### Scenario: Group fully present
 - **WHEN** an event in range has two members with the role "Trainer", both
   with an effective status of "yes"
-- **THEN** the event's "Trainer" group reports `yes = 2` and `counted = 2`
+- **THEN** the event's "Trainer" group reports `yes = 2`, `counted = 2` and
+  `pending = 0`
 
 #### Scenario: Group partly present
 - **WHEN** an event in range has four members with the role "Spieler", of
@@ -23,16 +24,39 @@ MUST be counted in each of those groups.
 - **THEN** that member is included in the `yes` and `counted` numbers of
   both the "Trainer" and the "Mitglied" group for that event
 
-#### Scenario: Pending responses are not counted
-- **WHEN** every member of a group has no explicit response to an opt-in
-  event and no covering absence
-- **THEN** that group reports `counted = 0` for the event
-- **AND** the group is not presented as complete
+#### Scenario: Missing responses are reported separately
+- **WHEN** a member of a group has no explicit response to an opt-in event
+  and no covering absence
+- **THEN** that member is included in the group's `pending` number and not
+  in its `counted` number
+
+#### Scenario: Not-nominated and stats-excluded members are not expected
+- **WHEN** a member of a group is marked not nominated for an event, or is
+  covered by an absence flagged not relevant for statistics
+- **THEN** that member is in neither the group's `counted` nor its
+  `pending` number
 
 #### Scenario: Group figures reconcile with the event row
 - **WHEN** every current member of a team holds the role "Mitglied"
-- **THEN** each event's "Mitglied" group `yes`/`counted` equal that event's
-  own `yes`/`nominated`
+- **THEN** each event's "Mitglied" group `yes`/`counted`/`pending` equal
+  that event's own `yes`/`nominated`/`pending`
+
+### Requirement: Missing responses count as not present in the line-up
+The per-event line-up MUST treat a member who gave no response as not
+present: the event's "x of y attended" line and every group indicator MUST
+be measured against everyone expected (`counted + pending`), not only
+against those who responded. The event's `nominated`, `pct` and `enough`
+fields and the per-member quotas MUST keep counting responses only.
+
+#### Scenario: Event line counts everyone expected
+- **WHEN** an event has three members who attended and twelve who gave no
+  response
+- **THEN** the events tab shows "3/15 attended" for it
+
+#### Scenario: Quotas are unaffected
+- **WHEN** a member gave no response to an opt-in event
+- **THEN** that event still does not count towards the member's personal
+  attendance quota
 
 ### Requirement: Events tab on the statistics page
 The statistics page MUST present the per-event line-up in its own tab titled
@@ -51,15 +75,31 @@ per-person quotas.
 
 ### Requirement: Group indicator per event
 Each event row in the events tab MUST show one indicator per group: a check
-mark when the group is complete (`counted > 0` and `yes = counted`), a "no
-data" dash when `counted = 0`, otherwise the attendance percentage. An
-incomplete group below its threshold MUST be marked red and carry a warning
-icon (never colour alone), and an incomplete group MUST never be displayed
-as 100 %.
+mark when the group is complete (everyone expected attended: `yes = counted
++ pending`, with at least one member expected), a "no data" dash when nobody
+of the group was expected, otherwise the share of the group that attended
+(`yes / (counted + pending)`). An incomplete group below its threshold MUST
+be marked red and carry a warning icon (never colour alone), and an
+incomplete group MUST never be displayed as 100 %.
 
 #### Scenario: Complete group shows a check mark
-- **WHEN** a group has `yes = 5` and `counted = 5` for an event
+- **WHEN** a group has `yes = 5`, `counted = 5` and `pending = 0` for an
+  event
 - **THEN** its indicator is a check mark, not a percentage
+
+#### Scenario: Members without a response prevent a check mark
+- **WHEN** a group has `yes = 3`, `counted = 3` and `pending = 12`
+- **THEN** its indicator reads "20%", not a check mark
+
+#### Scenario: Absolute threshold with few responses
+- **WHEN** a group has `yes = 3`, `counted = 3`, `pending = 12` and a
+  threshold of 8 attendees (mode "count")
+- **THEN** its indicator reads "20%" and is marked red
+
+#### Scenario: Nobody of the group responded
+- **WHEN** a group has `counted = 0` and `pending = 5` and a threshold of 50
+  percent
+- **THEN** its indicator reads "0%" and is marked red
 
 #### Scenario: Incomplete group below a percent threshold is red
 - **WHEN** a group has `yes = 2`, `counted = 5` and a threshold of 50 percent
@@ -79,12 +119,13 @@ as 100 %.
   attendees (mode "count")
 - **THEN** its indicator is a check mark and is not marked red
 
-#### Scenario: Group without counted responses
-- **WHEN** a group has `counted = 0` for an event
+#### Scenario: Nobody of the group was expected
+- **WHEN** a group has `counted = 0` and `pending = 0` for an event
 - **THEN** its indicator is a dash and is not marked red
 
-#### Scenario: Event without any counted response
-- **WHEN** an event has no counted response at all (`nominated = 0`)
+#### Scenario: Event nobody was expected at
+- **WHEN** an event has nobody expected at all (`nominated = 0` and
+  `pending = 0`)
 - **THEN** its row shows no group indicators, only its "0 of 0 attended"
   line
 

@@ -35,23 +35,30 @@ Team-Events ein- und ausblenden.
 ## Termine
 
 Der Reiter **Termine** listet alle Termine des gewählten Zeitraums und
-zeigt je Termin, wie viele der nominierten Mitglieder zugesagt haben
+zeigt je Termin, wie viele der erwarteten Mitglieder anwesend waren
 („x/y anwesend"). Darunter steht die Anwesenheit **je Gruppe** — eine
 Gruppe ist eine Rolle eures Teams (z. B. „Trainer", „Mitglied",
 „Spieler"):
 
-- **Häkchen** — alle Mitglieder der Gruppe, die zurückgemeldet haben, waren
-  anwesend.
+- **Häkchen** — alle erwarteten Mitglieder der Gruppe waren anwesend.
 - **Prozentzahl** — der Anteil der Anwesenden in der Gruppe. Liegt er unter
   dem Schwellenwert der Gruppe, wird er **rot** und mit einem Warnsymbol
   markiert.
-- **Strich (–)** — aus dieser Gruppe liegt keine Rückmeldung vor.
+- **Strich (–)** — aus dieser Gruppe wurde bei dem Termin niemand erwartet
+  (z. B. weil die Gruppe nicht nominiert war).
+
+**Wer nicht geantwortet hat, zählt hier als nicht anwesend.** Drei Zusagen
+bei zwölf fehlenden Rückmeldungen sind also 3 von 15 (20 %) und kein
+Häkchen. Das gilt nur für diese Ansicht: In der **Quote pro Person** zählt
+ein Termin ohne Rückmeldung weiterhin nicht mit. Nicht erwartet — und damit
+nirgends mitgezählt — werden nicht nominierte Mitglieder und Mitglieder mit
+einer als „nicht statistikrelevant" markierten Abwesenheit. Bei Terminen
+im Modus „Aktiv absagen" (alle gelten als zugesagt) zählt eine fehlende
+Rückmeldung wie überall als Zusage, bei einer eingetragenen Abwesenheit als
+Absage.
 
 Wer mehrere Rollen hat, zählt in jeder seiner Gruppen mit — die Gruppen
-ergeben zusammengezählt deshalb nicht die Gesamtzahl des Termins. Wie
-überall in der Statistik zählen nur Mitglieder mit einer Rückmeldung
-(Zusage, Absage, Vielleicht); wer bei einem Termin nicht geantwortet hat,
-fließt nicht ein.
+ergeben zusammengezählt deshalb nicht die Gesamtzahl des Termins.
 
 ### Schwellenwert je Gruppe einstellen
 
