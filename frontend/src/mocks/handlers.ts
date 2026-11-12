@@ -2252,25 +2252,36 @@ export const handlers = [
     const avg = memberStats.length ? memberStats.reduce((s, m) => s + m.quote, 0) / memberStats.length : 0;
 
     // Per-event turnout and its per-group breakdown use *effective*
-    // attendance, like the real backend (attendance.EffectiveStatusExpr) and
-    // this demo's own matrix handler: an explicit response wins, a covering
-    // absence defaults to "no", an opt-out event defaults to "yes", anything
-    // else is pending. `pending` is reported apart from `counted`: the
-    // line-up treats a missing response as not present. A member marked
-    // not_nominated was not expected and is in neither number.
+    // attendance, like the real backend (stats.Repository.EventStats /
+    // EventGroupStats) and this demo's own matrix: an explicit response wins,
+    // a covering absence defaults to "no", an opt-out event defaults to
+    // "yes", anything else is pending. Like the real backend, a member is
+    // *not expected* -- in neither `counted` nor `pending` -- when marked
+    // not_nominated (applyNominations writes such rows for role nominations
+    // too) or, without an explicit response, covered by an absence flagged
+    // not relevant for statistics. A member flagged excludeFromStats keeps
+    // their explicit responses in the turnout, but their silence is not
+    // pending. `pending` is reported apart from `counted`: the line-up treats
+    // a missing response as not present.
     //
     // Known drift, older than this and deliberately left alone here: the
     // per-member quotas above (and the single-member endpoint) still count
     // explicit responses only (rawCountedStatus), unlike the real backend.
+    const excludedIds = new Set(teamMemberships.filter((m) => m.excludeFromStats).map((m) => m.userId));
+    const notRelevantAbsenceCovers = (uid: string, date: string) =>
+      db.absences.some((a) => a.userId === uid && a.teamId === teamId && a.notRelevantForStats && date >= a.from && date <= a.to);
     const tally = (e: (typeof events)[number], userIds: string[]) => {
       let yes = 0, counted = 0, pending = 0;
       userIds.forEach((uid) => {
-        const s = effectiveStatus(e, uid, teamId).status;
+        const eff = effectiveStatus(e, uid, teamId);
+        // eff.auto: no explicit response was stored for this member.
+        if (eff.auto && eff.absent && notRelevantAbsenceCovers(uid, e.date)) return;
+        const s = eff.status;
         if (s === 'yes') {
           yes++;
           counted++;
         } else if (s === 'no' || s === 'maybe') counted++;
-        else if (s === 'pending') pending++;
+        else if (s === 'pending' && !excludedIds.has(uid)) pending++;
       });
       return { yes, counted, pending };
     };

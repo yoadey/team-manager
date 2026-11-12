@@ -51,8 +51,11 @@ Gruppe ist eine Rolle eures Teams (z. B. „Trainer", „Mitglied",
 bei zwölf fehlenden Rückmeldungen sind also 3 von 15 (20 %) und kein
 Häkchen. Das gilt nur für diese Ansicht: In der **Quote pro Person** zählt
 ein Termin ohne Rückmeldung weiterhin nicht mit. Nicht erwartet — und damit
-nirgends mitgezählt — werden nicht nominierte Mitglieder und Mitglieder mit
-einer als „nicht statistikrelevant" markierten Abwesenheit. Bei Terminen
+nirgends mitgezählt — werden nicht nominierte Mitglieder (auch wenn der
+Termin nur bestimmte Rollen nominiert), Mitglieder mit einer als „nicht
+statistikrelevant" markierten Abwesenheit und Mitglieder, die von der
+Statistik ausgenommen sind (deren Zu- oder Absage zählt aber mit, wenn sie
+eine abgeben). Bei Terminen
 im Modus „Aktiv absagen" (alle gelten als zugesagt) zählt eine fehlende
 Rückmeldung wie überall als Zusage, bei einer eingetragenen Abwesenheit als
 Absage.

@@ -105,6 +105,13 @@
 - [x] 9.4 Demo backend: per-event line-up moved to effective attendance
       (agrees with its matrix and the real backend); contract tests updated.
 - [x] 9.5 Spec delta, design decision and end-user docs updated.
+- [x] 9.6 Independent review of 9.1–9.5, findings fixed: members of roles
+      the event does not nominate are not expected (the events module only
+      stores `nominated_role_ids`, so the stats queries check it themselves);
+      a stats-excluded member's silence is not pending; the demo backend
+      treats a not-relevant absence as not expected; design formula and
+      field descriptions corrected. Each new backend test verified to fail
+      without its fix.
 
 ## 10. Verification
 

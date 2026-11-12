@@ -361,7 +361,7 @@ describe('penalty assignments: default unpaid, paid only via a linked transactio
   });
 });
 
-describe('drift-bug fix: stats count only explicit attendance responses, not opt_out/absence defaults', () => {
+describe('drift-bug fix: per-member quotas count only explicit attendance responses, not opt_out/absence defaults', () => {
   it('does not count a non-responder to an opt-out event toward a member quota', async () => {
     const today = todayLocalDate();
     const event = await api.events.create('t_a', {
@@ -1171,6 +1171,46 @@ describe('per-event group breakdown and per-group attendance thresholds', () => 
     expect(stat.yes).toBe(0);
     expect(stat.nominated).toBe(1); // u4's absence
     expect(stat.pending).toBe(teamSize - 2); // everyone but u4 (no) and u5 (not expected)
+  });
+
+  it('does not expect a member covered by an absence that is not relevant for statistics', async () => {
+    const event = await api.events.create('t_a', { type: 'training', title: 'Not-relevant absence', date: todayLocalDate() });
+    const today = todayLocalDate();
+    db.absences.push({ id: rid('abs'), teamId: 't_a', userId: 'u4', from: today, to: today, name: '', roleColor: '', notRelevantForStats: true } as never);
+
+    const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+    const teamSize = db.memberships.filter((m) => m.teamId === 't_a').length;
+    expect(stat.nominated).toBe(0); // not a "no"
+    expect(stat.pending).toBe(teamSize - 1); // and not pending either
+  });
+
+  it("does not count a stats-excluded member's silence as pending, but keeps their explicit response", async () => {
+    const event = await api.events.create('t_a', { type: 'training', title: 'Excluded members', date: todayLocalDate() });
+    const excluded = db.memberships.filter((m) => m.teamId === 't_a' && ['u4', 'u5'].includes(m.userId));
+    excluded.forEach((m) => (m.excludeFromStats = true));
+    await api.attendance.set(event.id, 'u5', { status: 'yes' }, 't_a');
+
+    const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+    const teamSize = db.memberships.filter((m) => m.teamId === 't_a').length;
+    expect(stat.yes).toBe(1); // u5's explicit yes still counts
+    expect(stat.nominated).toBe(1);
+    expect(stat.pending).toBe(teamSize - 2); // u4's silence is not pending
+  });
+
+  it('does not expect members of roles the event does not nominate', async () => {
+    const trainer = roleByName('Admin / Trainer');
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'Trainers only',
+      date: todayLocalDate(),
+      nominatedRoleIds: [trainer.id],
+    });
+    const stat = (await api.stats.teamOverview('t_a')).events.find((e) => e.id === event.id)!;
+    const trainers = db.memberships.filter((m) => m.teamId === 't_a' && m.roleIds.includes(trainer.id)).length;
+    expect(stat.nominated + stat.pending).toBe(trainers);
+    // A group nobody of which was nominated has nobody expected -> "no data".
+    const treasurer = stat.groups.find((g) => g.roleId === roleByName('Kassenwart').id)!;
+    expect(treasurer.counted + treasurer.pending).toBe(0);
   });
 
   it('orders the groups like the role list: system roles first, then by name', async () => {

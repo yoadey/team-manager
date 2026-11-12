@@ -69,9 +69,25 @@ folding it in: `EventStat.yes` / `nominated` / `pct` / `enough` and the
 per-member quotas keep meaning exactly what they meant (responses only, so
 nothing else in the statistics changes), while the line-up — the event's
 "x/y anwesend" line and every group indicator — uses `counted + pending` as
-"expected". Members marked not nominated, or covered by an absence flagged
-not relevant for statistics, were not expected and are in neither number; a
-group nobody was expected from shows "no data" (–).
+"expected". Not expected, and so in neither number, are members who are not
+nominated (per member, or because the event nominates only roles they don't
+hold), members who without an explicit response are covered by an absence
+flagged not relevant for statistics, and — for `pending` — members flagged
+`exclude_from_stats` (their explicit responses still count in the turnout,
+per `member-stats-exclusion`, but their silence does not count against the
+event). A group nobody was expected from shows "no data" (–).
+
+*Role nominations need special handling in the stats queries:* the events
+module stores them only as `events.nominated_role_ids`; it writes
+`not_nominated` attendance rows solely for per-member nominations, and
+`EffectiveStatusExpr` never reads the list. Without an extra condition
+(`notNominatedByRoleExpr`), every member of a role the event did not
+nominate would come out as `pending` and every non-nominated group would
+show "0 %" in red. The condition applies only without an explicit response
+and is checked before the opt-out default, so a non-nominated member is
+neither assumed to attend nor counted as missing. (The event summary in
+`internal/events` has the same blind spot for role nominations; it is
+pre-existing and out of scope here — it shows such members as "offen".)
 
 *Alternative considered (and first implemented):* responses only, i.e.
 `complete = yes == counted`, for consistency with the quotas — rejected by
@@ -95,8 +111,9 @@ through a role of the URL's team). That also means no new index — the PK
 covers the only join.
 
 ### Semantics of "red"
-For a group with `counted > 0` that is not complete:
-- `percent`: red when `yes / counted * 100 < value`.
+For a group with somebody expected (`counted + pending > 0`) that is not
+complete (`yes < counted + pending`):
+- `percent`: red when `yes / (counted + pending) * 100 < value`.
 - `count`: red when `yes < value`.
 
 Complete always wins (a two-person trainer group with a threshold of 3 that

@@ -91,11 +91,13 @@ type EventGroupStatRow struct {
 	Color   *string
 	Yes     int
 	Counted int
-	// Pending is the number of the group's members whose effective status
-	// is "pending": no explicit response, no covering absence, and the event
-	// is not opt-out. Kept apart from Counted (yes/no/maybe) because the
-	// quotas deliberately ignore such members, while the per-event line-up
-	// counts them as not present.
+	// Pending is the number of the group's members who were expected at the
+	// event but gave no response: effective status "pending" (normally no
+	// stored response, no covering absence, not an opt-out event; a stored
+	// 'pending' row -- a reset response -- counts too), excluding members who
+	// are not nominated or flagged exclude_from_stats. Kept apart from
+	// Counted (yes/no/maybe) because the quotas deliberately ignore such
+	// members, while the per-event line-up counts them as not present.
 	Pending        int
 	ThresholdMode  string // percent | count
 	ThresholdValue int

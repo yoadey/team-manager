@@ -2273,7 +2273,7 @@ export interface components {
             date: string;
             yes: number;
             nominated: number;
-            /** @description Members expected at this event who gave no response at all (no explicit answer, no covering absence, not an opt-out event). Not part of `nominated`/`pct`/`enough`, which keep counting responses only; the per-event line-up treats these members as not present, so its denominator is `nominated + pending`. */
+            /** @description Members expected at this event who gave no response: effective status pending (no answer, no covering absence, not an opt-out event). Members who are not nominated -- per member, or because the event nominates only roles they don't hold -- or flagged excludeFromStats, or covered by an absence that is not relevant for statistics, are not expected and never pending. Not part of `nominated`/`pct`/`enough`, which keep counting responses only; the per-event line-up treats these members as not present, so its denominator is `nominated + pending`. */
             pending: number;
             /** Format: float */
             pct: number;

@@ -16,6 +16,25 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/attendance"
 )
 
+// notNominatedByRoleExpr is true when the event nominates specific roles
+// (events.nominated_role_ids, non-empty) and the member holds none of them.
+// The events module only stores that list -- it writes not_nominated
+// attendance rows solely for per-member nominations (SetNomination), and
+// attendance.EffectiveStatusExpr never reads the list -- so without this a
+// member of a role the event did not nominate would come out as 'pending'.
+// The per-event line-up counts 'pending' as "expected but not present", so
+// it must treat such a member as not expected instead, exactly like a
+// per-member not_nominated row. Only consulted when there is no explicit
+// response: an answer from a non-nominated member still counts, as an
+// explicit response wins everywhere else. An empty list means "everyone is
+// nominated" (the column default).
+const notNominatedByRoleExpr = `
+	(cardinality(e.nominated_role_ids) > 0 AND NOT EXISTS (
+		SELECT 1 FROM membership_roles nmr
+		WHERE nmr.membership_id = m.id AND nmr.role_id = ANY(e.nominated_role_ids)
+	))
+`
+
 // pgForeignKeyViolation is the Postgres SQLSTATE for a violated foreign key.
 const pgForeignKeyViolation = "23503"
 
@@ -148,7 +167,8 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 	// a personal quota -- an excluded member's own historical response still
 	// belongs in that count. Unlike MemberStats/SingleMemberStats/matrixCells,
 	// which drop excluded members from the roster entirely since they compute
-	// per-member quotas. See exclude-members-from-stats' design.md.
+	// per-member quotas. See exclude-members-from-stats' design.md. Their
+	// *silence*, though, is not counted as pending (see EventGroupStats).
 	rows, err := r.db.Query(ctx, `
 		SELECT
 			event_id,
@@ -157,14 +177,16 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 			date,
 			COUNT(*) FILTER (WHERE eff = 'yes')                 AS yes_count,
 			COUNT(*) FILTER (WHERE eff IN ('yes','no','maybe')) AS counted,
-			COUNT(*) FILTER (WHERE eff = 'pending')             AS pending
+			COUNT(*) FILTER (WHERE eff = 'pending' AND NOT member_excluded) AS pending
 		FROM (
 			SELECT
 				e.id         AS event_id,
 				e.title      AS title,
 				e.type       AS type,
 				e.date::text AS date,
+				m.exclude_from_stats AS member_excluded,
 				CASE
+					WHEN a.status IS NULL AND `+notNominatedByRoleExpr+` THEN 'not_nominated'
 					WHEN a.status IS NULL AND `+attendance.NotRelevantAbsenceCoversExpr+` THEN 'excluded'
 					ELSE `+attendance.EffectiveStatusExpr+`
 				END AS eff
@@ -220,8 +242,13 @@ func (r *Repository) EventGroupStats(ctx context.Context, teamID uuid.UUID, from
 	// response at all). It is reported next to `counted`, not folded into
 	// it: yes/counted keep meaning what they mean everywhere else, and the
 	// line-up decides what a missing response means (not present). Members
-	// who are 'not_nominated' or covered by a not-relevant absence
-	// ('excluded') are in neither number -- they were not expected.
+	// who are not nominated (per member, or because the event nominates
+	// only roles they don't hold -- notNominatedByRoleExpr) or covered by a
+	// not-relevant absence ('excluded') are in neither number -- they were
+	// not expected. A member flagged exclude_from_stats is not counted as
+	// pending either: such members stay in the turnout only so that their
+	// explicit responses still count (member-stats-exclusion), not so that
+	// their silence counts against the event.
 	rows, err := r.db.Query(ctx, `
 		SELECT
 			event_id,
@@ -232,7 +259,7 @@ func (r *Repository) EventGroupStats(ctx context.Context, teamID uuid.UUID, from
 			threshold_value,
 			COUNT(*) FILTER (WHERE eff = 'yes')                 AS yes_count,
 			COUNT(*) FILTER (WHERE eff IN ('yes','no','maybe')) AS counted,
-			COUNT(*) FILTER (WHERE eff = 'pending')             AS pending
+			COUNT(*) FILTER (WHERE eff = 'pending' AND NOT member_excluded) AS pending
 		FROM (
 			SELECT
 				e.id         AS event_id,
@@ -243,7 +270,9 @@ func (r *Repository) EventGroupStats(ctx context.Context, teamID uuid.UUID, from
 				r.system     AS role_system,
 				COALESCE(th.mode, $4)  AS threshold_mode,
 				COALESCE(th.value, $5) AS threshold_value,
+				m.exclude_from_stats AS member_excluded,
 				CASE
+					WHEN a.status IS NULL AND `+notNominatedByRoleExpr+` THEN 'not_nominated'
 					WHEN a.status IS NULL AND `+attendance.NotRelevantAbsenceCoversExpr+` THEN 'excluded'
 					ELSE `+attendance.EffectiveStatusExpr+`
 				END AS eff

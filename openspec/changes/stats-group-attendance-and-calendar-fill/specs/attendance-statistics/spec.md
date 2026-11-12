@@ -32,9 +32,23 @@ be counted in each of those groups.
 
 #### Scenario: Not-nominated and stats-excluded members are not expected
 - **WHEN** a member of a group is marked not nominated for an event, or is
-  covered by an absence flagged not relevant for statistics
+  covered by an absence flagged not relevant for statistics and gave no
+  explicit response
 - **THEN** that member is in neither the group's `counted` nor its
   `pending` number
+
+#### Scenario: Members of roles the event does not nominate are not expected
+- **WHEN** an event nominates only the role "Spieler" and a member who holds
+  only "Trainer" gives no response
+- **THEN** that member is in neither the `counted` nor the `pending` number
+  of the event or of any of their groups
+- **AND** a group none of whose members was nominated shows "no data"
+
+#### Scenario: A stats-excluded member's silence is not missing
+- **WHEN** a member flagged `excludeFromStats` gives no response to an event
+- **THEN** that member is not in the event's or their groups' `pending`
+  number
+- **AND** an explicit response from such a member is still counted
 
 #### Scenario: Group figures reconcile with the event row
 - **WHEN** every current member of a team holds the role "Mitglied"

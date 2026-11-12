@@ -1073,3 +1073,138 @@ func TestStatsRepository_SetGroupThresholds_DBChecksRejectOutOfRange(t *testing.
 		assert.NotErrorIs(t, err, stats.ErrRoleNotInTeam, name)
 	}
 }
+
+// The events module stores role nominations only as events.nominated_role_ids
+// (no not_nominated attendance rows), so the stats queries must treat a
+// member holding none of the nominated roles as not expected themselves --
+// otherwise every non-nominated group would show up as "0 % present".
+func TestStatsRepository_EventGroupStats_RoleNominationMakesOthersNotExpected(t *testing.T) {
+	t.Parallel()
+
+	f := newGroupFixture(t)
+	repo := stats.NewRepository(f.pool)
+	ctx := context.Background()
+
+	p1 := f.addMember("Player 1", f.spieler)
+	p2 := f.addMember("Player 2", f.spieler)
+	f.addMember("Player 3", f.spieler) // nominated, silent -> pending
+	coach := f.addMember("Coach", f.trainer)
+	f.addMember("Assistant", f.trainer) // not nominated, silent -> not expected
+	both := f.addMember("Playing coach", f.trainer, f.spieler)
+
+	ev := f.addEvent("Match", "opt_in")
+	_, err := f.pool.Exec(ctx, `UPDATE events SET nominated_role_ids = ARRAY[$1::uuid] WHERE id = $2`, f.spieler, ev)
+	require.NoError(t, err)
+	f.respond(ev, p1, "yes")
+	f.respond(ev, p2, "no")
+	f.respond(ev, both, "yes")
+	// A non-nominated member who answers anyway still counts: an explicit
+	// response wins, as everywhere else.
+	f.respond(ev, coach, "yes")
+
+	rows, err := repo.EventGroupStats(ctx, f.teamID, f.from, f.to)
+	require.NoError(t, err)
+	byRole := groupByRole(rows, ev)
+
+	sp := byRole[f.spieler]
+	assert.Equal(t, 2, sp.Yes, "player 1 + playing coach")
+	assert.Equal(t, 3, sp.Counted)
+	assert.Equal(t, 1, sp.Pending, "only the nominated, silent player 3")
+
+	tr := byRole[f.trainer]
+	assert.Equal(t, 2, tr.Yes, "coach answered although not nominated; playing coach is nominated via Spieler")
+	assert.Equal(t, 2, tr.Counted)
+	assert.Equal(t, 0, tr.Pending, "the silent, non-nominated assistant was not expected")
+
+	evRows, err := repo.EventStats(ctx, f.teamID, f.from, f.to)
+	require.NoError(t, err)
+	require.Len(t, evRows, 1)
+	assert.Equal(t, 3, evRows[0].Yes)
+	assert.Equal(t, 4, evRows[0].Counted)
+	assert.Equal(t, 1, evRows[0].Pending)
+
+	// An empty nomination list means everyone is nominated.
+	_, err = f.pool.Exec(ctx, `UPDATE events SET nominated_role_ids = '{}' WHERE id = $1`, ev)
+	require.NoError(t, err)
+	evRows, err = repo.EventStats(ctx, f.teamID, f.from, f.to)
+	require.NoError(t, err)
+	assert.Equal(t, 2, evRows[0].Pending, "player 3 and the assistant")
+
+	// The non-nominated rule also beats an opt-out default: a member who was
+	// not nominated is not assumed to attend.
+	_, err = f.pool.Exec(ctx, `UPDATE events SET nominated_role_ids = ARRAY[$1::uuid], response_mode = 'opt_out' WHERE id = $2`, f.spieler, ev)
+	require.NoError(t, err)
+	rows, err = repo.EventGroupStats(ctx, f.teamID, f.from, f.to)
+	require.NoError(t, err)
+	tr = groupByRole(rows, ev)[f.trainer]
+	assert.Equal(t, 2, tr.Counted, "the silent assistant is neither an assumed yes nor pending")
+	assert.Equal(t, 0, tr.Pending)
+}
+
+// A member flagged exclude_from_stats stays in per-event turnout so that
+// their explicit responses still count -- but their silence must not count
+// against the event or their groups.
+func TestStatsRepository_EventGroupStats_ExcludedMemberSilenceIsNotPending(t *testing.T) {
+	t.Parallel()
+
+	f := newGroupFixture(t)
+	repo := stats.NewRepository(f.pool)
+	ctx := context.Background()
+
+	active := f.addMember("Active", f.spieler)
+	passive := f.addMember("Passive", f.spieler)
+	answering := f.addMember("Answering excluded", f.spieler)
+	_, err := f.pool.Exec(ctx,
+		`UPDATE memberships SET exclude_from_stats = true WHERE team_id = $1 AND user_id = ANY($2)`,
+		f.teamID, []uuid.UUID{passive, answering})
+	require.NoError(t, err)
+
+	ev := f.addEvent("Training", "opt_in")
+	f.respond(ev, active, "yes")
+	f.respond(ev, answering, "yes")
+
+	rows, err := repo.EventGroupStats(ctx, f.teamID, f.from, f.to)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, 2, rows[0].Yes, "the excluded member's explicit yes still counts")
+	assert.Equal(t, 2, rows[0].Counted)
+	assert.Equal(t, 0, rows[0].Pending, "the silent excluded member is not pending")
+
+	evRows, err := repo.EventStats(ctx, f.teamID, f.from, f.to)
+	require.NoError(t, err)
+	require.Len(t, evRows, 1)
+	assert.Equal(t, 0, evRows[0].Pending)
+}
+
+// On an opt-in event: a covering absence makes a silent member "no"
+// (counted, not pending), a not-relevant absence makes them not expected.
+func TestStatsRepository_EventGroupStats_AbsencesOnOptInEvent(t *testing.T) {
+	t.Parallel()
+
+	f := newGroupFixture(t)
+	repo := stats.NewRepository(f.pool)
+	ctx := context.Background()
+
+	present := f.addMember("Present", f.spieler)
+	away := f.addMember("Away", f.spieler)
+	onLeave := f.addMember("On leave", f.spieler)
+	f.addMember("Silent", f.spieler)
+
+	_, err := f.pool.Exec(ctx,
+		`INSERT INTO absences (team_id, user_id, from_date, to_date) VALUES ($1, $2, $3, $3)`, f.teamID, away, f.today)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx,
+		`INSERT INTO absences (team_id, user_id, from_date, to_date, not_relevant_for_stats) VALUES ($1, $2, $3, $3, true)`,
+		f.teamID, onLeave, f.today)
+	require.NoError(t, err)
+
+	ev := f.addEvent("Training", "opt_in")
+	f.respond(ev, present, "yes")
+
+	rows, err := repo.EventGroupStats(ctx, f.teamID, f.from, f.to)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, 1, rows[0].Yes)
+	assert.Equal(t, 2, rows[0].Counted, "present (yes) + away (absence -> no)")
+	assert.Equal(t, 1, rows[0].Pending, "only the silent member; the not-relevant absence is not expected")
+}
