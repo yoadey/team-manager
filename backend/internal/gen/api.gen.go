@@ -242,6 +242,24 @@ func (e SetAttendanceRequestReasonVisibility) Valid() bool {
 	}
 }
 
+// Defines values for StatsThresholdMode.
+const (
+	Count   StatsThresholdMode = "count"
+	Percent StatsThresholdMode = "percent"
+)
+
+// Valid indicates whether the value is a known member of the StatsThresholdMode enum.
+func (e StatsThresholdMode) Valid() bool {
+	switch e {
+	case Count:
+		return true
+	case Percent:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TransactionType.
 const (
 	Expense TransactionType = "expense"
@@ -681,16 +699,40 @@ type EventComment struct {
 	UserId             openapi_types.UUID  `json:"userId"`
 }
 
+// EventGroupStat defines model for EventGroupStat.
+type EventGroupStat struct {
+	Color *string `json:"color,omitempty"`
+
+	// Counted Members of this group with a counted (yes/no/maybe) effective response.
+	Counted int    `json:"counted"`
+	Name    string `json:"name"`
+
+	// Pending Members of this group expected at the event who gave no response at all. They count as not present: the group is complete only when `yes = counted + pending`, and its attendance percentage is `yes / (counted + pending)`. `counted + pending = 0` means the group has nobody expected at this event ("no data").
+	Pending       int                `json:"pending"`
+	RoleId        openapi_types.UUID `json:"roleId"`
+	ThresholdMode StatsThresholdMode `json:"thresholdMode"`
+
+	// ThresholdValue The group's resolved threshold (default applied). An incomplete group is highlighted as too low when its attendance percentage (thresholdMode percent) or its number of attendees (thresholdMode count) is below this value.
+	ThresholdValue int `json:"thresholdValue"`
+	Yes            int `json:"yes"`
+}
+
 // EventStat defines model for EventStat.
 type EventStat struct {
-	Date      openapi_types.Date `json:"date"`
-	Enough    bool               `json:"enough"`
+	Date   openapi_types.Date `json:"date"`
+	Enough bool               `json:"enough"`
+
+	// Groups This event's attendance broken down by group -- one entry per team role held by at least one current member, ordered like the role list (system roles first, then by name). Uses the same roster and effective-attendance counting as yes/nominated/pending above. A member holding several roles is counted in each of them, so the entries do not sum to the event's own numbers.
+	Groups    []EventGroupStat   `json:"groups"`
 	Id        openapi_types.UUID `json:"id"`
 	Nominated int                `json:"nominated"`
 	Pct       float32            `json:"pct"`
-	Title     string             `json:"title"`
-	Type      EventType          `json:"type"`
-	Yes       int                `json:"yes"`
+
+	// Pending Members expected at this event who gave no response: effective status pending (no answer, no covering absence, not an opt-out event). Members who are not nominated -- per member, or because the event nominates only roles they don't hold -- or flagged excludeFromStats, or covered by an absence that is not relevant for statistics, are not expected and never pending. Not part of `nominated`/`pct`/`enough`, which keep counting responses only; the per-event line-up treats these members as not present, so its denominator is `nominated + pending`.
+	Pending int       `json:"pending"`
+	Title   string    `json:"title"`
+	Type    EventType `json:"type"`
+	Yes     int       `json:"yes"`
 }
 
 // EventStatus defines model for EventStatus.
@@ -1037,6 +1079,12 @@ type SetRolesRequest struct {
 	RoleIds []openapi_types.UUID `json:"roleIds"`
 }
 
+// SetStatsGroupThresholdsRequest defines model for SetStatsGroupThresholdsRequest.
+type SetStatsGroupThresholdsRequest struct {
+	// Items At most 200 items per request (the same cap every role-id-shaped array in this API carries); a team with more roles saves them in several requests.
+	Items []StatsGroupThreshold `json:"items"`
+}
+
 // SetStatsPreferencesRequest defines model for SetStatsPreferencesRequest.
 type SetStatsPreferencesRequest struct {
 	From     openapi_types.Date  `json:"from"`
@@ -1068,6 +1116,20 @@ type SharedCalendarSource struct {
 	OwnerTeamName string             `json:"ownerTeamName"`
 }
 
+// StatsGroupThreshold defines model for StatsGroupThreshold.
+type StatsGroupThreshold struct {
+	Mode   StatsThresholdMode `json:"mode"`
+	RoleId openapi_types.UUID `json:"roleId"`
+
+	// Value 0-100 when mode is percent, 0-10000 when mode is count.
+	Value int `json:"value"`
+}
+
+// StatsGroupThresholdList defines model for StatsGroupThresholdList.
+type StatsGroupThresholdList struct {
+	Items []StatsGroupThreshold `json:"items"`
+}
+
 // StatsOverview defines model for StatsOverview.
 type StatsOverview struct {
 	// Avg Mean attendance quote across members who have at least one counted event in the range. Members with no counted events (e.g. a brand-new member, or someone whose only events all fell under not_relevant_for_stats/exclude_from_stats) have no attendance data and are excluded from this average entirely -- they are not scored as 0%, matching how MemberStat.quote is null/absent-of-meaning for the same members below. If no member in the range has any counted events, avg is 0.
@@ -1095,6 +1157,9 @@ type StatsPreset struct {
 	Name string             `json:"name"`
 	To   openapi_types.Date `json:"to"`
 }
+
+// StatsThresholdMode defines model for StatsThresholdMode.
+type StatsThresholdMode string
 
 // Team defines model for Team.
 type Team struct {
@@ -1649,6 +1714,9 @@ type CreateStatsPresetJSONRequestBody = CreateStatsPresetRequest
 // UpdateStatsPresetJSONRequestBody defines body for UpdateStatsPreset for application/json ContentType.
 type UpdateStatsPresetJSONRequestBody = UpdateStatsPresetRequest
 
+// SetStatsGroupThresholdsJSONRequestBody defines body for SetStatsGroupThresholds for application/json ContentType.
+type SetStatsGroupThresholdsJSONRequestBody = SetStatsGroupThresholdsRequest
+
 // RegisterPushSubscriptionJSONRequestBody defines body for RegisterPushSubscription for application/json ContentType.
 type RegisterPushSubscriptionJSONRequestBody = PushSubscriptionRequest
 
@@ -1948,6 +2016,12 @@ type ServerInterface interface {
 	// Per-member-per-event attendance matrix
 	// (GET /teams/{teamId}/stats/attendance-matrix)
 	GetAttendanceMatrix(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetAttendanceMatrixParams)
+	// List the per-group (role) attendance thresholds that decide when a group's per-event attendance is highlighted as too low. Returns one item per team role, with the default (percent / 50) for a role that was never configured.
+	// (GET /teams/{teamId}/stats/group-thresholds)
+	ListStatsGroupThresholds(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Save per-group (role) attendance thresholds. Roles not listed keep their current threshold. The whole request is rejected (422) when any listed role does not belong to this team.
+	// (PUT /teams/{teamId}/stats/group-thresholds)
+	SetStatsGroupThresholds(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// Individual member attendance statistics
 	// (GET /teams/{teamId}/stats/members/{userId})
 	GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID, params GetMemberStatsParams)
@@ -2548,6 +2622,18 @@ func (_ Unimplemented) UpdateStatsPreset(w http.ResponseWriter, r *http.Request,
 // Per-member-per-event attendance matrix
 // (GET /teams/{teamId}/stats/attendance-matrix)
 func (_ Unimplemented) GetAttendanceMatrix(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetAttendanceMatrixParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the per-group (role) attendance thresholds that decide when a group's per-event attendance is highlighted as too low. Returns one item per team role, with the default (percent / 50) for a role that was never configured.
+// (GET /teams/{teamId}/stats/group-thresholds)
+func (_ Unimplemented) ListStatsGroupThresholds(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Save per-group (role) attendance thresholds. Roles not listed keep their current threshold. The whole request is rejected (422) when any listed role does not belong to this team.
+// (PUT /teams/{teamId}/stats/group-thresholds)
+func (_ Unimplemented) SetStatsGroupThresholds(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -6231,6 +6317,70 @@ func (siw *ServerInterfaceWrapper) GetAttendanceMatrix(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// ListStatsGroupThresholds operation middleware
+func (siw *ServerInterfaceWrapper) ListStatsGroupThresholds(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListStatsGroupThresholds(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetStatsGroupThresholds operation middleware
+func (siw *ServerInterfaceWrapper) SetStatsGroupThresholds(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetStatsGroupThresholds(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMemberStats operation middleware
 func (siw *ServerInterfaceWrapper) GetMemberStats(w http.ResponseWriter, r *http.Request) {
 
@@ -6766,6 +6916,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/stats/attendance-matrix", wrapper.GetAttendanceMatrix)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/stats/group-thresholds", wrapper.ListStatsGroupThresholds)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/teams/{teamId}/stats/group-thresholds", wrapper.SetStatsGroupThresholds)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/stats/members/{userId}", wrapper.GetMemberStats)
@@ -9497,6 +9653,51 @@ func (response GetAttendanceMatrix200JSONResponse) VisitGetAttendanceMatrixRespo
 	return err
 }
 
+type ListStatsGroupThresholdsRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type ListStatsGroupThresholdsResponseObject interface {
+	VisitListStatsGroupThresholdsResponse(w http.ResponseWriter) error
+}
+
+type ListStatsGroupThresholds200JSONResponse StatsGroupThresholdList
+
+func (response ListStatsGroupThresholds200JSONResponse) VisitListStatsGroupThresholdsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetStatsGroupThresholdsRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+	Body   *SetStatsGroupThresholdsJSONRequestBody
+}
+
+type SetStatsGroupThresholdsResponseObject interface {
+	VisitSetStatsGroupThresholdsResponse(w http.ResponseWriter) error
+}
+
+type SetStatsGroupThresholds200JSONResponse StatsGroupThresholdList
+
+func (response SetStatsGroupThresholds200JSONResponse) VisitSetStatsGroupThresholdsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetMemberStatsRequestObject struct {
 	TeamId TeamId             `json:"teamId"`
 	UserId openapi_types.UUID `json:"userId"`
@@ -9849,6 +10050,12 @@ type StrictServerInterface interface {
 	// Per-member-per-event attendance matrix
 	// (GET /teams/{teamId}/stats/attendance-matrix)
 	GetAttendanceMatrix(ctx context.Context, request GetAttendanceMatrixRequestObject) (GetAttendanceMatrixResponseObject, error)
+	// List the per-group (role) attendance thresholds that decide when a group's per-event attendance is highlighted as too low. Returns one item per team role, with the default (percent / 50) for a role that was never configured.
+	// (GET /teams/{teamId}/stats/group-thresholds)
+	ListStatsGroupThresholds(ctx context.Context, request ListStatsGroupThresholdsRequestObject) (ListStatsGroupThresholdsResponseObject, error)
+	// Save per-group (role) attendance thresholds. Roles not listed keep their current threshold. The whole request is rejected (422) when any listed role does not belong to this team.
+	// (PUT /teams/{teamId}/stats/group-thresholds)
+	SetStatsGroupThresholds(ctx context.Context, request SetStatsGroupThresholdsRequestObject) (SetStatsGroupThresholdsResponseObject, error)
 	// Individual member attendance statistics
 	// (GET /teams/{teamId}/stats/members/{userId})
 	GetMemberStats(ctx context.Context, request GetMemberStatsRequestObject) (GetMemberStatsResponseObject, error)
@@ -12751,6 +12958,65 @@ func (sh *strictHandler) GetAttendanceMatrix(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetAttendanceMatrixResponseObject); ok {
 		if err := validResponse.VisitGetAttendanceMatrixResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListStatsGroupThresholds operation middleware
+func (sh *strictHandler) ListStatsGroupThresholds(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request ListStatsGroupThresholdsRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListStatsGroupThresholds(ctx, request.(ListStatsGroupThresholdsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListStatsGroupThresholds")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListStatsGroupThresholdsResponseObject); ok {
+		if err := validResponse.VisitListStatsGroupThresholdsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetStatsGroupThresholds operation middleware
+func (sh *strictHandler) SetStatsGroupThresholds(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request SetStatsGroupThresholdsRequestObject
+
+	request.TeamId = teamId
+
+	var body SetStatsGroupThresholdsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetStatsGroupThresholds(ctx, request.(SetStatsGroupThresholdsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetStatsGroupThresholds")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetStatsGroupThresholdsResponseObject); ok {
+		if err := validResponse.VisitSetStatsGroupThresholdsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

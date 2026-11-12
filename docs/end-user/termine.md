@@ -6,8 +6,12 @@ Der Bereich *Termine* hat drei Ansichten, umschaltbar über die Tabs oben:
 
 - **Liste** — anstehende und vergangene Termine (Archiv) untereinander,
   mit Filter „Nur offene Rückmeldungen".
-- **Kalender** — Monatsansicht. Mit Schreibrecht könnt ihr per Doppelklick
-  auf einen Tag direkt einen neuen Termin mit vorausgewähltem Datum anlegen.
+- **Kalender** — Monatsansicht. Sie nutzt die gesamte Breite und Höhe des
+  Bildschirms: Auf großen Bildschirmen werden die Wochenzeilen höher und
+  jeder Tag zeigt entsprechend mehr Einträge, bevor „+n" weitere
+  zusammenfasst. Hat ein Tag mehr Einträge, als in seine Zeile passen, wird
+  nur diese Woche höher. Mit Schreibrecht könnt ihr per Doppelklick auf einen Tag
+  direkt einen neuen Termin mit vorausgewähltem Datum anlegen.
 - **Abwesend** — geplante Abwesenheiten (siehe unten).
 
 ## Zu-/Absagen

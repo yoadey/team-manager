@@ -1,6 +1,8 @@
 import { useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
-import type { Invite } from '@/types';
+import type { Invite, StatsGroupThreshold } from '@/types';
+import { queryKeys } from '@/query/keys';
 import type { AppState } from '@/context/AppContext';
 import type { CreateTeamFormValues } from '../components/createTeamSchema';
 import type { TeamSettingsFormValues } from '../components/teamSettingsSchema';
@@ -8,6 +10,16 @@ import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
+
+/** Marks a threshold-save failure that saveTeamSettings has already reported
+ * to the user, so its outer catch doesn't report it a second time. */
+class ThresholdSaveError extends Error {
+  readonly original: unknown;
+  constructor(original: unknown) {
+    super('threshold save failed');
+    this.original = original;
+  }
+}
 
 type TeamDeps = {
   api: typeof defaultApi;
@@ -121,22 +133,57 @@ export function useTeamActions({
     [api, S, refreshTeams, setState, toastMsg, logout],
   );
 
+  const queryClient = useQueryClient();
+
+  // `changedThresholds` are the per-role attendance thresholds the user
+  // actually edited (TeamSettingsSheet diffs the form against what it
+  // loaded) -- empty/omitted means the section is untouched and no threshold
+  // request is sent at all.
   const saveTeamSettings = useCallback(
-    async (f: TeamSettingsFormValues) => {
+    async (f: TeamSettingsFormValues, changedThresholds: StatsGroupThreshold[] = []) => {
+      // Snapshot once: both requests and both invalidations below must target
+      // the team the form was opened for, even if the user switches teams
+      // while the first request is in flight.
+      const teamId = S().activeTeamId!;
       try {
-        await api.teams.updateSettings(S().activeTeamId!, {
+        await api.teams.updateSettings(teamId, {
           name: f.name.trim(),
           description: f.description || '',
           reasonVisibilityRoles: f.reasonRoles || [],
         });
+        // The thresholds are a second request, so the save is not atomic: by
+        // the time it runs the team's own settings are already stored. Its
+        // failure is therefore reported on its own terms below, after the
+        // team list has been refreshed -- not as "nothing was saved".
+        let thresholdError: unknown = null;
+        if (changedThresholds.length) {
+          try {
+            await api.stats.setGroupThresholds(teamId, changedThresholds);
+          } catch (err) {
+            thresholdError = err;
+          }
+          // On success and on failure alike: the settings sheet's own list
+          // (after a failure it re-syncs with the server, e.g. dropping a
+          // role someone else just deleted, instead of failing every further
+          // save), and every cached statistics overview of this team (each
+          // embeds the resolved thresholds).
+          void queryClient.invalidateQueries({ queryKey: queryKeys.statsGroupThresholds(teamId) });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.statsAll(teamId) });
+        }
         await refreshTeams();
+        if (thresholdError) {
+          reportActionError({ setState, toastMsg, onAuthError: logout }, thresholdError, 'team.thresholdSaveFailed');
+          throw new ThresholdSaveError(thresholdError);
+        }
         toastMsg(t('team.toastSettingsSaved'));
       } catch (err) {
+        // Already reported above, with its own message.
+        if (err instanceof ThresholdSaveError) throw err.original;
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         throw err;
       }
     },
-    [api, S, setState, refreshTeams, toastMsg, logout],
+    [api, S, setState, refreshTeams, toastMsg, logout, queryClient],
   );
 
   const openCreateTeam = useCallback(() => {

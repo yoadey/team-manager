@@ -1291,6 +1291,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{teamId}/stats/group-thresholds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List the per-group (role) attendance thresholds that decide when a group's per-event attendance is highlighted as too low. Returns one item per team role, with the default (percent / 50) for a role that was never configured. */
+        get: operations["listStatsGroupThresholds"];
+        /** Save per-group (role) attendance thresholds. Roles not listed keep their current threshold. The whole request is rejected (422) when any listed role does not belong to this team. */
+        put: operations["setStatsGroupThresholds"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{teamId}/stats/members/{userId}": {
         parameters: {
             query?: never;
@@ -2253,9 +2273,43 @@ export interface components {
             date: string;
             yes: number;
             nominated: number;
+            /** @description Members expected at this event who gave no response: effective status pending (no answer, no covering absence, not an opt-out event). Members who are not nominated -- per member, or because the event nominates only roles they don't hold -- or flagged excludeFromStats, or covered by an absence that is not relevant for statistics, are not expected and never pending. Not part of `nominated`/`pct`/`enough`, which keep counting responses only; the per-event line-up treats these members as not present, so its denominator is `nominated + pending`. */
+            pending: number;
             /** Format: float */
             pct: number;
             enough: boolean;
+            /** @description This event's attendance broken down by group -- one entry per team role held by at least one current member, ordered like the role list (system roles first, then by name). Uses the same roster and effective-attendance counting as yes/nominated/pending above. A member holding several roles is counted in each of them, so the entries do not sum to the event's own numbers. */
+            groups: components["schemas"]["EventGroupStat"][];
+        };
+        EventGroupStat: {
+            /** Format: uuid */
+            roleId: string;
+            name: string;
+            color?: string;
+            yes: number;
+            /** @description Members of this group with a counted (yes/no/maybe) effective response. */
+            counted: number;
+            /** @description Members of this group expected at the event who gave no response at all. They count as not present: the group is complete only when `yes = counted + pending`, and its attendance percentage is `yes / (counted + pending)`. `counted + pending = 0` means the group has nobody expected at this event ("no data"). */
+            pending: number;
+            thresholdMode: components["schemas"]["StatsThresholdMode"];
+            /** @description The group's resolved threshold (default applied). An incomplete group is highlighted as too low when its attendance percentage (thresholdMode percent) or its number of attendees (thresholdMode count) is below this value. */
+            thresholdValue: number;
+        };
+        /** @enum {string} */
+        StatsThresholdMode: "percent" | "count";
+        StatsGroupThreshold: {
+            /** Format: uuid */
+            roleId: string;
+            mode: components["schemas"]["StatsThresholdMode"];
+            /** @description 0-100 when mode is percent, 0-10000 when mode is count. */
+            value: number;
+        };
+        StatsGroupThresholdList: {
+            items: components["schemas"]["StatsGroupThreshold"][];
+        };
+        SetStatsGroupThresholdsRequest: {
+            /** @description At most 200 items per request (the same cap every role-id-shaped array in this API carries); a team with more roles saves them in several requests. */
+            items: components["schemas"]["StatsGroupThreshold"][];
         };
         StatsOverview: {
             /**
@@ -4713,6 +4767,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendanceMatrix"];
+                };
+            };
+        };
+    };
+    listStatsGroupThresholds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsGroupThresholdList"];
+                };
+            };
+        };
+    };
+    setStatsGroupThresholds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetStatsGroupThresholdsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsGroupThresholdList"];
                 };
             };
         };

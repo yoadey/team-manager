@@ -71,6 +71,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "GET", Segments: []string{"roles"}, Module: "settings", SelfService: false},                                                // listRoles
 	{Method: "GET", Segments: []string{"shared-calendars", "{ownerTeamId}", "events"}, Module: "public", SelfService: false},            // listSharedCalendarEvents
 	{Method: "GET", Segments: []string{"shared-calendars"}, Module: "public", SelfService: false},                                       // listSharedCalendarSources
+	{Method: "GET", Segments: []string{"stats", "group-thresholds"}, Module: "settings", SelfService: false},                            // listStatsGroupThresholds
 	{Method: "GET", Segments: []string{"stats-presets"}, Module: "stats", SelfService: false},                                           // listStatsPresets
 	{Method: "GET", Segments: []string{"finances", "transactions"}, Module: "finances", SelfService: false},                             // listTransactions
 	{Method: "POST", Segments: []string{"notifications", "seen"}, Module: "public", SelfService: false},                                 // markNotificationsSeen
@@ -83,6 +84,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "PUT", Segments: []string{"members", "{membershipId}", "title"}, Module: "members", SelfService: true},                     // setMemberTitle
 	{Method: "PUT", Segments: []string{"events", "{eventId}", "attendance", "nominations"}, Module: "events", SelfService: false},       // setNomination
 	{Method: "PUT", Segments: []string{"push-preferences"}, Module: "public", SelfService: false},                                       // setPushPreferences
+	{Method: "PUT", Segments: []string{"stats", "group-thresholds"}, Module: "settings", SelfService: false},                            // setStatsGroupThresholds
 	{Method: "PUT", Segments: []string{"stats-preferences"}, Module: "stats", SelfService: true},                                        // setStatsPreferences
 	{Method: "PATCH", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                              // updateAbsence
 	{Method: "PUT", Segments: []string{"calendar-feed", "settings"}, Module: "events", SelfService: true},                               // updateCalendarFeedSettings

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useTeamActions } from './useTeamActions';
-import { createQueryWrapper } from '@/test/queryTestUtils';
+import type { QueryClient } from '@tanstack/react-query';
+import { createQueryWrapper, createTestQueryClient } from '@/test/queryTestUtils';
 import { AuthError } from '@/utils/errors';
 import type { AppState } from '@/context/AppContext';
 
@@ -41,6 +42,9 @@ function makeApi() {
       create: vi.fn().mockResolvedValue({ id: 'new-team', name: 'New Team' }),
       createInvite: vi.fn().mockResolvedValue({ link: 'https://example.com/invite/abc123' }),
     },
+    stats: {
+      setGroupThresholds: vi.fn().mockResolvedValue([]),
+    },
     auth: {
       setPhoto: vi.fn().mockResolvedValue(undefined),
       currentUser: vi.fn().mockResolvedValue({ id: 'u1', name: 'Test User' }),
@@ -77,7 +81,7 @@ describe('useTeamActions', () => {
     api = makeApi();
   });
 
-  function renderActions() {
+  function renderActions(client?: QueryClient) {
     return renderHook(
       () =>
         useTeamActions({
@@ -90,7 +94,7 @@ describe('useTeamActions', () => {
           toastMsg: toastMsg as never,
           logout: logout as never,
         }),
-      { wrapper: createQueryWrapper() },
+      { wrapper: createQueryWrapper(client) },
     );
   }
 
@@ -312,6 +316,89 @@ describe('useTeamActions', () => {
     });
     expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Updated Team' }));
     expect(toastMsg).toHaveBeenCalledWith('Team-Einstellungen gespeichert');
+  });
+
+  it('saveTeamSettings sends no threshold request when no threshold changed', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveTeamSettings({ name: 'Updated Team', description: '', reasonRoles: [] } as never);
+      await result.current.saveTeamSettings({ name: 'Updated Team', description: '', reasonRoles: [] } as never, []);
+    });
+    expect(api.stats.setGroupThresholds).not.toHaveBeenCalled();
+  });
+
+  it('saveTeamSettings saves changed thresholds and invalidates the threshold + stats caches', async () => {
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const changed = [{ roleId: 'r1', mode: 'count' as const, value: 8 }];
+    const { result } = renderActions(client);
+    await act(async () => {
+      await result.current.saveTeamSettings({ name: 'Updated Team', description: '', reasonRoles: [] } as never, changed);
+    });
+    expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Updated Team' }));
+    expect(api.stats.setGroupThresholds).toHaveBeenCalledWith('team1', changed);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['teams', 'team1', 'statsGroupThresholds'] });
+    // Prefix of every range-scoped overview/matrix key of the team.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['teams', 'team1', 'stats'] });
+    expect(toastMsg).toHaveBeenCalledWith('Team-Einstellungen gespeichert');
+  });
+
+  // The two requests are not atomic: when the threshold save fails, the
+  // team's own settings are already stored. The failure must say so (not
+  // claim nothing was saved), the team list must still refresh, and the
+  // threshold list must re-sync with the server.
+  it('saveTeamSettings reports a failed threshold save as a partial save', async () => {
+    api.stats.setGroupThresholds.mockRejectedValueOnce(new Error('boom'));
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderActions(client);
+    await act(async () => {
+      await expect(
+        result.current.saveTeamSettings({ name: 'Updated Team', description: '', reasonRoles: [] } as never, [
+          { roleId: 'r1', mode: 'percent', value: 60 },
+        ]),
+      ).rejects.toThrow('boom');
+    });
+    expect(api.teams.updateSettings).toHaveBeenCalled();
+    expect(refreshTeams).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['teams', 'team1', 'statsGroupThresholds'] });
+    // Exactly one toast: the specific partial-save message, as an error.
+    expect(toastMsg).toHaveBeenCalledTimes(1);
+    expect(toastMsg).toHaveBeenCalledWith(
+      expect.stringContaining('Team-Einstellungen gespeichert, aber die Mindest-Anwesenheit je Gruppe konnte nicht gespeichert werden'),
+      undefined,
+      'error',
+    );
+    expect(toastMsg).not.toHaveBeenCalledWith('Team-Einstellungen gespeichert');
+  });
+
+  it('saveTeamSettings sends no threshold request when the team settings themselves fail', async () => {
+    api.teams.updateSettings.mockRejectedValueOnce(new Error('nope'));
+    const { result } = renderActions();
+    await act(async () => {
+      await expect(
+        result.current.saveTeamSettings({ name: 'Updated Team', description: '', reasonRoles: [] } as never, [
+          { roleId: 'r1', mode: 'percent', value: 60 },
+        ]),
+      ).rejects.toThrow('nope');
+    });
+    expect(api.stats.setGroupThresholds).not.toHaveBeenCalled();
+    expect(refreshTeams).not.toHaveBeenCalled();
+    expect(toastMsg).toHaveBeenCalledTimes(1);
+  });
+
+  it('saveTeamSettings logs out on a 401 from the threshold save, reporting it once', async () => {
+    api.stats.setGroupThresholds.mockRejectedValueOnce(new AuthError());
+    const { result } = renderActions();
+    await act(async () => {
+      await expect(
+        result.current.saveTeamSettings({ name: 'Updated Team', description: '', reasonRoles: [] } as never, [
+          { roleId: 'r1', mode: 'percent', value: 60 },
+        ]),
+      ).rejects.toBeInstanceOf(AuthError);
+    });
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(toastMsg).toHaveBeenCalledTimes(1);
   });
 
   it('saveTeamSettings triggers logout on a 401 (expired session)', async () => {

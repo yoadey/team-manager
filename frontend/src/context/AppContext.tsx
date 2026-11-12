@@ -20,6 +20,7 @@ import type {
   PermLevel,
   Provider,
   Role,
+  StatsGroupThreshold,
   TeamForUser,
   User,
 } from '@/types';
@@ -425,7 +426,7 @@ export interface AppContextValue {
   removeTeamPhoto: () => Promise<void>;
   saveTeamLogo: (dataUrl: string, teamId: string) => Promise<void>;
   setTeamIcon: (em: string) => void;
-  saveTeamSettings: (f: TeamSettingsFormValues) => Promise<void>;
+  saveTeamSettings: (f: TeamSettingsFormValues, changedThresholds?: StatsGroupThreshold[]) => Promise<void>;
   openCreateTeam: () => void;
   createTeam: (f: CreateTeamFormValues) => Promise<void>;
   openInvite: () => Promise<void>;

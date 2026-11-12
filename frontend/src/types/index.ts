@@ -84,6 +84,28 @@ export interface MemberStat {
   yes: number;
 }
 
+export type StatsThresholdMode = 'percent' | 'count';
+
+/**
+ * One group's (= team role's) attendance for one event, with that group's
+ * resolved threshold. `counted` is yes + no + maybe (same counting as
+ * EventStat.nominated); `pending` is the group's members who gave no
+ * response at all -- the line-up counts those as not present, so the group's
+ * size for this event is `counted + pending` (0 = nobody expected, "no
+ * data"). A member holding several roles is counted in each of them, so
+ * groups don't sum to the event's own numbers.
+ */
+export interface EventGroupStat {
+  roleId: string;
+  name: string;
+  color: string;
+  yes: number;
+  counted: number;
+  pending: number;
+  thresholdMode: StatsThresholdMode;
+  thresholdValue: number;
+}
+
 export interface EventStat {
   id: string;
   title: string;
@@ -91,8 +113,20 @@ export interface EventStat {
   date: string;
   yes: number;
   nominated: number;
+  /** Members expected at the event who gave no response at all. Not part of
+   * `nominated`/`pct`; the line-up counts them as not present. */
+  pending: number;
   pct: number;
   enough?: boolean;
+  groups: EventGroupStat[];
+}
+
+/** A role's attendance threshold: below `value` percent (mode 'percent') or
+ * below `value` attendees (mode 'count') an incomplete group is marked red. */
+export interface StatsGroupThreshold {
+  roleId: string;
+  mode: StatsThresholdMode;
+  value: number;
 }
 
 export interface StatsOverview {

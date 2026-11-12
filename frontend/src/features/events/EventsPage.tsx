@@ -97,10 +97,14 @@ export function EventsPage() {
     </Box>
   );
 
+  // The calendar is the one view that fills the screen: a flex column at
+  // least as tall as the shell's scrolling <main> content box (minHeight, so
+  // it still grows and scrolls when the calendar needs more), in which
+  // EventCalendar takes all the height the toolbar leaves.
   if (state.eventsView === 'calendar')
     return (
-      <Box>
-        {toolbar}
+      <Box data-testid="events-calendar-view" sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+        <Box sx={{ flex: '0 0 auto' }}>{toolbar}</Box>
         <EventCalendar />
       </Box>
     );

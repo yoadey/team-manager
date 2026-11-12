@@ -605,7 +605,7 @@ func main() {
 
 	statsRepo := stats.NewRepository(pool)
 	statsSvc := stats.NewService(statsRepo)
-	statsHandler := stats.NewHandler(statsSvc, logger)
+	statsHandler := stats.NewHandler(statsSvc, logger, auditLogger)
 
 	// ─── Stats preferences ───────────────────────────────────────────────────
 

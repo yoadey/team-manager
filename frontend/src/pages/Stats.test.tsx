@@ -1,9 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Stats } from './Stats';
 
 const mockSetStatsRange = vi.fn();
+
+// `threshold` is [mode, value, pending]; pending (members of the group who
+// gave no response) defaults to 0.
+function group(
+  roleId: string,
+  name: string,
+  yes: number,
+  counted: number,
+  [thresholdMode, thresholdValue, pending = 0]: ['percent' | 'count', number, number?],
+) {
+  return { roleId, name, color: '#1565C0', yes, counted, pending, thresholdMode, thresholdValue };
+}
 
 function makeStats() {
   return {
@@ -15,8 +27,40 @@ function makeStats() {
       { userId: 'u3', name: 'Clara Braun', quote: null, photo: null, avatarColor: '#00F' },
     ],
     events: [
-      { id: 'ev1', title: 'Training', date: '2026-03-01', type: 'training', yes: 8, nominated: 10, enough: true },
-      { id: 'ev2', title: 'Spiel', date: '2026-03-05', type: 'match', yes: 5, nominated: 10, enough: false },
+      {
+        id: 'ev1',
+        title: 'Training',
+        date: '2026-03-01',
+        type: 'training',
+        yes: 8,
+        nominated: 10,
+        pending: 0,
+        enough: true,
+        groups: [
+          // complete -> check mark
+          group('r_trainer', 'Trainer', 2, 2, ['count', 1]),
+          // 6/8 = 75% >= 50% -> plain percentage
+          group('r_member', 'Mitglied', 6, 8, ['percent', 50]),
+        ],
+      },
+      {
+        id: 'ev2',
+        title: 'Spiel',
+        date: '2026-03-05',
+        type: 'match',
+        yes: 5,
+        nominated: 10,
+        pending: 0,
+        enough: false,
+        groups: [
+          // nobody responded -> no data
+          group('r_trainer', 'Trainer', 0, 0, ['count', 1]),
+          // 2/5 = 40% < 50% -> red
+          group('r_member', 'Mitglied', 2, 5, ['percent', 50]),
+          // 6/10 = 60%, but fewer than 8 attendees -> red (count mode)
+          group('r_player', 'Spieler', 6, 10, ['count', 8]),
+        ],
+      },
     ],
   };
 }
@@ -77,6 +121,11 @@ function makeApp(
   };
 }
 
+// Desktop by default; the matrix pins its count column only there.
+vi.mock('@/layouts/useCompact', () => ({
+  useCompact: vi.fn(() => false),
+}));
+
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
   useAppActions: vi.fn().mockReturnValue({ openEventDetail: vi.fn() }),
@@ -100,16 +149,19 @@ vi.mock('./hooks/useStatsPreferencesActions', () => ({
 }));
 
 import { useApp } from '@/context/AppContext';
+import { useCompact } from '@/layouts/useCompact';
 import { useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
 import { useStatsPreferencesActions } from './hooks/useStatsPreferencesActions';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
 const mockUseMatrixQuery = useAttendanceMatrixQuery as ReturnType<typeof vi.fn>;
 const mockUseStatsPreferencesActions = useStatsPreferencesActions as ReturnType<typeof vi.fn>;
+const mockUseCompact = useCompact as ReturnType<typeof vi.fn>;
 
 describe('Stats', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseCompact.mockReturnValue(false);
     mockUseStatsPreferencesActions.mockReturnValue({
       preferences: undefined,
       preferencesLoaded: false,
@@ -208,26 +260,177 @@ describe('Stats', () => {
     expect(dashes.length).toBeGreaterThan(0);
   });
 
-  it('renders event stats section', () => {
+  it('no longer lists events below the quotas on the quota tab', () => {
     mockUseApp.mockReturnValue(makeApp(makeStats()));
     render(<Stats />);
-    expect(screen.getByText('Aufstellung je Termin')).toBeTruthy();
-    expect(screen.getByText('Training')).toBeTruthy();
-    expect(screen.getByText('Spiel')).toBeTruthy();
+    expect(screen.getByText('Quote pro Person')).toBeTruthy();
+    expect(screen.queryByText('Training')).toBeNull();
+    expect(screen.queryByText('Spiel')).toBeNull();
+    expect(screen.queryAllByTestId('stats-event-row')).toHaveLength(0);
   });
 
-  it('shows "Vollständig" chip for events with enough attendance', () => {
-    mockUseApp.mockReturnValue(makeApp(makeStats()));
-    render(<Stats />);
-    expect(screen.getByText('Vollständig')).toBeTruthy();
-    expect(screen.getByText('Zu wenig')).toBeTruthy();
-  });
+  describe('events tab ("Termine")', () => {
+    async function openEventsTab(stats: unknown = makeStats()) {
+      mockUseApp.mockReturnValue(makeApp(stats));
+      render(<Stats />);
+      await userEvent.click(screen.getByRole('tab', { name: 'Termine' }));
+    }
 
-  it('shows empty events state when no past events', () => {
-    const stats = { ...makeStats(), events: [] };
-    mockUseApp.mockReturnValue(makeApp(stats));
-    render(<Stats />);
-    expect(screen.getByText('Noch keine vergangenen Termine')).toBeTruthy();
+    it('lists the events of the range with their turnout, without the quota sections', async () => {
+      await openEventsTab();
+      expect(screen.getByRole('tab', { name: 'Termine' }).getAttribute('aria-selected')).toBe('true');
+      const rows = screen.getAllByTestId('stats-event-row');
+      expect(rows).toHaveLength(2);
+      expect(within(rows[0]!).getByText('Training')).toBeTruthy();
+      expect(within(rows[0]!).getByText(/8\/10 anwesend/)).toBeTruthy();
+      expect(within(rows[1]!).getByText('Spiel')).toBeTruthy();
+      expect(screen.queryByText('Quote pro Person')).toBeNull();
+    });
+
+    it('does not request the matrix for the events tab', async () => {
+      await openEventsTab();
+      const calls = mockUseMatrixQuery.mock.calls;
+      expect(calls[calls.length - 1]![3]).toBe(false);
+    });
+
+    it('shows a check mark instead of a percentage for a complete group', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      const pill = within(row).getByLabelText('Trainer: vollständig anwesend (2 von 2)');
+      expect(pill.getAttribute('data-state')).toBe('complete');
+      expect(pill.textContent).not.toMatch(/%/);
+      expect(pill.querySelector('svg')).toBeTruthy();
+    });
+
+    it('shows the percentage, not red, for an incomplete group at or above its threshold', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      const pill = within(row).getByLabelText('Mitglied: 75% anwesend (6 von 8)');
+      expect(pill.getAttribute('data-state')).toBe('ok');
+      expect(pill.textContent).toContain('75%');
+      expect(pill.querySelector('svg')).toBeNull();
+    });
+
+    it('marks an incomplete group below its percentage threshold red', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[1]!;
+      const pill = within(row).getByLabelText('Mitglied: 40% anwesend (2 von 5), unter dem Schwellenwert');
+      expect(pill.getAttribute('data-state')).toBe('low');
+      // Not colour alone: a low group also carries a warning icon.
+      expect(pill.querySelector('svg')).toBeTruthy();
+      expect(pill.textContent).toContain('40%');
+    });
+
+    it('marks an incomplete group below its absolute threshold red, still showing a percentage', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[1]!;
+      const pill = within(row).getByLabelText('Spieler: 60% anwesend (6 von 10), unter dem Schwellenwert');
+      expect(pill.getAttribute('data-state')).toBe('low');
+      // Not colour alone: a low group also carries a warning icon.
+      expect(pill.querySelector('svg')).toBeTruthy();
+      expect(pill.textContent).toContain('60%');
+    });
+
+    it('shows a dash for a group without counted responses', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[1]!;
+      const pill = within(row).getByLabelText('Trainer: keine Daten');
+      expect(pill.getAttribute('data-state')).toBe('none');
+      expect(pill.textContent).toContain('–');
+    });
+
+    it('renders one indicator per group, in the order the API returned them', async () => {
+      await openEventsTab();
+      const row = screen.getAllByTestId('stats-event-row')[1]!;
+      const list = within(row).getByRole('list', { name: 'Anwesenheit je Gruppe für Spiel' });
+      const names = within(list)
+        .getAllByRole('listitem')
+        .map((li) => li.getAttribute('aria-label')!.split(':')[0]);
+      expect(names).toEqual(['Trainer', 'Mitglied', 'Spieler']);
+    });
+
+    it('renders an event without groups without a group list', async () => {
+      const stats = makeStats();
+      stats.events[0]!.groups = [];
+      await openEventsTab(stats);
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      expect(within(row).queryByRole('list')).toBeNull();
+    });
+
+    // A missing response counts as not present: the event line and the group
+    // indicators are both measured against everyone expected.
+    it('counts members without a response as not present, on the event line and in the groups', async () => {
+      const stats = makeStats();
+      stats.events[0] = {
+        ...stats.events[0]!,
+        yes: 3,
+        nominated: 3,
+        pending: 12,
+        groups: [
+          // both trainers answered yes -> complete
+          group('r_trainer', 'Trainer', 2, 2, ['count', 1, 0]),
+          // 3 yes, 12 silent -> 3 of 15, below "at least 8"
+          group('r_player', 'Spieler', 3, 3, ['count', 8, 12]),
+          // nobody answered -> 0 of 4, red; not "no data"
+          group('r_helper', 'Betreuer', 0, 0, ['percent', 50, 4]),
+        ],
+      };
+      await openEventsTab(stats);
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      expect(within(row).getByText(/3\/15 anwesend/)).toBeTruthy();
+      expect(within(row).queryByText(/3\/3 anwesend/)).toBeNull();
+
+      expect(within(row).getByLabelText('Trainer: vollständig anwesend (2 von 2)').getAttribute('data-state')).toBe('complete');
+      const players = within(row).getByLabelText('Spieler: 20% anwesend (3 von 15), unter dem Schwellenwert');
+      expect(players.getAttribute('data-state')).toBe('low');
+      expect(players.textContent).toContain('20%');
+      const helpers = within(row).getByLabelText('Betreuer: 0% anwesend (0 von 4), unter dem Schwellenwert');
+      expect(helpers.getAttribute('data-state')).toBe('low');
+    });
+
+    it('still shows the group indicators when nobody responded but members were expected', async () => {
+      const stats = makeStats();
+      stats.events[0] = {
+        ...stats.events[0]!,
+        yes: 0,
+        nominated: 0,
+        pending: 6,
+        groups: [group('r_member', 'Mitglied', 0, 0, ['percent', 50, 6])],
+      };
+      await openEventsTab(stats);
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      expect(within(row).getByText(/0\/6 anwesend/)).toBeTruthy();
+      expect(within(row).getByRole('list')).toBeTruthy();
+    });
+
+    it('shows no group indicators for an event nobody was expected at', async () => {
+      const stats = makeStats();
+      stats.events[0] = {
+        ...stats.events[0]!,
+        yes: 0,
+        nominated: 0,
+        pending: 0,
+        groups: [group('r_trainer', 'Trainer', 0, 0, ['count', 1]), group('r_member', 'Mitglied', 0, 0, ['percent', 50])],
+      };
+      await openEventsTab(stats);
+      const row = screen.getAllByTestId('stats-event-row')[0]!;
+      expect(within(row).getByText(/0\/0 anwesend/)).toBeTruthy();
+      expect(within(row).queryByRole('list')).toBeNull();
+      // The other event still shows its indicators.
+      expect(within(screen.getAllByTestId('stats-event-row')[1]!).getByRole('list')).toBeTruthy();
+    });
+
+    it('shows the empty state when the range has no events', async () => {
+      await openEventsTab({ ...makeStats(), events: [] });
+      expect(screen.getByText('Noch keine vergangenen Termine')).toBeTruthy();
+    });
+
+    it('shows a spinner while the overview is loading', async () => {
+      mockUseApp.mockReturnValue(makeApp(null));
+      render(<Stats />);
+      await userEvent.click(screen.getByRole('tab', { name: 'Termine' }));
+      expect(screen.getByRole('status')).toBeTruthy();
+    });
   });
 
   it('highlights active range preset', () => {
@@ -249,11 +452,69 @@ describe('Stats', () => {
     expect(screen.getByText('Gesamt')).toBeTruthy();
   });
 
-  it('renders the Quote/Matrix tab toggle', () => {
+  it('renders the Quote/Matrix/Termine tabs in that order', () => {
     mockUseApp.mockReturnValue(makeApp(makeStats()));
     render(<Stats />);
-    expect(screen.getByRole('tab', { name: 'Quote' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Matrix' })).toBeTruthy();
+    expect(screen.getAllByRole('tab').map((el) => el.textContent)).toEqual(['Quote', 'Matrix', 'Termine']);
+  });
+
+  it('puts the attendance count directly after the member name in the matrix', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, makeMatrix()));
+    render(<Stats />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Matrix' }));
+
+    // Header: Mitglied | Ja | 1.1. | 6.1. | 7.1.
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    expect(headers).toEqual(['Mitglied', 'Ja', '1.1.', '6.1.', '7.1.']);
+
+    // Every body row: name cell, then the count, then one cell per event.
+    const bodyRows = screen.getAllByRole('row').slice(1);
+    expect(bodyRows).toHaveLength(2);
+    const peter = bodyRows[0]!;
+    expect(within(peter).getByRole('rowheader').textContent).toContain('Peter');
+    const peterCells = within(peter).getAllByRole('cell');
+    expect(peterCells).toHaveLength(4);
+    expect(peterCells[0]!.getAttribute('data-testid')).toBe('matrix-total');
+    expect(peterCells[0]!.textContent).toBe('2');
+    expect(within(bodyRows[1]!).getAllByRole('cell')[0]!.textContent).toBe('1');
+    // The count is no longer the last cell.
+    expect(peterCells[peterCells.length - 1]!.getAttribute('data-testid')).toBeNull();
+  });
+
+  it('pins the count column next to the pinned name column on desktop', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, makeMatrix()));
+    render(<Stats />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Matrix' }));
+
+    const nameCell = screen.getAllByRole('rowheader')[0]!;
+    const nameStyle = getComputedStyle(nameCell);
+    expect(nameStyle.position).toBe('sticky');
+    expect(nameStyle.left).toBe('0px');
+    expect(nameStyle.width).toBe('190px');
+
+    // The count sits exactly at the right edge of the fixed-width name column.
+    for (const el of [screen.getByTestId('matrix-total-header'), ...screen.getAllByTestId('matrix-total')]) {
+      const style = getComputedStyle(el);
+      expect(style.position).toBe('sticky');
+      expect(style.left).toBe('190px');
+    }
+    // Event cells scroll.
+    const eventCell = within(screen.getAllByRole('row')[1]!).getAllByRole('cell')[1]!;
+    expect(getComputedStyle(eventCell).position).not.toBe('sticky');
+  });
+
+  it('pins only the name column on a phone', async () => {
+    mockUseCompact.mockReturnValue(true);
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, makeMatrix()));
+    render(<Stats />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Matrix' }));
+
+    expect(getComputedStyle(screen.getAllByRole('rowheader')[0]!).position).toBe('sticky');
+    for (const el of [screen.getByTestId('matrix-total-header'), ...screen.getAllByTestId('matrix-total')]) {
+      expect(getComputedStyle(el).position).not.toBe('sticky');
+    }
+    // Still the second column.
+    expect(screen.getAllByRole('columnheader').map((th) => th.textContent)).toEqual(['Mitglied', 'Ja', '1.1.', '6.1.', '7.1.']);
   });
 
   it('switches to the matrix tab and renders the member × event grid', async () => {

@@ -1,9 +1,11 @@
 package stats_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/stats"
@@ -28,6 +31,16 @@ type mockStatsService struct {
 	getOverview      func(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error)
 	getMemberStats   func(ctx context.Context, teamID, userID uuid.UUID, from, to *openapi_types.Date) (*gen.MemberAttendanceStats, error)
 	getAttendanceMat func(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceMatrix, error)
+	listThresholds   func(ctx context.Context, teamID uuid.UUID) ([]stats.GroupThresholdRow, error)
+	setThresholds    func(ctx context.Context, teamID uuid.UUID, items []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error)
+}
+
+func (m *mockStatsService) ListGroupThresholds(ctx context.Context, teamID uuid.UUID) ([]stats.GroupThresholdRow, error) {
+	return m.listThresholds(ctx, teamID)
+}
+
+func (m *mockStatsService) SetGroupThresholds(ctx context.Context, teamID uuid.UUID, items []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error) {
+	return m.setThresholds(ctx, teamID, items)
 }
 
 func (m *mockStatsService) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error) {
@@ -64,14 +77,14 @@ func statsAuthedCtx() context.Context {
 
 func TestHandler_GetStatsOverview_Unauthenticated(t *testing.T) {
 	t.Parallel()
-	h := stats.NewHandler(&mockStatsService{}, slog.Default())
+	h := stats.NewHandler(&mockStatsService{}, slog.Default(), nil)
 	_, err := h.GetStatsOverview(context.Background(), gen.GetStatsOverviewRequestObject{TeamId: statsTeamID})
 	require.Error(t, err)
 }
 
 func TestHandler_GetAttendanceMatrix_Unauthenticated(t *testing.T) {
 	t.Parallel()
-	h := stats.NewHandler(&mockStatsService{}, slog.Default())
+	h := stats.NewHandler(&mockStatsService{}, slog.Default(), nil)
 	_, err := h.GetAttendanceMatrix(context.Background(), gen.GetAttendanceMatrixRequestObject{TeamId: statsTeamID})
 	require.Error(t, err)
 }
@@ -90,7 +103,7 @@ func TestHandler_GetAttendanceMatrix_Success(t *testing.T) {
 			return matrix, nil
 		},
 	}
-	h := stats.NewHandler(svc, slog.Default())
+	h := stats.NewHandler(svc, slog.Default(), nil)
 
 	resp, err := h.GetAttendanceMatrix(statsAuthedCtx(), gen.GetAttendanceMatrixRequestObject{TeamId: statsTeamID})
 	require.NoError(t, err)
@@ -116,7 +129,7 @@ func TestHandler_GetStatsOverview_Success(t *testing.T) {
 			return overview, nil
 		},
 	}
-	h := stats.NewHandler(svc, slog.Default())
+	h := stats.NewHandler(svc, slog.Default(), nil)
 
 	resp, err := h.GetStatsOverview(statsAuthedCtx(), gen.GetStatsOverviewRequestObject{TeamId: statsTeamID})
 	require.NoError(t, err)
@@ -137,14 +150,14 @@ func TestHandler_GetStatsOverview_ServiceError(t *testing.T) {
 			return nil, errors.New("db error")
 		},
 	}
-	h := stats.NewHandler(svc, slog.Default())
+	h := stats.NewHandler(svc, slog.Default(), nil)
 	_, err := h.GetStatsOverview(statsAuthedCtx(), gen.GetStatsOverviewRequestObject{TeamId: statsTeamID})
 	require.Error(t, err)
 }
 
 func TestHandler_GetMemberStats_Unauthenticated(t *testing.T) {
 	t.Parallel()
-	h := stats.NewHandler(&mockStatsService{}, slog.Default())
+	h := stats.NewHandler(&mockStatsService{}, slog.Default(), nil)
 	_, err := h.GetMemberStats(context.Background(), gen.GetMemberStatsRequestObject{
 		TeamId: statsTeamID,
 		UserId: statsUserID,
@@ -164,7 +177,7 @@ func TestHandler_GetMemberStats_Success(t *testing.T) {
 			return memberStats, nil
 		},
 	}
-	h := stats.NewHandler(svc, slog.Default())
+	h := stats.NewHandler(svc, slog.Default(), nil)
 
 	resp, err := h.GetMemberStats(statsAuthedCtx(), gen.GetMemberStatsRequestObject{
 		TeamId: statsTeamID,
@@ -194,7 +207,7 @@ func TestHandler_GetMemberStats_ForwardsFromTo(t *testing.T) {
 			return &gen.MemberAttendanceStats{}, nil
 		},
 	}
-	h := stats.NewHandler(svc, slog.Default())
+	h := stats.NewHandler(svc, slog.Default(), nil)
 
 	_, err := h.GetMemberStats(statsAuthedCtx(), gen.GetMemberStatsRequestObject{
 		TeamId: statsTeamID,
@@ -215,7 +228,7 @@ func TestHandler_GetMemberStats_NonMemberReturnsNotFound(t *testing.T) {
 			return nil, pgx.ErrNoRows
 		},
 	}
-	h := stats.NewHandler(svc, slog.Default())
+	h := stats.NewHandler(svc, slog.Default(), nil)
 
 	_, err := h.GetMemberStats(statsAuthedCtx(), gen.GetMemberStatsRequestObject{
 		TeamId: statsTeamID,
@@ -225,4 +238,215 @@ func TestHandler_GetMemberStats_NonMemberReturnsNotFound(t *testing.T) {
 	var apiErr *apierror.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+}
+
+// ─── group thresholds ────────────────────────────────────────────────────────
+
+func TestHandler_ListStatsGroupThresholds_Unauthenticated(t *testing.T) {
+	t.Parallel()
+	h := stats.NewHandler(&mockStatsService{}, slog.Default(), nil)
+	_, err := h.ListStatsGroupThresholds(context.Background(), gen.ListStatsGroupThresholdsRequestObject{TeamId: statsTeamID})
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusUnauthorized, apiErr.Status)
+}
+
+func TestHandler_ListStatsGroupThresholds_Success(t *testing.T) {
+	t.Parallel()
+
+	r1, r2 := uuid.New(), uuid.New()
+	svc := &mockStatsService{
+		listThresholds: func(_ context.Context, teamID uuid.UUID) ([]stats.GroupThresholdRow, error) {
+			assert.Equal(t, statsTeamID, teamID)
+			return []stats.GroupThresholdRow{
+				{RoleID: r1, Mode: "percent", Value: 50},
+				{RoleID: r2, Mode: "count", Value: 8},
+			}, nil
+		},
+	}
+	h := stats.NewHandler(svc, slog.Default(), nil)
+	resp, err := h.ListStatsGroupThresholds(statsAuthedCtx(), gen.ListStatsGroupThresholdsRequestObject{TeamId: statsTeamID})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitListStatsGroupThresholdsResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+	var body gen.StatsGroupThresholdList
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Items, 2)
+	assert.Equal(t, gen.StatsGroupThreshold{RoleId: r1, Mode: "percent", Value: 50}, body.Items[0])
+	assert.Equal(t, gen.StatsGroupThreshold{RoleId: r2, Mode: "count", Value: 8}, body.Items[1])
+}
+
+// An empty team role list must serialize as {"items":[]}, not null.
+func TestHandler_ListStatsGroupThresholds_EmptyIsArray(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsService{
+		listThresholds: func(context.Context, uuid.UUID) ([]stats.GroupThresholdRow, error) { return nil, nil },
+	}
+	resp, err := stats.NewHandler(svc, slog.Default(), nil).ListStatsGroupThresholds(statsAuthedCtx(),
+		gen.ListStatsGroupThresholdsRequestObject{TeamId: statsTeamID})
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitListStatsGroupThresholdsResponse(w))
+	assert.JSONEq(t, `{"items":[]}`, w.Body.String())
+}
+
+func TestHandler_ListStatsGroupThresholds_ServiceError(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsService{
+		listThresholds: func(context.Context, uuid.UUID) ([]stats.GroupThresholdRow, error) {
+			return nil, errors.New("db unavailable")
+		},
+	}
+	_, err := stats.NewHandler(svc, slog.Default(), nil).ListStatsGroupThresholds(statsAuthedCtx(),
+		gen.ListStatsGroupThresholdsRequestObject{TeamId: statsTeamID})
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
+}
+
+func TestHandler_SetStatsGroupThresholds_Unauthenticated(t *testing.T) {
+	t.Parallel()
+	h := stats.NewHandler(&mockStatsService{}, slog.Default(), nil)
+	_, err := h.SetStatsGroupThresholds(context.Background(), gen.SetStatsGroupThresholdsRequestObject{
+		TeamId: statsTeamID,
+		Body:   &gen.SetStatsGroupThresholdsJSONRequestBody{},
+	})
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusUnauthorized, apiErr.Status)
+}
+
+func TestHandler_SetStatsGroupThresholds_MissingBody(t *testing.T) {
+	t.Parallel()
+	h := stats.NewHandler(&mockStatsService{}, slog.Default(), nil)
+	_, err := h.SetStatsGroupThresholds(statsAuthedCtx(), gen.SetStatsGroupThresholdsRequestObject{TeamId: statsTeamID})
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+}
+
+func TestHandler_SetStatsGroupThresholds_Success(t *testing.T) {
+	t.Parallel()
+
+	roleID := uuid.New()
+	var got []stats.GroupThresholdRow
+	svc := &mockStatsService{
+		setThresholds: func(_ context.Context, teamID uuid.UUID, items []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error) {
+			assert.Equal(t, statsTeamID, teamID)
+			got = items
+			return items, nil
+		},
+	}
+	h := stats.NewHandler(svc, slog.Default(), nil)
+	resp, err := h.SetStatsGroupThresholds(statsAuthedCtx(), gen.SetStatsGroupThresholdsRequestObject{
+		TeamId: statsTeamID,
+		Body: &gen.SetStatsGroupThresholdsJSONRequestBody{
+			Items: []gen.StatsGroupThreshold{{RoleId: roleID, Mode: gen.StatsThresholdMode("count"), Value: 8}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []stats.GroupThresholdRow{{RoleID: roleID, Mode: "count", Value: 8}}, got)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitSetStatsGroupThresholdsResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+	var body gen.StatsGroupThresholdList
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, gen.StatsGroupThreshold{RoleId: roleID, Mode: "count", Value: 8}, body.Items[0])
+}
+
+func TestHandler_SetStatsGroupThresholds_TooManyItems(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsService{
+		setThresholds: func(context.Context, uuid.UUID, []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error) {
+			t.Error("service must not be called for an oversized request")
+			return nil, nil
+		},
+	}
+	items := make([]gen.StatsGroupThreshold, 201)
+	for i := range items {
+		items[i] = gen.StatsGroupThreshold{RoleId: uuid.New(), Mode: "percent", Value: 50}
+	}
+	_, err := stats.NewHandler(svc, slog.Default(), nil).SetStatsGroupThresholds(statsAuthedCtx(), gen.SetStatsGroupThresholdsRequestObject{
+		TeamId: statsTeamID,
+		Body:   &gen.SetStatsGroupThresholdsJSONRequestBody{Items: items},
+	})
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+}
+
+func TestHandler_SetStatsGroupThresholds_ErrorMapping(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]struct {
+		svcErr error
+		status int
+	}{
+		"invalid threshold": {fmt.Errorf("wrapped: %w", stats.ErrInvalidThreshold), http.StatusBadRequest},
+		"role not in team":  {fmt.Errorf("wrapped: %w", stats.ErrRoleNotInTeam), http.StatusUnprocessableEntity},
+		"unexpected":        {errors.New("db unavailable"), http.StatusInternalServerError},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			svc := &mockStatsService{
+				setThresholds: func(context.Context, uuid.UUID, []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error) {
+					return nil, tc.svcErr
+				},
+			}
+			_, err := stats.NewHandler(svc, slog.Default(), nil).SetStatsGroupThresholds(statsAuthedCtx(), gen.SetStatsGroupThresholdsRequestObject{
+				TeamId: statsTeamID,
+				Body: &gen.SetStatsGroupThresholdsJSONRequestBody{
+					Items: []gen.StatsGroupThreshold{{RoleId: uuid.New(), Mode: "percent", Value: 50}},
+				},
+			})
+			var apiErr *apierror.APIError
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, tc.status, apiErr.Status)
+		})
+	}
+}
+
+// A successful threshold save is audited like the other settings mutations
+// (team.update, role.update); a rejected one is not recorded as a success.
+func TestHandler_SetStatsGroupThresholds_Audit(t *testing.T) {
+	t.Parallel()
+
+	newHandler := func(svcErr error) (*stats.Handler, *bytes.Buffer) {
+		var buf bytes.Buffer
+		al := audit.New(slog.New(slog.NewJSONHandler(&buf, nil)))
+		svc := &mockStatsService{
+			setThresholds: func(_ context.Context, _ uuid.UUID, items []stats.GroupThresholdRow) ([]stats.GroupThresholdRow, error) {
+				return items, svcErr
+			},
+		}
+		return stats.NewHandler(svc, slog.Default(), al), &buf
+	}
+	req := gen.SetStatsGroupThresholdsRequestObject{
+		TeamId: statsTeamID,
+		Body: &gen.SetStatsGroupThresholdsJSONRequestBody{
+			Items: []gen.StatsGroupThreshold{
+				{RoleId: uuid.New(), Mode: "percent", Value: 50},
+				{RoleId: uuid.New(), Mode: "count", Value: 8},
+			},
+		},
+	}
+
+	h, buf := newHandler(nil)
+	_, err := h.SetStatsGroupThresholds(statsAuthedCtx(), req)
+	require.NoError(t, err)
+	logged := buf.String()
+	assert.Contains(t, logged, audit.EventStatsThresholdsUpdate)
+	assert.Contains(t, logged, string(audit.Success))
+	assert.Contains(t, logged, statsTeamID.String())
+	assert.Contains(t, logged, `"roles":2`)
+
+	h, buf = newHandler(stats.ErrRoleNotInTeam)
+	_, err = h.SetStatsGroupThresholds(statsAuthedCtx(), req)
+	require.Error(t, err)
+	assert.NotContains(t, buf.String(), audit.EventStatsThresholdsUpdate)
 }

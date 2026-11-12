@@ -12,6 +12,7 @@ import {
   mapMember,
   mapMemberStat,
   mapEventStat,
+  mapStatsGroupThreshold,
   mapStatsOverview,
   mapAttendanceMatrix,
   mapStatsPreferences,
@@ -317,11 +318,48 @@ describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
       date: '2024-06-01',
       yes: 3,
       nominated: 4,
+      pending: 2,
       pct: 0.75,
       enough: true,
+      groups: [],
     });
     expect(s.pct).toBe(75);
+    // A head count, not a fraction: passed through unscaled.
+    expect(s.pending).toBe(2);
     expect(s.enough).toBe(true);
+    expect(s.groups).toEqual([]);
+  });
+
+  it('mapEventStat maps each group, defaulting a missing role colour', () => {
+    const s = mapEventStat({
+      id: 'e1',
+      title: 'Training',
+      type: 'training',
+      date: '2024-06-01',
+      yes: 3,
+      nominated: 4,
+      pending: 3,
+      pct: 0.75,
+      enough: true,
+      groups: [
+        { roleId: 'r1', name: 'Trainer', color: '#1565C0', yes: 2, counted: 2, pending: 0, thresholdMode: 'count', thresholdValue: 1 },
+        { roleId: 'r2', name: 'Spieler', yes: 1, counted: 2, pending: 3, thresholdMode: 'percent', thresholdValue: 50 },
+      ],
+    });
+    expect(s.groups).toEqual([
+      { roleId: 'r1', name: 'Trainer', color: '#1565C0', yes: 2, counted: 2, pending: 0, thresholdMode: 'count', thresholdValue: 1 },
+      // Counts are head counts, not fractions -- they must NOT be scaled
+      // like pct/quote are.
+      { roleId: 'r2', name: 'Spieler', color: '#888888', yes: 1, counted: 2, pending: 3, thresholdMode: 'percent', thresholdValue: 50 },
+    ]);
+  });
+
+  it('mapStatsGroupThreshold passes role, mode and value through', () => {
+    expect(mapStatsGroupThreshold({ roleId: 'r1', mode: 'count', value: 8 })).toEqual({
+      roleId: 'r1',
+      mode: 'count',
+      value: 8,
+    });
   });
 
   it('mapStatsOverview scales avg and nested member/event fractions', () => {
@@ -336,8 +374,10 @@ describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
           date: '2024-06-01',
           yes: 3,
           nominated: 4,
+          pending: 0,
           pct: 0.75,
           enough: true,
+          groups: [],
         },
       ],
       pastCount: 1,

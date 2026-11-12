@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { CreateTeamSheet, InviteSheet, TeamSettingsSheet } from './TeamSheets';
 
 // ── mocks ─────────────────────────────────────────────────────────────────────
@@ -17,8 +17,19 @@ vi.mock('@/layouts/useCompact', () => ({
   shortName: (name: string) => name.split(' ')[0],
 }));
 
+// TeamSettingsSheet loads the per-role attendance thresholds through this
+// hook (React Query); mocked at its exact module path since these tests
+// render without a QueryClientProvider. Defaults to "not loaded yet" (set in
+// TeamSettingsSheet's beforeEach) so the pre-existing tests see no threshold
+// section at all.
+vi.mock('../hooks/useStatsGroupThresholdsQuery', () => ({
+  useStatsGroupThresholdsQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useStatsGroupThresholdsQuery } from '../hooks/useStatsGroupThresholdsQuery';
 const mockUseApp = vi.mocked(useApp);
+const mockUseThresholds = useStatsGroupThresholdsQuery as unknown as ReturnType<typeof vi.fn>;
 
 // Mock buildTokens to return predictable values; keep rest of tokens module real.
 vi.mock('@/styles/tokens', async (importOriginal) => {
@@ -342,6 +353,7 @@ describe('InviteSheet — with invite', () => {
 describe('TeamSettingsSheet', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseThresholds.mockReturnValue({ data: undefined });
   });
 
   const sheet = {} as never;
@@ -409,7 +421,178 @@ describe('TeamSettingsSheet', () => {
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     fireEvent.click(screen.getByRole('button', { name: /Einstellungen speichern/i }));
     await waitFor(() => {
-      expect(app.saveTeamSettings).toHaveBeenCalledWith(expect.objectContaining({ name: 'SG Muster' }));
+      // No thresholds loaded -> nothing to save for them.
+      expect(app.saveTeamSettings).toHaveBeenCalledWith(expect.objectContaining({ name: 'SG Muster' }), []);
+    });
+  });
+
+  describe('attendance thresholds per group', () => {
+    const trainer = makeRole({ id: 'r_trainer', name: 'Trainer' });
+    const spieler = makeRole({ id: 'r_spieler', name: 'Spieler' });
+    const loaded = [
+      { roleId: 'r_trainer', mode: 'count', value: 1 },
+      { roleId: 'r_spieler', mode: 'percent', value: 50 },
+    ];
+    const save = () => fireEvent.click(screen.getByRole('button', { name: /Einstellungen speichern/i }));
+    const valueInput = (role: string) => screen.getByLabelText(`Schwellenwert für ${role}`) as HTMLInputElement;
+    const modeRadio = (role: string, mode: 'Prozent' | 'Anzahl') =>
+      within(screen.getByRole('radiogroup', { name: `Art des Schwellenwerts für ${role}` })).getByRole('radio', {
+        name: mode,
+      });
+
+    function renderLoaded(data: unknown = loaded) {
+      mockUseThresholds.mockReturnValue({ data });
+      const app = makeSettingsApp({}, [trainer, spieler]);
+      const view = render(<TeamSettingsSheet app={app} sheet={sheet} />);
+      return { app, ...view };
+    }
+
+    it('shows no threshold section until the thresholds have loaded', () => {
+      makeSettingsApp({}, [trainer, spieler]);
+      render(<TeamSettingsSheet app={mockUseApp()} sheet={sheet} />);
+      expect(screen.queryByText('Statistik: Mindest-Anwesenheit je Gruppe')).toBeNull();
+      expect(screen.queryAllByTestId('threshold-row')).toHaveLength(0);
+    });
+
+    it('requests the thresholds of the active team', () => {
+      mockUseThresholds.mockReturnValue({ data: loaded });
+      const app = makeApp({ roles: [trainer, spieler], activeTeamId: 'team1' }, { api: { marker: 'api' } as never });
+      render(<TeamSettingsSheet app={app} sheet={sheet} />);
+      expect(mockUseThresholds).toHaveBeenCalledWith(app.api, 'team1');
+    });
+
+    it('lists every role pre-filled with its stored mode and value', async () => {
+      renderLoaded();
+      await waitFor(() => expect(screen.getAllByTestId('threshold-row')).toHaveLength(2));
+      expect(screen.getByText('Statistik: Mindest-Anwesenheit je Gruppe')).toBeTruthy();
+      expect(valueInput('Trainer').value).toBe('1');
+      expect(modeRadio('Trainer', 'Anzahl').getAttribute('aria-checked')).toBe('true');
+      expect(modeRadio('Trainer', 'Prozent').getAttribute('aria-checked')).toBe('false');
+      expect(valueInput('Spieler').value).toBe('50');
+      expect(modeRadio('Spieler', 'Prozent').getAttribute('aria-checked')).toBe('true');
+    });
+
+    it('saves nothing for thresholds when none was changed', async () => {
+      const { app } = renderLoaded();
+      await waitFor(() => expect(screen.getAllByTestId('threshold-row')).toHaveLength(2));
+      save();
+      await waitFor(() => expect(app.saveTeamSettings).toHaveBeenCalled());
+      expect((app.saveTeamSettings as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toEqual([]);
+    });
+
+    it('saves only the changed group, with the new mode and numeric value', async () => {
+      const { app } = renderLoaded();
+      await waitFor(() => expect(screen.getAllByTestId('threshold-row')).toHaveLength(2));
+      fireEvent.click(modeRadio('Spieler', 'Anzahl'));
+      fireEvent.change(valueInput('Spieler'), { target: { value: '8' } });
+      expect(modeRadio('Spieler', 'Anzahl').getAttribute('aria-checked')).toBe('true');
+      save();
+      await waitFor(() => expect(app.saveTeamSettings).toHaveBeenCalled());
+      expect((app.saveTeamSettings as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toEqual([
+        { roleId: 'r_spieler', mode: 'count', value: 8 },
+      ]);
+    });
+
+    it('treats a value changed and changed back as untouched', async () => {
+      const { app } = renderLoaded();
+      await waitFor(() => expect(screen.getAllByTestId('threshold-row')).toHaveLength(2));
+      fireEvent.change(valueInput('Spieler'), { target: { value: '70' } });
+      fireEvent.change(valueInput('Spieler'), { target: { value: '50' } });
+      save();
+      await waitFor(() => expect(app.saveTeamSettings).toHaveBeenCalled());
+      expect((app.saveTeamSettings as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toEqual([]);
+    });
+
+    it.each([
+      ['150', 'Prozent', 'Bitte eine ganze Zahl von 0 bis 100 eingeben.'],
+      ['', 'Prozent', 'Bitte eine ganze Zahl von 0 bis 100 eingeben.'],
+      ['-1', 'Prozent', 'Bitte eine ganze Zahl von 0 bis 100 eingeben.'],
+      ['1.5', 'Prozent', 'Bitte eine ganze Zahl von 0 bis 100 eingeben.'],
+      ['10001', 'Anzahl', 'Bitte eine ganze Zahl von 0 bis 10000 eingeben.'],
+    ] as const)('blocks saving the invalid value %j in mode %s', async (value, mode, message) => {
+      const { app } = renderLoaded();
+      await waitFor(() => expect(screen.getAllByTestId('threshold-row')).toHaveLength(2));
+      fireEvent.click(modeRadio('Spieler', mode));
+      fireEvent.change(valueInput('Spieler'), { target: { value } });
+      save();
+      expect(await screen.findByText(message)).toBeTruthy();
+      expect(valueInput('Spieler').getAttribute('aria-invalid')).toBe('true');
+      expect(app.saveTeamSettings).not.toHaveBeenCalled();
+    });
+
+    it('accepts 100 percent and more than 100 as a count', async () => {
+      const { app } = renderLoaded();
+      await waitFor(() => expect(screen.getAllByTestId('threshold-row')).toHaveLength(2));
+      fireEvent.change(valueInput('Spieler'), { target: { value: '100' } });
+      fireEvent.change(valueInput('Trainer'), { target: { value: '150' } });
+      save();
+      await waitFor(() => expect(app.saveTeamSettings).toHaveBeenCalled());
+      expect((app.saveTeamSettings as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toEqual([
+        { roleId: 'r_trainer', mode: 'count', value: 150 },
+        { roleId: 'r_spieler', mode: 'percent', value: 100 },
+      ]);
+    });
+
+    it('re-validates when switching a too-large count back to percent', async () => {
+      renderLoaded();
+      await waitFor(() => expect(screen.getAllByTestId('threshold-row')).toHaveLength(2));
+      fireEvent.change(valueInput('Trainer'), { target: { value: '150' } });
+      expect(screen.queryByRole('alert')).toBeNull();
+      fireEvent.click(modeRadio('Trainer', 'Prozent'));
+      expect(await screen.findByText('Bitte eine ganze Zahl von 0 bis 100 eingeben.')).toBeTruthy();
+    });
+
+    it('re-seeds from a refetch while untouched, but never clobbers an unsaved edit', async () => {
+      const { app, rerender } = renderLoaded();
+      await waitFor(() => expect(valueInput('Spieler').value).toBe('50'));
+
+      // Untouched: a refetch with new server values replaces the rows.
+      mockUseThresholds.mockReturnValue({
+        data: [
+          { roleId: 'r_trainer', mode: 'count', value: 1 },
+          { roleId: 'r_spieler', mode: 'percent', value: 60 },
+        ],
+      });
+      rerender(<TeamSettingsSheet app={app} sheet={sheet} />);
+      await waitFor(() => expect(valueInput('Spieler').value).toBe('60'));
+
+      // Touched: the user's value survives the next refetch ...
+      fireEvent.change(valueInput('Spieler'), { target: { value: '75' } });
+      mockUseThresholds.mockReturnValue({
+        data: [
+          { roleId: 'r_trainer', mode: 'count', value: 2 },
+          { roleId: 'r_spieler', mode: 'percent', value: 65 },
+        ],
+      });
+      rerender(<TeamSettingsSheet app={app} sheet={sheet} />);
+      await waitFor(() => expect(mockUseThresholds).toHaveBeenCalled());
+      expect(valueInput('Spieler').value).toBe('75');
+
+      // ... and the save diff is taken against the latest server state: the
+      // trainer row still holds the old 1 while the server now says 2, so it
+      // is sent too rather than silently dropped.
+      save();
+      await waitFor(() => expect(app.saveTeamSettings).toHaveBeenCalled());
+      expect((app.saveTeamSettings as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toEqual([
+        { roleId: 'r_trainer', mode: 'count', value: 1 },
+        { roleId: 'r_spieler', mode: 'percent', value: 75 },
+      ]);
+    });
+
+    it('skips a threshold whose role is not in the role list, and never re-saves it', async () => {
+      const { app } = renderLoaded([...loaded, { roleId: 'r_ghost', mode: 'percent', value: 30 }]);
+      await waitFor(() => expect(screen.getAllByTestId('threshold-row')).toHaveLength(2));
+      fireEvent.change(valueInput('Trainer'), { target: { value: '2' } });
+      save();
+      await waitFor(() => expect(app.saveTeamSettings).toHaveBeenCalled());
+      expect((app.saveTeamSettings as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toEqual([
+        { roleId: 'r_trainer', mode: 'count', value: 2 },
+      ]);
+    });
+
+    it('shows no section for a team without any role threshold', () => {
+      renderLoaded([]);
+      expect(screen.queryByText('Statistik: Mindest-Anwesenheit je Gruppe')).toBeNull();
     });
   });
 

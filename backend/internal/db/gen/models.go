@@ -295,6 +295,13 @@ type Role struct {
 	UpdatedAt   time.Time
 }
 
+type RoleStatsThreshold struct {
+	RoleID    uuid.UUID
+	Mode      string
+	Value     int32
+	UpdatedAt time.Time
+}
+
 type Session struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
