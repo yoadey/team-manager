@@ -197,6 +197,28 @@ that consumes the values), not `internal/roles`.
 - [The line-up's "x/y anwesend" (everyone expected) can differ from what
   the quota tab implies (responses only)] → intended, see the decision
   above; the two answer different questions.
+- [The events module ignores `nominated_role_ids` (pre-existing): the event
+  detail sheet shows silent members of non-nominated roles as "offen", while
+  the statistics line-up treats them as not expected] → accepted for this
+  change; aligning the events module (or the shared `EffectiveStatusExpr`)
+  is a separate change. Consequences until then, all edge cases:
+  - A member outside the nominated roles whom an organizer nominates
+    individually is still "not expected" in the statistics while silent —
+    a positive per-member nomination leaves no row the query could read.
+    (The demo backend counts them as pending, since it materialises role
+    nominations as `not_nominated` rows that the toggle deletes.)
+  - The backend evaluates role nominations live (role changes, new members);
+    the demo snapshots them when the event is saved.
+  - An event saved with an empty role selection means "everyone nominated"
+    in the backend but "nobody nominated" in the demo.
+- [The demo's absence checks look at the event's start date only, the
+  backend at the whole span of a multi-day event] → pre-existing demo drift,
+  inherited by the demo line-up; not widened here.
+- [A member flagged `exclude_from_stats` is removed from `pending` only: on
+  an opt-out event their assumed "yes", and under a covering absence their
+  "no", still count] → intended — those are the same effective statuses the
+  event summary shows; only *silence counting against* the event is
+  dropped.
 - [The demo (MSW) backend's *per-member quotas* still count explicit
   responses only, while the real backend counts effective attendance] →
   pre-existing drift, left alone. The per-event line-up of the demo was

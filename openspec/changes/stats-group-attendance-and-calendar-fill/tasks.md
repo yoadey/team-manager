@@ -112,6 +112,10 @@
       treats a not-relevant absence as not expected; design formula and
       field descriptions corrected. Each new backend test verified to fail
       without its fix.
+- [x] 9.7 Second independent review (of 9.6): SQL confirmed correct; the
+      remaining demo-vs-backend edge cases all stem from the events module
+      ignoring `nominated_role_ids` (pre-existing) and are documented in
+      design.md (Risks) as a follow-up, not fixed here.
 
 ## 10. Verification
 
