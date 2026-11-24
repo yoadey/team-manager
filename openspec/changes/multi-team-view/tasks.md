@@ -2,91 +2,106 @@
 
 - [ ] 1.1 `context/AppContext.tsx`: add `viewTeams` (`all` | explicit ids) as
       source of truth, `selectedTeamIds()`, `isMultiTeam()`,
-      `setViewTeams()`; derive `activeTeamId`/`activeTeam()` (the team in
-      single-team mode, `null` in multi-team mode — no home team);
-      `selectTeam(id)` = single-team selection as today.
-- [ ] 1.1a Audit every `activeTeamId` / `activeTeam()` consumer (~37 files,
-      incl. `activeTeamId!` assertions and `S().activeTeamId === teamId` race
-      guards) and give each an explicit team source (item, explicit choice,
-      or per-team loop).
-- [ ] 1.2 Persist selection (`tv_view_teams`), migrate from
-      `tv_active_team_id`; ignore ids the user is no longer a member of.
-- [ ] 1.3 `context/urlState.ts`: `?teams=all|<ids>` on top-level routes;
-      `?team=<id>` on `/events/<id>` and `/members/<id>`; parse + build +
-      round-trip tests; old URLs keep their meaning.
-- [ ] 1.4 Item-aware permissions: `canFor(item | teamId, module, level)` and
-      `canAny(module, level)` over the selection; unit tests proving
+      `setViewTeams()`, `soleTeam()`; `selectTeam(id)` = single-team
+      selection as today. Selection lifecycle per design D1 (confirm keeps
+      route if reachable, shrink, removal, invite join).
+- [ ] 1.2 Remove `activeTeamId`, `activeTeam()`, `can()`, `isStaff()` and
+      `state.roles` from the context; add `canFor(teamId, …)`,
+      `canAny(…)`; resolve every resulting compile error with an explicit
+      team source (item, explicit choice, per-team loop, or `soleTeam()`);
+      ESLint rule against non-null assertions on `soleTeam()`. Unit tests:
       single-team results equal today's `can()`.
-- [ ] 1.5 Merged item typing: `WithTeam<T> = T & { viaTeamId: string }`.
+- [ ] 1.3 `queryKeys.roles(teamId)` + `useRolesQuery(teamId)` replacing
+      `state.roles` / `refreshRoles`; reason visibility from the item's team.
+- [ ] 1.4 `SheetState.teamId` required for every team-scoped sheet; openers
+      set it; sheets never fall back to a global team.
+- [ ] 1.5 `layouts/AppShell.tsx`: render without a sole team; members query
+      only where needed; nav badge from merged upcoming events.
+- [ ] 1.6 Persistence (`tv_view_teams`, migrated from `tv_active_team_id`) and
+      `context/urlState.ts`: `teams` on every path in multi-team mode,
+      `team` on detail paths, precedence URL → stored → fallback; parse/build
+      round-trip tests; old URLs keep their meaning.
+- [ ] 1.7 Route gating (`ROUTE_MODULE`, `RouteScreen`, nav, `ensureRouteData`)
+      via `canAny`.
 
 ## 2. Shared UI
 
-- [ ] 2.1 `components/TeamBadge.tsx` (logo/icon + short name, compact mode)
-      and deterministic team color helper (distinct fallback palette).
+- [ ] 2.1 `components/TeamBadge.tsx` (icon/logo + short name, compact mode
+      with accessible name) and deterministic team color helper.
 - [ ] 2.2 `TeamsSheet` (`features/team/components/NavSheets.tsx`):
-      multi-select and "All teams" (all selected teams shown equally, no
-      marker for a preferred team); single tap keeps today's quick switch.
-- [ ] 2.3 `layouts/AppShell.tsx` header: stacked icons + "n Teams" in
-      multi-team mode.
-- [ ] 2.4 `TeamFilterChips` (hide/show a team inside a view without changing
-      the selection) and `TeamPicker` (single-team-only screens, D5: asks
-      first when several teams qualify, remembers the choice per screen).
-- [ ] 2.4a `TargetTeamField` for create forms (D6): required, no
-      pre-selection, fixed when one team qualifies, context pre-fill,
-      dependent fields disabled until chosen and reset on change.
-- [ ] 2.5 Partial-failure notice with retry (D9).
-- [ ] 2.6 i18n keys (de/en).
+      multi-select and "All teams", all teams shown equally; single tap
+      keeps today's quick switch.
+- [ ] 2.3 App header: stacked icons + "n Teams"/"All teams".
+- [ ] 2.4 `TeamFilterChips` (hide/show a team in a view without changing the
+      selection) and `TeamPicker` (single-team-only screens: asks first when
+      several teams qualify, remembers the choice per screen).
+- [ ] 2.5 `TargetTeamField` for create forms: required, no pre-selection,
+      fixed when one team qualifies, context pre-fill, dependent fields
+      disabled until chosen and reset on change.
+- [ ] 2.6 Partial-failure notice with retry.
+- [ ] 2.7 i18n keys (de/en).
 
 ## 3. Events, calendar, Home (phase 1)
 
-- [ ] 3.1 `useEventsMulti(teamIds)` via `useQueries` over existing
-      `queryKeys.events`; only teams with `events:read`; dedupe by id with
-      via-team choice (D4); drop redacted shared-calendar duplicates.
-- [ ] 3.2 `EventsPage` list + `EventCalendar` (team colors, legend/filter) +
-      `pages/Home.tsx` (next events, pending RSVPs).
-- [ ] 3.3 Event detail: `openEventDetail` / `useEventDetailQuery` use the
-      item's `viaTeamId` instead of `state.activeTeamId`.
-- [ ] 3.4 `useEventActions`: RSVP, comment, nominate, status, delete use
-      `viaTeamId` and `canFor`; tests asserting the request team per action.
-- [ ] 3.5 `EventFormSheet`: `TargetTeamField` (writable teams only, no
-      default); role nominations enabled only after a team is chosen;
-      cross-team picker unchanged and clearly separated.
-- [ ] 3.6 Birthdays deduped by `userId`.
+- [ ] 3.1 `useEventsMulti(teamIds, scope)` via `useQueries` over existing
+      `queryKeys.events`; only teams with `events:read`; `upcoming` scope for
+      Home/badge; merge into `MergedEvent` with per-team copies (D4).
+- [ ] 3.2 `EventsPage` list + filter chips, `EventCalendar` (color + icon per
+      team, legend), `pages/Home.tsx`.
+- [ ] 3.3 Cross-team rules (D4): participation team, owner-only
+      edit/delete/duplicate/retarget, status via any qualifying team,
+      detail view-team switch; badge from selected reaching teams.
+- [ ] 3.4 `useEventActions`: every action uses the item's/sheet's team and
+      `canFor`; tests asserting the request team per action.
+- [ ] 3.5 `EventFormSheet` / `useEventFormActions`: `TargetTeamField`,
+      nominations from `useRolesQuery(chosenTeam)` defaulting to all of that
+      team's roles; quick-create and duplicate pre-fill; cross-team picker
+      unchanged and clearly separated.
+- [ ] 3.6 `CalExportSheet`: team choice in multi-team mode.
+- [ ] 3.7 Birthdays deduped by `userId`.
+- [ ] 3.8 Old `/events/<id>` links without `team` resolved through the
+      selected teams (D8).
 
 ## 4. Members and absences (phase 2)
 
-- [ ] 4.1 `useMembersMulti`: group by `userId`, per-team attributes kept
-      per team; list grouped by team (default) or A–Z.
-- [ ] 4.2 Member detail opened per membership, switcher for people in
-      several selected teams; edit gated by `members:write` in that team.
-- [ ] 4.3 Absences tab aggregated; reasons only in their own team's entry.
-- [ ] 4.4 `AbsenceFormSheet`: multi-team target, fan-out create, per-team
+- [ ] 4.1 `useMembersMulti`: group by `userId`, per-team attributes kept per
+      team; list grouped by team (default) or A–Z.
+- [ ] 4.2 Member detail per membership with switcher; edit gated by
+      `members:write` in that team; roles editor (from Members and Team page)
+      via team choice.
+- [ ] 4.3 Absences tab aggregated with team badges.
+- [ ] 4.4 `AbsenceFormSheet`: multi-team target, no pre-selection,
+      "reason visible to all members of …" notice, fan-out create, per-team
       failure report.
 
 ## 5. News, polls, notifications (phase 3)
 
 - [ ] 5.1 News and polls aggregated (pinned first), team badge, create with
-      team field, vote via `viaTeamId`.
-- [ ] 5.2 Notifications aggregated, summed unread count, "mark seen" fans out
-      per team; notification click opens the item through its team.
+      `TargetTeamField`, vote and voters sheet via the poll's team.
+- [ ] 5.2 Notifications aggregated and deduped (D5), unread count after
+      merging, "mark seen" per holding team, click opens via participation
+      team.
 
-## 6. Single-team-only screens (phase 3)
+## 6. Single-team-only screens and settings (phase 3)
 
-- [ ] 6.1 Finances, Statistics, Team page and team-scoped Settings use
-      `TeamPicker` (selected teams with the screen's read permission; asks
-      when several qualify; per-screen memory); the picker does not alter the
-      selection.
-- [ ] 6.2 Route gating (`ROUTE_MODULE` / `RouteScreen`): a route is reachable
-      if *any* selected team grants its read permission.
+- [ ] 6.1 Finances, Statistics, Team page, team settings sheet use
+      `TeamPicker`; the picker does not alter the selection.
+- [ ] 6.2 `ProfilePanel` (title) and `NotificationsPanel` (push category and
+      reminder preferences): one section per selected team.
 
 ## 7. Demo backend and tests
 
-- [ ] 7.1 `mocks/db.ts`: demo user in ≥ 2 teams with overlapping members,
-      differing permissions per team, and a cross-team event.
-- [ ] 7.2 `services/serviceContract.test.ts` / page tests for every scenario
-      in `specs/multi-team-view/spec.md`.
-- [ ] 7.3 e2e: select two teams, see merged events, RSVP to the other team's
-      event, open finances with picker.
+- [ ] 7.1 `mocks/db.ts`: add a cross-team event and more members shared by the
+      two existing demo teams (the demo user is already in both with
+      different roles).
+- [ ] 7.2 Page/hook tests for every scenario in
+      `specs/multi-team-view/spec.md` and the modified scenarios in
+      `specs/cross-team-events`, `specs/state-based-routing`,
+      `specs/client-data-fetching`; a test rendering every route in
+      multi-team mode.
+- [ ] 7.3 e2e: select two teams, merged events, RSVP to the other team's
+      event, cross-team event edit rules, finances with picker; extend
+      `e2e/accessibility.spec.ts` to the multi-team calendar.
 
 ## 8. Verification
 
