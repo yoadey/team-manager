@@ -1,9 +1,14 @@
 ## 1. Foundation: selection model (no visible change yet)
 
-- [ ] 1.1 `context/AppContext.tsx`: add `viewTeams` (`all` | explicit ids),
-      `selectedTeamIds()`, `isMultiTeam()`, `setViewTeams()`; keep
-      `activeTeamId` as home team (always within the selection);
+- [ ] 1.1 `context/AppContext.tsx`: add `viewTeams` (`all` | explicit ids) as
+      source of truth, `selectedTeamIds()`, `isMultiTeam()`,
+      `setViewTeams()`; derive `activeTeamId`/`activeTeam()` (the team in
+      single-team mode, `null` in multi-team mode — no home team);
       `selectTeam(id)` = single-team selection as today.
+- [ ] 1.1a Audit every `activeTeamId` / `activeTeam()` consumer (~37 files,
+      incl. `activeTeamId!` assertions and `S().activeTeamId === teamId` race
+      guards) and give each an explicit team source (item, explicit choice,
+      or per-team loop).
 - [ ] 1.2 Persist selection (`tv_view_teams`), migrate from
       `tv_active_team_id`; ignore ids the user is no longer a member of.
 - [ ] 1.3 `context/urlState.ts`: `?teams=all|<ids>` on top-level routes;
@@ -19,12 +24,16 @@
 - [ ] 2.1 `components/TeamBadge.tsx` (logo/icon + short name, compact mode)
       and deterministic team color helper (distinct fallback palette).
 - [ ] 2.2 `TeamsSheet` (`features/team/components/NavSheets.tsx`):
-      multi-select, "All teams", home-team marker; single tap keeps today's
-      quick switch.
+      multi-select and "All teams" (all selected teams shown equally, no
+      marker for a preferred team); single tap keeps today's quick switch.
 - [ ] 2.3 `layouts/AppShell.tsx` header: stacked icons + "n Teams" in
       multi-team mode.
 - [ ] 2.4 `TeamFilterChips` (hide/show a team inside a view without changing
-      the selection) and `TeamPicker` (single-team-only screens, D5).
+      the selection) and `TeamPicker` (single-team-only screens, D5: asks
+      first when several teams qualify, remembers the choice per screen).
+- [ ] 2.4a `TargetTeamField` for create forms (D6): required, no
+      pre-selection, fixed when one team qualifies, context pre-fill,
+      dependent fields disabled until chosen and reset on change.
 - [ ] 2.5 Partial-failure notice with retry (D9).
 - [ ] 2.6 i18n keys (de/en).
 
@@ -39,8 +48,9 @@
       item's `viaTeamId` instead of `state.activeTeamId`.
 - [ ] 3.4 `useEventActions`: RSVP, comment, nominate, status, delete use
       `viaTeamId` and `canFor`; tests asserting the request team per action.
-- [ ] 3.5 `EventFormSheet`: target-team field (writable teams only, default
-      home team); cross-team picker unchanged and clearly separated.
+- [ ] 3.5 `EventFormSheet`: `TargetTeamField` (writable teams only, no
+      default); role nominations enabled only after a team is chosen;
+      cross-team picker unchanged and clearly separated.
 - [ ] 3.6 Birthdays deduped by `userId`.
 
 ## 4. Members and absences (phase 2)
@@ -63,8 +73,9 @@
 ## 6. Single-team-only screens (phase 3)
 
 - [ ] 6.1 Finances, Statistics, Team page and team-scoped Settings use
-      `TeamPicker` (selected teams with the screen's read permission, default
-      home team); the picker does not alter the selection.
+      `TeamPicker` (selected teams with the screen's read permission; asks
+      when several qualify; per-screen memory); the picker does not alter the
+      selection.
 - [ ] 6.2 Route gating (`ROUTE_MODULE` / `RouteScreen`): a route is reachable
       if *any* selected team grants its read permission.
 

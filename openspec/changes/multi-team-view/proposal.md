@@ -22,9 +22,10 @@ combined view of the teams they already belong to.
   `features/team/components/NavSheets.tsx`) gains a multi-select mode and an
   "All teams" shortcut. Selecting exactly one team is today's behavior,
   unchanged. The selection is persisted (localStorage) and reflected in the URL.
-- **A "home team" stays.** `activeTeamId` is kept as the *home team* of the
-  selection: the default target for create actions and the team the
-  single-team-only screens open on.
+- **No home team.** With several teams selected, no team is privileged:
+  there is no implicit default team. `activeTeamId` only exists while exactly
+  one team is selected; anything that needs a single team in multi-team mode
+  (create actions, single-team-only screens) asks for it explicitly.
 - **Aggregated modules** show the union of the selected teams, each item marked
   with a team badge (and, in the calendar, the team's color):
   Home, Events (list, calendar, absences), Members, News, Polls,
@@ -35,10 +36,10 @@ combined view of the teams they already belong to.
   group thresholds, calendar feed, push preferences).
 - **Every item keeps its team context.** Each merged item carries the team it
   was read through ("via team"); actions on it (RSVP, comment, edit, delete,
-  vote, open detail) and their permission checks use that team, never the home
-  team.
-- **Create actions ask for a team** (pre-selected: home team if writable),
-  offering only teams in which the caller has `write` on the module.
+  vote, open detail) and their permission checks use that team.
+- **Create actions ask for a team**, offering only teams in which the caller
+  has `write` on the module; there is no pre-selection unless exactly one team
+  qualifies.
 - **No backend or API change in the first iteration.** Aggregation is a
   client-side fan-out over the existing per-team endpoints, so RBAC stays
   exactly as it is: every request is still authorized against a single
@@ -64,6 +65,8 @@ combined view of the teams they already belong to.
   (`activeTeamId`, `selectTeam`, `can`, `activeTeam`),
   `frontend/src/context/urlState.ts` (selection + detail team in the URL),
   `frontend/src/features/team/components/NavSheets.tsx` (multi-select),
+  every consumer of `activeTeamId`/`activeTeam()` (now `null` in multi-team
+  mode, so each must take its team explicitly),
   `frontend/src/layouts/AppShell.tsx` (header indicator, detail sheet data).
 - Data layer: new multi-team query hooks next to
   `features/*/hooks/use*Queries.ts`, reusing `frontend/src/query/keys.ts`
@@ -72,7 +75,8 @@ combined view of the teams they already belong to.
   `EventAbsences.tsx`, `EventFormSheet.tsx`, `useEventActions.ts`),
   `features/members/*`, `features/news/*`, `features/polls/*`,
   `features/notifications/*`; team picker for `features/finances/*`,
-  `pages/Stats.tsx`, `features/team/*`, `features/settings/*`.
+  `pages/Stats.tsx`, `features/team/*`, `features/settings/*`, which show a
+  team choice first when more than one selected team qualifies.
 - Shared UI: a team badge / team color component in `components/`.
 - i18n: new keys (de/en) in `frontend/src/i18n`.
 - MSW demo backend (`frontend/src/mocks/`): demo user needs ≥2 teams with

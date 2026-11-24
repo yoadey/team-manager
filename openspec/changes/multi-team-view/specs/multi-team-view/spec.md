@@ -2,13 +2,13 @@
 
 ### Requirement: Selecting several teams at once
 A user who is a member of more than one team MUST be able to select any
-non-empty subset of their teams, or "All teams", as the current view. Exactly
-one selected team MUST be the home team. Selecting a single team MUST behave
-exactly like the previous single-team switch.
+non-empty subset of their teams, or "All teams", as the current view.
+Selecting a single team MUST behave exactly like the previous single-team
+switch.
 
 #### Scenario: Selecting two teams
 - **WHEN** a member of teams A, B and C selects A and B in the team switcher
-- **THEN** the view shows data of A and B, and one of them is the home team
+- **THEN** the view shows data of A and B
 
 #### Scenario: Single team selected
 - **WHEN** a user selects only team A
@@ -25,13 +25,28 @@ exactly like the previous single-team switch.
   a member of
 - **THEN** that team is ignored and the remaining teams are shown
 
+### Requirement: No team is privileged when several are selected
+While more than one team is selected, no selected team MUST act as a home,
+primary or default team. Anything that needs a single team MUST take it from
+the item being acted on or from an explicit choice by the user, never from an
+implicit default.
+
+#### Scenario: No implicit default team
+- **WHEN** teams A and B are selected
+- **THEN** no screen, form or action silently assumes A or B as "the" team
+
+#### Scenario: Narrowing back to one team
+- **WHEN** a user with teams A and B selected deselects B
+- **THEN** the app is in single-team mode for team A, exactly as before this
+  change
+
 ### Requirement: Selection is persisted and shareable
 The selection MUST survive a page reload and MUST be reflected in the URL of
 top-level routes. A URL without a selection MUST keep its previous meaning.
 
 #### Scenario: Reload keeps selection
 - **WHEN** a user with teams A and B selected reloads the page
-- **THEN** teams A and B are still selected with the same home team
+- **THEN** teams A and B are still selected
 
 #### Scenario: Old link without selection
 - **WHEN** a user opens a link created before this change (no `teams`
@@ -62,15 +77,29 @@ visibly marked with its team.
 
 ### Requirement: Finances, statistics and team administration are not merged
 Finances, statistics, the team page and the team-scoped parts of settings
-MUST always operate on exactly one team. In multi-team mode they MUST offer a
-picker limited to selected teams for which the caller has the screen's read
-permission, defaulting to the home team, and MUST NOT combine data of several
-teams.
+MUST always operate on exactly one team and MUST NOT combine data of several
+teams. In multi-team mode they MUST offer a picker limited to selected teams
+for which the caller has the screen's read permission. When more than one
+team qualifies and the user has not yet picked one on that screen, the screen
+MUST ask which team to open instead of choosing one itself.
 
 #### Scenario: Finances in multi-team mode
-- **WHEN** teams A and B are selected and the user opens finances
-- **THEN** only one team's finances are shown, with a picker to switch
-  between A and B, and no totals combine both teams
+- **WHEN** teams A and B are selected, the caller may read finances in both,
+  and opens finances for the first time
+- **THEN** the screen asks whether to open A or B, and after the choice shows
+  only that team's finances with a picker to switch, and no totals combine
+  both teams
+
+#### Scenario: Only one team qualifies
+- **WHEN** teams A and B are selected and the caller may read finances only
+  in A
+- **THEN** finances of A are shown directly without asking
+
+#### Scenario: Screen remembers its own choice
+- **WHEN** the user picked B on the finances screen, navigates away and comes
+  back
+- **THEN** finances of B are shown again, and no other screen or form treats B
+  as a default
 
 #### Scenario: Picker does not change the selection
 - **WHEN** the user switches the statistics picker from A to B
@@ -81,22 +110,23 @@ teams.
 Every action on an item shown in multi-team mode (RSVP, comment, nominate,
 edit, cancel, delete, vote, open detail) MUST be sent to the team through
 which the item was obtained, and its availability MUST be decided by the
-caller's permission in that team — never by the home team's permission.
+caller's permission in that team — never by the permission in any other
+selected team.
 
 #### Scenario: Edit permission differs per team
-- **WHEN** the caller has `events:write` in team A but only `events:read` in
-  home team B, and an event of team A is shown
+- **WHEN** teams A and B are selected, the caller has `events:write` in team A
+  but only `events:read` in team B, and an event of team A is shown
 - **THEN** the event offers edit actions, and saving sends the request to
   team A
 
 #### Scenario: No write permission in the item's team
-- **WHEN** the caller has `events:write` in home team B but only
-  `events:read` in team A
+- **WHEN** teams A and B are selected, the caller has `events:write` in team B
+  but only `events:read` in team A
 - **THEN** events of team A offer no edit, cancel or delete actions
 
 #### Scenario: RSVP goes through the item's team
-- **WHEN** the caller RSVPs to an event obtained through team A while B is
-  the home team
+- **WHEN** teams A and B are selected and the caller RSVPs to an event
+  obtained through team A
 - **THEN** the RSVP request is addressed to team A
 
 ### Requirement: Items and people appearing through several teams are shown once
@@ -135,16 +165,27 @@ team's representation of the same person or event.
 - **THEN** the reason is shown on team A's absence entry and not on team B's
 
 ### Requirement: Create actions choose a target team
-In multi-team mode, creating an item MUST let the user choose the target team
-among the selected teams in which they have write permission on the module,
-pre-selecting the home team when it qualifies. Creating an event MUST NOT
-implicitly target several teams; targeting several teams remains the explicit
-cross-team option.
+In multi-team mode, creating an item MUST require the user to choose the
+target team among the selected teams in which they have write permission on
+the module. No team MUST be pre-selected unless exactly one team qualifies or
+the context the form was opened from already determines the team. Creating an
+event MUST NOT implicitly target several teams; targeting several teams
+remains the explicit cross-team option.
 
-#### Scenario: Default target team
-- **WHEN** the caller has `news:write` in home team A and in team B and opens
-  the news form
-- **THEN** the team field offers A and B with A pre-selected
+#### Scenario: No pre-selected target team
+- **WHEN** teams A and B are selected, the caller has `news:write` in both and
+  opens the news form
+- **THEN** the team field offers A and B with neither selected, and the item
+  cannot be saved until a team is chosen
+
+#### Scenario: Single qualifying team
+- **WHEN** teams A and B are selected and the caller has `news:write` only in
+  A
+- **THEN** the news form shows A as the fixed target team
+
+#### Scenario: Team implied by context
+- **WHEN** the user opens the create form from team A's finances screen
+- **THEN** team A is pre-filled as the target
 
 #### Scenario: Only writable teams offered
 - **WHEN** the caller has `events:write` in team A but not in team B
