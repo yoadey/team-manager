@@ -12,8 +12,8 @@ switch.
 
 #### Scenario: Single team selected
 - **WHEN** a user selects only team A
-- **THEN** every screen behaves and looks as it did before this change, with
-  no team badges, team pickers or filter chips
+- **THEN** every screen shows the same content and offers the same actions
+  as before this change, with no team badges, team pickers or filter chips
 
 #### Scenario: "All teams" follows membership changes
 - **WHEN** a user has selected "All teams" and is then added to team D
@@ -85,6 +85,27 @@ previous meaning for a user without a stored multi-team selection.
   link
 - **THEN** the app shows team D in single-team mode
 
+#### Scenario: Re-opening an invite for an already selected team
+- **WHEN** a user with teams A and B selected opens an invite link for team A,
+  of which they are already a member
+- **THEN** teams A and B stay selected
+
+#### Scenario: Creating a team
+- **WHEN** a user with teams A and B selected creates team E
+- **THEN** the app shows team E in single-team mode
+
+#### Scenario: Member detail URL in multi-team mode
+- **WHEN** teams A and B are selected and the user opens a member's detail
+  through team B
+- **THEN** the URL names team B as the detail's team and A and B as the
+  selection, and reloading reopens the same membership
+
+#### Scenario: Detail link for a team outside the selection
+- **WHEN** teams A and B are selected and the user, also a member of C, opens
+  an event detail link naming team C
+- **THEN** the event detail opens through team C and the selection stays A
+  and B
+
 ### Requirement: Aggregated modules show the union of the selected teams
 Home, the event list, the event calendar, the absences tab, the member list,
 news, polls and notifications MUST show the items of every selected team for
@@ -112,6 +133,16 @@ visibly marked with its team by text or icon, not by color alone.
   filter chips on the event list
 - **THEN** only team A's events are listed and the selection still contains
   A and B
+
+#### Scenario: Event reaching a hidden and a visible team
+- **WHEN** a cross-team event reaches selected teams A and B and the user
+  hides team B with the filter chips
+- **THEN** the event is still shown, with team A's icon and accent color
+
+#### Scenario: Home hero in multi-team mode
+- **WHEN** teams A and B are selected and the user opens Home
+- **THEN** the hero names teams A and B instead of a single team, and member
+  counts are shown per team rather than summed
 
 #### Scenario: Pending-RSVP badge counts each event once
 - **WHEN** a cross-team event targeting selected teams A and B awaits the
@@ -166,6 +197,11 @@ choosing one itself.
 - **THEN** finances of B are shown again, and no other screen or form treats B
   as a default
 
+#### Scenario: Team list on the Team page
+- **WHEN** teams A and B are selected and the user picks team B in the team
+  list on the Team page
+- **THEN** the Team page shows team B and the selection stays A and B
+
 #### Scenario: Calendar subscription from the merged events page
 - **WHEN** teams A and B are selected and the user opens the calendar
   subscription from the events page
@@ -206,8 +242,8 @@ team — never by the permission in another selected team.
 ### Requirement: Cross-team events appear once
 An event that targets several selected teams MUST appear once, with a badge
 naming the selected teams it reaches. RSVP and the caller's own status MUST
-use the owning team if it is selected, otherwise the alphabetically first
-selected team that reaches the event.
+use, among the selected teams through which the event was loaded, the owning
+team if it is one of them, otherwise the alphabetically first.
 
 #### Scenario: Shown once
 - **WHEN** an event of team A targets team B and both are selected
@@ -218,12 +254,19 @@ selected team that reaches the event.
   caller RSVPs
 - **THEN** the RSVP request is addressed to team A
 
+#### Scenario: Owning team not readable
+- **WHEN** an event of team A targets team B, both are selected, and the
+  caller's events permission in A is `none`
+- **THEN** the event is shown through team B and the RSVP request is
+  addressed to team B
+
 ### Requirement: Cross-team event actions follow the backend's team rules
-Edit, delete, duplicate and retarget of a cross-team event MUST be offered
-only when the owning team is selected and the caller has `events:write`
-there, and MUST be sent through the owning team. Cancel and reactivate MUST be
-offered when the caller has `events:write` in any selected team that reaches
-the event.
+Edit, delete and retarget of a cross-team event MUST be offered only when the
+owning team is selected and the caller has `events:write` there, and MUST be
+sent through the owning team. Cancel and reactivate MUST be offered when the
+caller has `events:write` in any selected team that reaches the event.
+Duplicate MUST be offered when the caller has `events:write` in any selected
+team.
 
 #### Scenario: Owning team selected with write permission
 - **WHEN** an event of team A targets team B, both are selected, and the
@@ -241,29 +284,70 @@ the event.
   A, B and C, and only B and C are selected
 - **THEN** edit and delete are not offered, and RSVP goes through team B
 
+#### Scenario: Duplicating through a non-owning team
+- **WHEN** an event of team A targets team B, the caller has `events:write`
+  only in B, and both are selected
+- **THEN** duplicate is offered, and the duplicate is created in the target
+  team the caller chooses
+
+#### Scenario: Single-team mode through a non-owning team
+- **WHEN** only team B is selected, an event of team A targets B, and the
+  caller has `events:write` in B
+- **THEN** cancel and duplicate are offered and edit and delete are not, as
+  before this change
+
+### Requirement: Cross-team event changes refresh every reaching team
+After deleting a cross-team event, changing its status, RSVPing to it or
+commenting on it, the data of every selected team the event reaches MUST be
+refreshed, so that no selected team's view keeps showing the previous state.
+
+#### Scenario: Deleted event disappears everywhere
+- **WHEN** an event of team A targets team B, both are selected, and the
+  caller deletes it through team A
+- **THEN** the event disappears from the merged view, including team B's copy
+
+#### Scenario: RSVP updates every copy
+- **WHEN** the caller RSVPs "yes" to an event of team A that targets selected
+  team B
+- **THEN** the event shows "yes" whether it is viewed through A or B
+
 ### Requirement: Cross-team event detail can be viewed through each reaching team
 When several selected teams reach a cross-team event, the detail view MUST
 let the user switch which team's view of the event and its attendance is
-shown.
+shown, and edit actions inside the detail (other members' attendance,
+nominations, RSVP past the cutoff) MUST follow the caller's permission in the
+team currently viewed.
 
 #### Scenario: Switching the attendance view
 - **WHEN** a cross-team event reaches selected teams A and B and the user
   switches the detail view from A to B
 - **THEN** the attendance is shown as read through team B
 
+#### Scenario: Detail edit rights follow the viewed team
+- **WHEN** a cross-team event reaches selected teams A and B, the caller has
+  `events:write` in B but not in A, and the detail is viewed as A
+- **THEN** the caller cannot edit other members' attendance, and after
+  switching to B they can
+
 ### Requirement: People and duplicates appear once
 A person who is a member of several selected teams MUST appear once in the
-member list with a badge for each of those teams, and per-team attributes
-(roles, group, title) MUST be shown per team rather than merged. Birthdays
-MUST appear once per person. A notification that exists once per targeted
-team for the same event change MUST appear once, count once towards the
-unread count, and be marked seen in every team that holds it.
+default (alphabetical) member list with a badge for each of those teams, and
+per-team attributes (roles, group, title) MUST be shown per team rather than
+merged. Birthdays MUST appear once per person. An "event created" or "event
+cancelled" notification that exists once per targeted team MUST appear once
+and count once towards the unread count; other notification types MUST NOT be
+merged.
 
 #### Scenario: Member of two selected teams
 - **WHEN** a person is a member of selected teams A (role "Trainer") and B
   (role "Spieler")
 - **THEN** the member list shows that person once with badges for A and B,
   and the roles are shown as "Trainer" for A and "Spieler" for B
+
+#### Scenario: Optional per-team roster view
+- **WHEN** the user switches the member list to "group by team"
+- **THEN** each selected team is a section listing its members, and a person
+  in A and B appears in both sections with a hint naming the other team
 
 #### Scenario: Member detail switcher
 - **WHEN** the user opens the detail of a person who is in selected teams A
@@ -282,10 +366,25 @@ unread count, and be marked seen in every team that holds it.
 - **THEN** the notification feed shows one "event created" entry and the
   unread count increases by one
 
-#### Scenario: Marking a merged notification seen
-- **WHEN** the user marks the merged notification of the previous scenario as
-  seen
-- **THEN** it is marked seen in team A and in team B
+#### Scenario: Attendance notifications are not merged
+- **WHEN** a member changes their response to the same event from "yes" to
+  "no" within a minute
+- **THEN** both attendance notifications are shown
+
+### Requirement: Opening the merged notifications marks seen per loaded team
+Opening the notifications in multi-team mode MUST mark notifications seen in
+every selected team whose notifications were loaded, and MUST NOT mark them
+seen in a team whose notifications failed to load.
+
+#### Scenario: All teams loaded
+- **WHEN** teams A and B are selected, both teams' notifications loaded, and
+  the user opens the notifications
+- **THEN** notifications are marked seen in team A and in team B
+
+#### Scenario: One team failed to load
+- **WHEN** teams A and B are selected, B's notifications failed to load, and
+  the user opens the notifications
+- **THEN** notifications are marked seen in team A only
 
 ### Requirement: Attendance reasons stay within their team
 Attendance reasons MUST only be shown in the context of the team whose
@@ -324,6 +423,11 @@ option.
   and the user quick-creates an event on a day
 - **THEN** team A is pre-filled as the target
 
+#### Scenario: Calendar quick-create in a team without write permission
+- **WHEN** the calendar filter shows only team A, the caller lacks
+  `events:write` in A but has it in B, and the user quick-creates an event
+- **THEN** no team is pre-filled and only team B is offered
+
 #### Scenario: Duplicating an event
 - **WHEN** the caller duplicates an event of team A and has `events:write` in
   A
@@ -333,6 +437,12 @@ option.
 - **WHEN** the user picks team A in the event form and then changes to team B
 - **THEN** the role nominations first offer A's roles with all of them
   selected, and after the change offer B's roles with all of them selected
+
+#### Scenario: Cross-team targets follow the chosen team
+- **WHEN** the user picks team A in the event form, adds team B as an
+  additional target, and then changes the target team to B
+- **THEN** the additional targets are reset and team B is not offered as an
+  additional target
 
 #### Scenario: Create button visibility
 - **WHEN** the caller has `polls:write` in at least one selected team
@@ -372,3 +482,13 @@ loaded, with a way to retry.
 - **WHEN** loading events succeeds for team A and fails for team B
 - **THEN** team A's events are shown together with a notice that team B could
   not be loaded and a retry action
+
+#### Scenario: Permission revoked mid-session
+- **WHEN** teams A and B are selected and loading team B's events returns 403
+- **THEN** the user's teams are refreshed and the event view continues with
+  team A only
+
+#### Scenario: Roles not readable is not a failure
+- **WHEN** loading team B's roles returns 403 because the caller lacks
+  `settings:read` in B
+- **THEN** team B stays in every view and no failure notice is shown
